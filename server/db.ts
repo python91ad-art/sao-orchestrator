@@ -16,8 +16,7 @@ import crypto from 'crypto';
 // Northflank can provide either DATABASE_URL or
 // individual DB_* variables.
 //
-// IMPORTANT:
-// No SSL — plain MySQL TCP connection.
+
 // ==========================================
 
 let dbHost: string;
@@ -79,7 +78,7 @@ console.log(`DB User: ${dbUser}`);
 console.log(`DB Name: ${dbName}`);
 
 // ==========================================
-// Connection Pool — no SSL, plain TCP
+// Connection Pool — with TLS (required for Northflank)
 // ==========================================
 const poolConfig: mysql.PoolOptions = {
   host: dbHost,
@@ -89,30 +88,22 @@ const poolConfig: mysql.PoolOptions = {
   database: dbName,
 
   waitForConnections: true,
-
   connectionLimit: 10,
-
   queueLimit: 0,
-
   maxIdle: 10,
-
   idleTimeout: 60000,
 
-  // Keep TCP connections alive.
   enableKeepAlive: true,
   keepAliveInitialDelay: 10000,
 
-  // Prevent hanging forever when the database
-  // cannot be reached.
   connectTimeout: 20000,
+
+  // Northflank MySQL requires TLS.
+  ssl: {
+    rejectUnauthorized: false,
+  },
 };
 
-// ==========================================
-// IMPORTANT:
-// No SSL configuration here.
-//
-// Northflank/MySQL connection uses plain TCP.
-// ==========================================
 
 // ==========================================
 // Create MySQL connection pool
