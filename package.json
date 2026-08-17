@@ -8,7 +8,7 @@
     "dev:client": "cd client && vite",
     "build": "pnpm build:client",
     "build:client": "cd client && vite build",
-    "start": "tsx server/_core/index.ts",
+    "start": "node run-migration.js && tsx server/_core/index.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate"
   },

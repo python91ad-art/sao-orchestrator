@@ -151,16 +151,48 @@ const ALTER_COLUMNS = [
 ];
 
 async function main() {
-  console.log('Connecting to MySQL database...');
-  console.log(`Database URL: ${DATABASE_URL.replace(/:[^:@]+@/, ':***@')}\n`);
+  function getDbConfig() {
+    const databaseUrl = process.env.DATABASE_URL;
 
-      const connectionOptions = {
-    uri: DATABASE_URL,
-    connectTimeout: 15000,
-    ssl: {
-      rejectUnauthorized: false,
-    },
-  };
+    if (databaseUrl) {
+      const parsed = new URL(databaseUrl);
+
+      return {
+        host: parsed.hostname,
+        port: parseInt(parsed.port || '3306', 10),
+        user: decodeURIComponent(parsed.username),
+        password: decodeURIComponent(parsed.password),
+        database: decodeURIComponent(parsed.pathname.replace(/^\/+/, '')),
+        ssl: {
+          rejectUnauthorized: false,
+        },
+        connectTimeout: 20000,
+      };
+    }
+
+    return {
+      host: process.env.DB_HOST || 'localhost',
+      port: parseInt(process.env.DB_PORT || '3306', 10),
+      user: process.env.DB_USER || 'root',
+      password: process.env.DB_PASSWORD || '',
+      database: process.env.DB_NAME || 'sao',
+      ssl: {
+        rejectUnauthorized: false,
+      },
+      connectTimeout: 20000,
+    };
+  }
+
+  const connectionOptions = getDbConfig();
+
+  console.log('Connecting to MySQL database...');
+  console.log({
+    host: connectionOptions.host,
+    port: connectionOptions.port,
+    user: connectionOptions.user,
+    database: connectionOptions.database,
+    tlsEnabled: !!connectionOptions.ssl,
+  });
 
   const conn = await mysql.createConnection(connectionOptions);
   console.log('Connected! Running migration...\n');
