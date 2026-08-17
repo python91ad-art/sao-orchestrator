@@ -121,6 +121,8 @@ const poolConnection = mysql.createPool(poolConfig);
     database: poolConfig.database,
     connectTimeout: poolConfig.connectTimeout,
     enableKeepAlive: poolConfig.enableKeepAlive,
+    tlsEnabled: !!poolConfig.ssl,
+    rejectUnauthorized: poolConfig.ssl?.rejectUnauthorized,
   };
 
   console.log('Attempting DB connection with config:', configForLog);
