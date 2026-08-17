@@ -154,12 +154,13 @@ async function main() {
   console.log('Connecting to MySQL database...');
   console.log(`Database URL: ${DATABASE_URL.replace(/:[^:@]+@/, ':***@')}\n`);
 
-  const connectionOptions = {
+      const connectionOptions = {
     uri: DATABASE_URL,
     connectTimeout: 15000,
+    ssl: {
+      rejectUnauthorized: false,
+    },
   };
-
-  }
 
   const conn = await mysql.createConnection(connectionOptions);
   console.log('Connected! Running migration...\n');
