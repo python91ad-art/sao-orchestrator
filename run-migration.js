@@ -110,6 +110,29 @@ CREATE TABLE IF NOT EXISTS queue_items (
   CONSTRAINT queue_items_id PRIMARY KEY(id)
 );
 
+CREATE TABLE IF NOT EXISTS integration_credentials (
+  id varchar(255) NOT NULL,
+  service varchar(64) NOT NULL,
+  encrypted_value text NOT NULL,
+  encryption_version int NOT NULL DEFAULT 1,
+  enabled boolean NOT NULL DEFAULT true,
+  created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT integration_credentials_id PRIMARY KEY(id),
+  CONSTRAINT integration_credentials_service_unique UNIQUE(service)
+);
+
+CREATE TABLE IF NOT EXISTS credential_audit_logs (
+  id varchar(255) NOT NULL,
+  user_id varchar(255),
+  service varchar(64) NOT NULL,
+  operation varchar(64) NOT NULL,
+  success boolean NOT NULL DEFAULT true,
+  message varchar(255),
+  created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT credential_audit_logs_id PRIMARY KEY(id)
+);
+
 CREATE TABLE IF NOT EXISTS recurring_actors (
   id varchar(255) NOT NULL,
   actor_hash varchar(255) NOT NULL,
@@ -150,6 +173,7 @@ const ALTER_COLUMNS = [
   { table: 'core_loop_state', column: 'concurrency', definition: 'INT NOT NULL DEFAULT 1' },
   { table: 'queue_items', column: 'queue_type', definition: "enum('synthesis','deployment','audit','maintenance') NOT NULL DEFAULT 'synthesis'" },
   { table: 'queue_items', column: 'worker_id', definition: 'varchar(255)' },
+  { table: 'queue_items', column: 'next_retry_at', definition: 'datetime' },
 ];
 
 async function main() {
@@ -255,6 +279,12 @@ async function main() {
     `SELECT COLUMN_NAME, COLUMN_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'queue_items' ORDER BY ORDINAL_POSITION`
   );
   cols.forEach(c => console.log(`  - ${c.COLUMN_NAME} (${c.COLUMN_TYPE})`));
+
+  console.log('\n=== integration_credentials columns ===');
+  const [credentialCols] = await conn.execute(
+    `SELECT COLUMN_NAME, COLUMN_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'integration_credentials' ORDER BY ORDINAL_POSITION`
+  );
+  credentialCols.forEach(c => console.log(`  - ${c.COLUMN_NAME} (${c.COLUMN_TYPE})`));
 
   await conn.end();
   console.log('\n✅ Migration complete!');

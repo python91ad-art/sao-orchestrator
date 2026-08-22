@@ -7,6 +7,8 @@ import path from 'path';
 import fs from 'fs';
 import Stripe from 'stripe';
 import { sql } from 'drizzle-orm';
+import { getCredential } from '../services/credentials';
+import { validateCredentialEncryptionKeyForStartup } from '../services/credentialEncryption';
 import { createContext } from './context';
 import { appRouter } from '../routers';
 import * as db from '../db';
@@ -39,10 +41,7 @@ if (!envLoaded) {
   console.log('No .env file found — using environment variables from host.');
 }
 
-const stripeSecretKey = process.env.STRIPE_SECRET_KEY || 'sk_test_dummy';
-const stripe = new Stripe(stripeSecretKey, {
-  apiVersion: '2023-10-16' as any,
-});
+validateCredentialEncryptionKeyForStartup();
 
 const app = express();
 
@@ -62,6 +61,10 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
   let event: Stripe.Event;
 
   try {
+    const stripeSecretKey = await getCredential('stripe');
+    const stripe = new Stripe(stripeSecretKey || 'sk_test_dummy', {
+      apiVersion: '2023-10-16' as any,
+    });
     event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
   } catch (err: any) {
     console.error(`Stripe Webhook signature verification failed: ${err.message}`);

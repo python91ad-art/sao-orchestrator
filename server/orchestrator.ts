@@ -5,6 +5,7 @@ import { sql } from 'drizzle-orm';
 import { queueItems } from '../drizzle/schema';
 import { broadcastEvent } from './websocket';
 import { detectEcommerceGaps, detectOperationalGaps, DetectedGap } from './services/search';
+import { getCredential } from './services/credentials';
 import crypto from 'crypto';
 
 let loopInterval: NodeJS.Timeout | null = null;
@@ -393,7 +394,7 @@ export async function checkQueueAlerts(): Promise<void> {
 }
 
 async function sendSlackAlert(message: string): Promise<void> {
-  const slackToken = process.env.SLACK_BOT_TOKEN;
+  const slackToken = await getCredential('slack');
   const slackChannel = process.env.SLACK_CHANNEL || '#alerts';
   
   if (!slackToken) return;
@@ -408,7 +409,7 @@ async function sendSlackAlert(message: string): Promise<void> {
       body: JSON.stringify({ channel: slackChannel, text: message }),
     });
   } catch (error) {
-    console.error('[Slack Alert] Failed to send:', error);
+    console.error('[Slack Alert] Failed to send:', error instanceof Error ? error.message : error);
   }
 }
 

@@ -1,6 +1,5 @@
 import Groq from 'groq-sdk';
-
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY || 'gsk_dummy' });
+import { getCredential } from './credentials';
 
 /**
  * Default models on Groq (free tier):
@@ -30,6 +29,12 @@ export async function callLLM(
     temperature?: number;
   }
 ): Promise<string> {
+  const apiKey = await getCredential('groq');
+  if (!apiKey) {
+    throw new Error('Groq API key is not configured.');
+  }
+
+  const groq = new Groq({ apiKey });
   const model = options?.model || MODEL_GENERIC;
   const messages: any[] = [];
 
@@ -51,7 +56,7 @@ export async function callLLM(
     if (!content) throw new Error('Groq returned empty response');
     return content;
   } catch (error) {
-    console.error('[Groq LLM] callLLM failed:', error);
+    console.error('[Groq LLM] callLLM failed:', error instanceof Error ? error.message : error);
     throw error;
   }
 }
@@ -94,8 +99,8 @@ export async function testGroqConnection(): Promise<{
   message: string;
   model?: string;
 }> {
-  if (!process.env.GROQ_API_KEY) {
-    return { success: false, message: 'GROQ_API_KEY is not configured' };
+  if (!(await getCredential('groq'))) {
+    return { success: false, message: 'Groq API key is not configured.' };
   }
   try {
     await callLLM('Reply with "OK"', {
@@ -105,10 +110,10 @@ export async function testGroqConnection(): Promise<{
     });
     return {
       success: true,
-      message: `Groq connected — model ${MODEL_CLASSIFIER} responded`,
+      message: `Groq connection successful. Model ${MODEL_CLASSIFIER} responded.`,
       model: MODEL_CLASSIFIER,
     };
-  } catch (error: any) {
-    return { success: false, message: error.message || 'Groq connection failed' };
+  } catch {
+    return { success: false, message: 'Groq authentication or connectivity check failed.' };
   }
 }

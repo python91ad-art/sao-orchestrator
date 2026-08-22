@@ -3,14 +3,15 @@
   "version": "2.0.0",
   "private": true,
   "scripts": {
-    "dev": "concurrently \"pnpm dev:server\" \"pnpm dev:client\"",
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
     "dev:server": "tsx watch server/_core/index.ts",
     "dev:client": "cd client && vite",
-    "build": "pnpm build:client",
+    "build": "npm run build:client",
     "build:client": "cd client && vite build",
-    "start": "node run-migration.js && tsx server/_core/index.ts",
+    "start": "node run-migration.js && node --import tsx server/_core/index.ts",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate"
+    "db:migrate": "drizzle-kit migrate",
+    "test:credentials": "node --import tsx server/services/credentials.test.ts"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.0.0",
