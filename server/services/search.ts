@@ -9,48 +9,62 @@ export interface SearchResult {
 }
 
 /**
- * Google Custom Search JSON API (free tier: 100 queries/day).
- * Uses simple fetch with API key + CX — no googleapis package needed.
+ * Tavily web search API.
+ * Uses an AI-oriented web search provider while preserving SAO's
+ * existing SearchResult interface and all downstream gap detection.
  */
 export async function search(query: string, options: { maxResults?: number } = {}): Promise<SearchResult[]> {
-  const apiKey = process.env.GOOGLE_SEARCH_API_KEY;
-  const cx = process.env.GOOGLE_SEARCH_CX;
+  const apiKey = process.env.TAVILY_API_KEY;
 
-  if (!apiKey || !cx) {
-    console.warn('[Search] Google Search API key or CX not configured. Returning empty results.');
+  if (!apiKey) {
+    console.warn('[Search] Tavily API key not configured. Returning empty results.');
     return [];
   }
 
-  const num = Math.min(options.maxResults || 10, 10); // Google CSE max is 10 per request
-  const url = `https://www.googleapis.com/customsearch/v1?key=${encodeURIComponent(apiKey)}&cx=${encodeURIComponent(cx)}&q=${encodeURIComponent(query)}&num=${num}`;
+  const maxResults = Math.min(options.maxResults || 10, 10);
 
   try {
-    const response = await fetch(url, { signal: AbortSignal.timeout(10000) });
+    const response = await fetch('https://api.tavily.com/search', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        api_key: apiKey,
+        query,
+        search_depth: 'basic',
+        topic: 'general',
+        max_results: maxResults,
+        include_answer: false,
+        include_raw_content: false,
+      }),
+      signal: AbortSignal.timeout(15000),
+    });
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`[Search] Google CSE returned ${response.status}: ${errorText}`);
+      console.error(`[Search] Tavily returned ${response.status}: ${errorText}`);
       return [];
     }
 
     const data = await response.json();
-    const items = data.items || [];
+    const results = data.results || [];
 
-    return items.map((item: any) => ({
+    return results.map((item: any) => ({
       title: item.title || '',
-      url: item.link || '',
-      snippet: item.snippet || '',
-      displayLink: item.displayLink || '',
+      url: item.url || '',
+      snippet: item.content || '',
+      displayLink: item.url ? new URL(item.url).hostname : '',
     }));
   } catch (error: any) {
-    console.error('[Search] Google CSE search failed:', error);
+    console.error('[Search] Tavily search failed:', error);
     return [];
   }
 }
 
 /**
  * Search for market gaps on a given topic.
- * Uses Google CSE to find results, then LLM to extract gaps from snippets.
+ * Uses Tavily to find results, then LLM to extract gaps from snippets.
  */
 export async function searchForGaps(topic: string): Promise<ExtractedGap[]> {
   const searchQuery = `"${topic}" problems pain points workflow frustration limitations`;
@@ -62,7 +76,7 @@ export async function searchForGaps(topic: string): Promise<ExtractedGap[]> {
     .map(r => `Source: ${r.url}\nTitle: ${r.title}\nSnippet: ${r.snippet}`)
     .join('\n\n---\n\n');
 
-  return extractGapsFromSearchContent(concatenatedContent, `google_search:${topic}`);
+  return extractGapsFromSearchContent(concatenatedContent, `tavily_search:${topic}`);
 }
 
 /**
@@ -130,7 +144,7 @@ export async function trendingProblems(): Promise<SearchResult[]> {
 
 // ==========================================
 // E-COMMERCE GAP DETECTION (replaces WooCommerce adapter)
-// Uses Google Search + Groq LLM — no extra API keys needed.
+// Uses Tavily Search + Groq LLM — no extra API keys needed.
 // ==========================================
 
 export interface DetectedGap {
@@ -143,7 +157,7 @@ export interface DetectedGap {
 }
 
 /**
- * Detect e-commerce supply/demand gaps using Google Search.
+ * Detect e-commerce supply/demand gaps using Tavily Search.
  * Searches for "out of stock", "low inventory", "sold out", "price mismatch"
  * and extracts situational arbitrage gaps from the results.
  */
@@ -167,11 +181,11 @@ export async function detectEcommerceGaps(): Promise<DetectedGap[]> {
       .map(r => `Source: ${r.url}\nTitle: ${r.title}\nSnippet: ${r.snippet}`)
       .join('\n\n---\n\n');
 
-    const gaps = await extractGapFromText(content, 'google_search:ecommerce');
+    const gaps = await extractGapFromText(content, 'tavily_search:ecommerce');
     for (const g of gaps) {
       allGaps.push({
         ...g,
-        source: 'google_search',
+        source: 'tavily_search',
         priority: g.priority || 5,
       });
     }
@@ -182,7 +196,7 @@ export async function detectEcommerceGaps(): Promise<DetectedGap[]> {
 }
 
 /**
- * Detect operational/business gaps using Google Search.
+ * Detect operational/business gaps using Tavily Search.
  * Searches for "struggling with leads", "hiring for", "customer churn", etc.
  * and extracts situational arbitrage gaps from the results.
  */
@@ -205,11 +219,11 @@ export async function detectOperationalGaps(): Promise<DetectedGap[]> {
       .map(r => `Source: ${r.url}\nTitle: ${r.title}\nSnippet: ${r.snippet}`)
       .join('\n\n---\n\n');
 
-    const gaps = await extractGapFromText(content, 'google_search:operational');
+    const gaps = await extractGapFromText(content, 'tavily_search:operational');
     for (const g of gaps) {
       allGaps.push({
         ...g,
-        source: 'google_search',
+        source: 'tavily_search',
         priority: g.priority || 5,
       });
     }

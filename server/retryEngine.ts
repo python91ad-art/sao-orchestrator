@@ -5,22 +5,45 @@
 export async function retryWithExponentialBackoff<T>(
   fn: () => Promise<T>,
   maxAttempts = 3,
-  baseDelay = 1000
+  baseDelay = 1000,
+  backoffMultiplier = 2
 ): Promise<T> {
+  if (maxAttempts < 1) {
+    throw new Error('maxAttempts must be at least 1');
+  }
+
+  if (baseDelay < 0) {
+    throw new Error('baseDelay must be non-negative');
+  }
+
+  if (backoffMultiplier < 1) {
+    throw new Error('backoffMultiplier must be at least 1');
+  }
+
   let attempt = 0;
+
   while (attempt < maxAttempts) {
     try {
       return await fn();
     } catch (error) {
       attempt++;
+
       if (attempt >= maxAttempts) {
         throw error;
       }
-      const delay = baseDelay * Math.pow(2, attempt);
-      console.log(`[ExponentialBackoff] Attempt ${attempt} failed. Retrying in ${delay}ms...`);
+
+      const delay = Math.round(
+        baseDelay * Math.pow(backoffMultiplier, attempt)
+      );
+
+      console.log(
+        `[ExponentialBackoff] Attempt ${attempt} failed. Retrying in ${delay}ms...`
+      );
+
       await new Promise(resolve => setTimeout(resolve, delay));
     }
   }
+
   throw new Error('Unreachable code in retry engine');
 }
 

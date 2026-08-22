@@ -7,9 +7,9 @@ const groq = new Groq({ apiKey: process.env.GROQ_API_KEY || 'gsk_dummy' });
  * - llama-3.3-70b-versatile  → business plan generation (high quality)
  * - llama-3.1-8b-instant     → classification & safety checks (fast)
  */
-export const MODEL_BUSINESS_PLAN = 'llama-3.3-70b-versatile';
-export const MODEL_CLASSIFIER = 'llama-3.1-8b-instant';
-export const MODEL_GENERIC = 'llama-3.3-70b-versatile';
+export const MODEL_BUSINESS_PLAN = 'openai/gpt-oss-120b';
+export const MODEL_CLASSIFIER = 'openai/gpt-oss-20b';
+export const MODEL_GENERIC = 'openai/gpt-oss-20b';
 
 export interface LLMResponse {
   content: string;
@@ -98,9 +98,10 @@ export async function testGroqConnection(): Promise<{
     return { success: false, message: 'GROQ_API_KEY is not configured' };
   }
   try {
-    const response = await callLLM('Reply with "OK"', {
+    await callLLM('Reply with "OK"', {
       model: MODEL_CLASSIFIER,
-      maxTokens: 10,
+      maxTokens: 100,
+      temperature: 0,
     });
     return {
       success: true,

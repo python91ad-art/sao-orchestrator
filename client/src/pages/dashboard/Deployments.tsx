@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Play, Pause, Square, AlertTriangle, ShieldCheck, RefreshCw, Eye } from 'lucide-react';
-import { Deployment } from '../../lib/trpc';
+import { Play, Pause, Square, ShieldCheck, Eye, RefreshCw } from 'lucide-react';
+import { Deployment, trpc } from '../../lib/trpc';
 
 const Deployments: React.FC = () => {
   const [loading, setLoading] = useState(true);
@@ -8,82 +8,113 @@ const Deployments: React.FC = () => {
   const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
 
-  const loadData = async () => {
-    setLoading(true);
-    setTimeout(() => {
-      setDeployments([
-        {
-          id: 'dep-1',
-          gapId: 'gap-1',
-          status: 'active',
-          businessPlan: 'Micro-arbitrage strategy connecting TG alpha feeds to institutional buy requests. Executed via serverless API middleware in London region.',
-          revenue: 1450.00,
-          costPerDay: 12.50,
-          banRisk: 'low',
-          health: 'healthy',
-          createdAt: new Date(Date.now() - 3600000 * 24 * 5).toISOString()
-        },
-        {
-          id: 'dep-2',
-          gapId: 'gap-2',
-          status: 'active',
-          businessPlan: 'Local high-frequency webhook retrier microservice with rotating headers to reduce latencies on Stripe payouts. Targeting bootstrapped SaaS founders.',
-          revenue: 350.00,
-          costPerDay: 5.20,
-          banRisk: 'medium',
-          health: 'warning',
-          createdAt: new Date(Date.now() - 3600000 * 24 * 3).toISOString()
-        },
-        {
-          id: 'dep-3',
-          gapId: 'gap-3',
-          status: 'paused',
-          businessPlan: 'Checkout automation using proxy routers with headless browser setups to bypass Ticketmaster pre-queue filters.',
-          revenue: 10650.00,
-          costPerDay: 110.00,
-          banRisk: 'high',
-          health: 'critical',
-          createdAt: new Date(Date.now() - 3600000 * 24 * 12).toISOString()
-        }
-      ]);
-      setLoading(false);
-    }, 500);
-  };
+  const deploymentsQuery = trpc.deployments.list.useQuery();
+
+  const resumeMutation = trpc.deployments.resume.useMutation();
+  const pauseMutation = trpc.deployments.pause.useMutation();
+  const stopMutation = trpc.deployments.stop.useMutation();
+  const auditMutation = trpc.deployments.audit.useMutation();
+  const stopAllMutation = trpc.deployments.stopAll.useMutation();
+  const resumeAllMutation = trpc.deployments.resumeAll.useMutation();
 
   useEffect(() => {
-    loadData();
-  }, []);
+    const data = deploymentsQuery.data ?? [];
 
-  const handleTogglePause = (id: string) => {
-    setDeployments(deployments.map(d => {
-      if (d.id === id) {
-        return {
-          ...d,
-          status: d.status === 'paused' ? 'active' : 'paused'
-        };
+    setDeployments(
+      data.map(d => ({
+        ...d,
+        businessPlan: d.businessPlan ?? "",
+        revenue: Number(d.revenue),
+        costPerDay: Number(d.costPerDay),
+      }))
+    );
+
+    setLoading(deploymentsQuery.isLoading);
+  }, [deploymentsQuery.data, deploymentsQuery.isLoading]);
+
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      await deploymentsQuery.refetch();
+    } catch (error) {
+      console.error('[Deployments] Failed to load deployments:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleTogglePause = async (id: string) => {
+    try {
+      const deployment = deployments.find(d => d.id === id);
+      if (!deployment) return;
+
+      if (deployment.status === 'paused') {
+        await resumeMutation.mutateAsync(id);
+      } else {
+        await pauseMutation.mutateAsync(id);
       }
-      return d;
-    }));
+
+      setDeployments(prev =>
+        prev.map(d =>
+          d.id === id
+            ? { ...d, status: d.status === 'paused' ? 'active' : 'paused' }
+            : d
+        )
+      );
+    } catch (error) {
+      console.error('[Deployments] Failed to toggle deployment:', error);
+      alert('Failed to change deployment status.');
+    }
   };
 
-  const handleStop = (id: string) => {
+  const handleStop = async (id: string) => {
     if (confirm('Are you sure you want to stop this micro-worker deployment permanently? This will tear down all serverless instances.')) {
-      setDeployments(deployments.filter(d => d.id !== id));
+      try {
+        await stopMutation.mutateAsync(id);
+        setDeployments(prev =>
+          prev.map(d => d.id === id ? { ...d, status: 'stopped' } : d)
+        );
+      } catch (error) {
+        console.error('[Deployments] Failed to stop deployment:', error);
+        alert('Failed to stop deployment.');
+      }
     }
   };
 
-  const handleAudit = (id: string) => {
-    alert(`Triggering LLM guardrail and rate-limiting audit for deployment: ${id}`);
+  const handleAudit = async (id: string) => {
+    try {
+      await auditMutation.mutateAsync(id);
+      alert('Deployment audit triggered successfully.');
+    } catch (error) {
+      console.error('[Deployments] Audit failed:', error);
+      alert('Failed to trigger deployment audit.');
+    }
   };
 
-  const handleStopAll = () => {
+  const handleStopAll = async () => {
     if (confirm('EMERGENCY SHUTDOWN: Are you sure you want to tear down all active deployments?')) {
-      setDeployments([]);
+      try {
+        await stopAllMutation.mutateAsync();
+        setDeployments(prev =>
+          prev.map(d => d.status === 'active' ? { ...d, status: 'stopped' } : d)
+        );
+      } catch (error) {
+        console.error('[Deployments] Emergency shutdown failed:', error);
+        alert('Emergency shutdown failed.');
+      }
     }
   };
 
-  const handleResumeAll = () => {
-    setDeployments(deployments.map(d => ({ ...d, status: 'active' })));
+  const handleResumeAll = async () => {
+    try {
+      await resumeAllMutation.mutateAsync();
+      setDeployments(prev =>
+        prev.map(d => d.status === 'paused' ? { ...d, status: 'active' } : d)
+      );
+    } catch (error) {
+      console.error('[Deployments] Failed to resume deployments:', error);
+      alert('Failed to resume deployments.');
+    }
   };
 
   const openPlanModal = (plan: string) => {
@@ -108,6 +139,10 @@ const Deployments: React.FC = () => {
           <p className="text-sm text-neutral-400">Review generated microservices, live health metrics, and direct revenue yields</p>
         </div>
         <div className="flex items-center gap-2">
+          <button onClick={loadData} className="btn-secondary">
+            <RefreshCw className="h-4 w-4" />
+            <span>Reload</span>
+          </button>
           <button onClick={handleResumeAll} className="btn-secondary">
             <Play className="h-4 w-4" />
             <span>Resume All</span>

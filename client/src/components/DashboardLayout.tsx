@@ -10,10 +10,11 @@ import {
   Settings,
   LogOut,
   User as UserIcon,
-  Activity,
+
   Menu,
   X,
-  BarChart3
+  BarChart3,
+  UserPlus
 } from 'lucide-react';
 
 interface DashboardLayoutProps {
@@ -35,6 +36,9 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, currentPage
     { id: 'analytics', label: 'Analytics', icon: BarChart3 },
     { id: 'policies', label: 'Policies', icon: Shield },
     { id: 'settings', label: 'Settings', icon: Settings },
+    ...(user?.role === 'admin'
+      ? [{ id: 'registration-access', label: 'Registration Access', icon: UserPlus }]
+      : []),
   ];
 
   const handleNavClick = (id: string) => {
@@ -102,7 +106,7 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, currentPage
               <UserIcon className="h-4 w-4 text-purple-300" />
             </div>
             <div className="flex-1 overflow-hidden">
-              <p className="text-xs font-semibold text-neutral-200 truncate">{user?.name || 'OPERATOR'}</p>
+              <p className="text-xs font-semibold text-neutral-200 truncate">{user?.email || 'OPERATOR'}</p>
               <p className="text-[10px] text-neutral-500 truncate">{user?.email}</p>
             </div>
           </div>

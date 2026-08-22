@@ -35,6 +35,7 @@ export const queueItems = mysqlTable('queue_items', {
   attempts: int('attempts').default(0).notNull(),
   maxAttempts: int('max_attempts').default(3).notNull(),
   lastError: text('last_error'),
+  nextRetryAt: datetime('next_retry_at'),
   dedupHash: varchar('dedup_hash', { length: 255 }).notNull(),
   priority: int('priority').default(5).notNull(),
   sortOrder: int('sort_order').default(0).notNull(),
@@ -111,5 +112,23 @@ export const coreLoopState = mysqlTable('core_loop_state', {
   queueMaxSize: int('queue_max_size').default(1000).notNull(),
   queueExpirationHours: int('queue_expiration_hours').default(72).notNull(),
   concurrency: int('concurrency').default(1).notNull(),
+  maxCostPerDay: decimal('max_cost_per_day', { precision: 10, scale: 2 }).default('50.00').notNull(),
+  maxDeployments: int('max_deployments').default(10).notNull(),
+  autoPauseOnHighBanRisk: boolean('auto_pause_on_high_ban_risk').default(true).notNull(),
+  emailNotifications: boolean('email_notifications').default(true).notNull(),
+  slackNotifications: boolean('slack_notifications').default(false).notNull(),
   updatedAt: datetime('updated_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+// ==========================================
+// Registration Invites (for authorized sign-ups)
+// ==========================================
+export const registrationInvites = mysqlTable('registration_invites', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  email: varchar('email', { length: 255 }).notNull(),
+  role: mysqlEnum('role', ['admin', 'user']).default('user').notNull(),
+  createdBy: varchar('created_by', { length: 255 }).notNull(), // admin user id
+  expiresAt: datetime('expires_at'),
+  usedAt: datetime('used_at'),
+  createdAt: datetime('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
 });

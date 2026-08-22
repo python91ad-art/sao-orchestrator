@@ -2,7 +2,7 @@ import 'dotenv/config';
 import { drizzle } from 'drizzle-orm/mysql2';
 import mysql from 'mysql2/promise';
 import * as schema from '../drizzle/schema';
-import { eq, and, desc, asc, sql } from 'drizzle-orm';
+import { eq, and, or, isNull, desc, asc, sql } from 'drizzle-orm';
 import crypto from 'crypto';
 
 // ==========================================
@@ -16,7 +16,6 @@ import crypto from 'crypto';
 // Northflank can provide either DATABASE_URL or
 // individual DB_* variables.
 //
-
 // ==========================================
 
 let dbHost: string;
@@ -104,7 +103,6 @@ const poolConfig: mysql.PoolOptions = {
   },
 };
 
-
 // ==========================================
 // Create MySQL connection pool
 // ==========================================
@@ -122,7 +120,7 @@ const poolConnection = mysql.createPool(poolConfig);
     connectTimeout: poolConfig.connectTimeout,
     enableKeepAlive: poolConfig.enableKeepAlive,
     tlsEnabled: !!poolConfig.ssl,
-    rejectUnauthorized: poolConfig.ssl?.rejectUnauthorized,
+    rejectUnauthorized: typeof poolConfig.ssl === 'object' ? poolConfig.ssl.rejectUnauthorized : undefined,
   };
 
   console.log('Attempting DB connection with config:', configForLog);
@@ -223,18 +221,19 @@ export function generateId(): string {
 }
 
 // ==========================================
-// User Helpers
+// User Helpers (email normalized to lowercase)
 // ==========================================
 export async function createUser(
   email: string,
   passwordHash: string,
   role: 'admin' | 'user' = 'user'
 ) {
+  const normalizedEmail = email.trim().toLowerCase();
   const id = generateId();
 
   await db.insert(schema.users).values({
     id,
-    email,
+    email: normalizedEmail,
     passwordHash,
     role,
   });
@@ -243,10 +242,11 @@ export async function createUser(
 }
 
 export async function getUserByEmail(email: string) {
+  const normalizedEmail = email.trim().toLowerCase();
   const results = await db
     .select()
     .from(schema.users)
-    .where(eq(schema.users.email, email))
+    .where(eq(schema.users.email, normalizedEmail))
     .limit(1);
 
   return results[0] || null;
@@ -267,23 +267,25 @@ export async function updateUserResetCode(
   resetCode: string,
   expiry: Date
 ) {
+  const normalizedEmail = email.trim().toLowerCase();
   await db
     .update(schema.users)
     .set({
       resetCode,
       resetCodeExpiry: expiry,
     })
-    .where(eq(schema.users.email, email));
+    .where(eq(schema.users.email, normalizedEmail));
 }
 
 export async function clearResetCode(email: string) {
+  const normalizedEmail = email.trim().toLowerCase();
   await db
     .update(schema.users)
     .set({
       resetCode: null,
       resetCodeExpiry: null,
     })
-    .where(eq(schema.users.email, email));
+    .where(eq(schema.users.email, normalizedEmail));
 }
 
 export async function updateLastSignedIn(id: string) {
@@ -394,13 +396,19 @@ export async function createQueueItem(itemData: {
 }) {
   const id = generateId();
 
+  const coreLoopState = await getCoreLoopState();
+  const configuredMaxAttempts = Math.max(
+    1,
+    Number(coreLoopState?.maxAttempts) || 3
+  );
+
   await db.insert(schema.queueItems).values({
     id,
     gapId: itemData.gapId,
     dedupHash: itemData.dedupHash,
     status: 'pending',
     attempts: 0,
-    maxAttempts: 3,
+    maxAttempts: configuredMaxAttempts,
     priority:
       itemData.priority !== undefined
         ? itemData.priority
@@ -463,11 +471,20 @@ export async function deleteQueueItem(id: string) {
     .where(eq(schema.queueItems.id, id));
 }
 
-export async function getNextPendingQueueItem() {
+// REPLACED: claimNextPendingQueueItem instead of getNextPendingQueueItem
+export async function claimNextPendingQueueItem(workerId: string) {
   const results = await db
     .select()
     .from(schema.queueItems)
-    .where(eq(schema.queueItems.status, 'pending'))
+    .where(
+      and(
+        eq(schema.queueItems.status, 'pending'),
+        or(
+          isNull(schema.queueItems.nextRetryAt),
+          sql`${schema.queueItems.nextRetryAt} <= NOW()`
+        )
+      )
+    )
     .orderBy(
       asc(schema.queueItems.sortOrder),
       desc(schema.queueItems.priority),
@@ -475,7 +492,75 @@ export async function getNextPendingQueueItem() {
     )
     .limit(1);
 
-  return results[0] || null;
+  const item = results[0];
+
+  if (!item) {
+    return null;
+  }
+
+  const claimed = await db
+    .update(schema.queueItems)
+    .set({
+      status: 'processing',
+      workerId,
+      attempts: item.attempts + 1,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(schema.queueItems.id, item.id),
+        eq(schema.queueItems.status, 'pending')
+      )
+    );
+
+  // Check if the update affected exactly one row (optimistic locking)
+  if (claimed[0]?.affectedRows !== 1) {
+    return null;
+  }
+
+  return getQueueItem(item.id);
+}
+
+// Recover queue items left in `processing` after a worker/process restart.
+// Only recover items that have been inactive long enough to avoid stealing
+// work from a still-running worker.
+export async function touchProcessingQueueItem(id: string, workerId: string) {
+  const result = await db
+    .update(schema.queueItems)
+    .set({
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(schema.queueItems.id, id),
+        eq(schema.queueItems.status, 'processing'),
+        eq(schema.queueItems.workerId, workerId)
+      )
+    );
+
+  return Number(result[0]?.affectedRows || 0) === 1;
+}
+
+export async function recoverStaleProcessingQueueItems(
+  staleAfterMinutes: number = 30
+) {
+  const cutoff = new Date(Date.now() - staleAfterMinutes * 60 * 1000);
+
+  const result = await db
+    .update(schema.queueItems)
+    .set({
+      status: 'pending',
+      workerId: null,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(schema.queueItems.status, 'processing'),
+        sql`${schema.queueItems.updatedAt} < ${cutoff}`
+      )
+    );
+
+  return Number(result[0]?.affectedRows || 0);
 }
 
 export async function getQueueStats() {
@@ -618,6 +703,37 @@ export async function listAuditLogs(
     .orderBy(desc(schema.auditLogs.timestamp))
     .limit(limit)
     .offset(offset);
+}
+
+export async function getAuditStats() {
+  const allLogs = await db
+    .select({
+      decision: schema.auditLogs.decision,
+      count: sql<number>`count(*)`,
+    })
+    .from(schema.auditLogs)
+    .groupBy(schema.auditLogs.decision);
+
+  const stats: Record<string, number> = {
+    total: 0,
+    safe: 0,
+    unsafe: 0,
+    gray: 0,
+    false: 0,
+    allow: 0,
+    review: 0,
+    block: 0,
+  };
+
+  for (const log of allLogs) {
+    const decision = String(log.decision || 'unknown');
+    const count = Number(log.count);
+
+    stats[decision] = (stats[decision] || 0) + count;
+    stats.total += count;
+  }
+
+  return stats;
 }
 
 // ==========================================
@@ -775,6 +891,48 @@ export async function updateCoreLoopState(
 // ==========================================
 // Health Check Helpers
 // ==========================================
+
+// ==========================================
+// SAO OPERATIONAL RESET
+// Clears runtime/generated data while preserving
+// users, policies, invites, and application configuration.
+// ==========================================
+export async function resetOperationalData(): Promise<void> {
+  // Delete dependent/runtime data first.
+  await db.delete(schema.deploymentHealthChecks);
+  await db.delete(schema.auditLogs);
+  await db.delete(schema.deployments);
+  await db.delete(schema.queueItems);
+  await db.delete(schema.gaps);
+  await db.delete(schema.recurringActors);
+
+  // Reset the Core Loop to a clean initial state.
+  await db
+    .update(schema.coreLoopState)
+    .set({
+      isRunning: false,
+      intervalMs: 10800000,
+      lastExecutedAt: null,
+      nextExecutionAt: null,
+      totalGapsProcessed: 0,
+      totalDeploymentsCreated: 0,
+      maxAttempts: 3,
+      backoffMultiplier: '1.5',
+      baseDelayMs: 5000,
+      queueMaxSize: 1000,
+      queueExpirationHours: 72,
+      concurrency: 1,
+      maxCostPerDay: '50.00',
+      maxDeployments: 10,
+      autoPauseOnHighBanRisk: true,
+      emailNotifications: true,
+      slackNotifications: false,
+      updatedAt: new Date(),
+    })
+    .where(eq(schema.coreLoopState.id, 'singleton'));
+}
+
+
 export async function createHealthCheck(checkData: {
   deploymentId: string;
   revenue: string;
@@ -823,4 +981,108 @@ export async function listHealthChecks(
         schema.deploymentHealthChecks.checkedAt
       )
     );
+}
+
+// ==========================================
+// Registration Invitation Helpers (email normalized)
+// ==========================================
+
+/**
+ * Create a new registration invite.
+ * @param email - email address authorized to register
+ * @param role - role to assign upon registration ('admin' or 'user')
+ * @param createdBy - id of admin creating the invite
+ * @param expiresAt - optional expiration date
+ * @returns the created invite record
+ */
+export async function createRegistrationInvite(
+  email: string,
+  role: 'admin' | 'user',
+  createdBy: string,
+  expiresAt?: Date
+) {
+  const normalizedEmail = email.trim().toLowerCase();
+  const id = generateId();
+  await db.insert(schema.registrationInvites).values({
+    id,
+    email: normalizedEmail,
+    role,
+    createdBy,
+    expiresAt: expiresAt || null,
+  });
+  return getRegistrationInviteById(id);
+}
+
+/**
+ * Get an invite by its ID.
+ */
+export async function getRegistrationInviteById(id: string) {
+  const results = await db
+    .select()
+    .from(schema.registrationInvites)
+    .where(eq(schema.registrationInvites.id, id))
+    .limit(1);
+  return results[0] || null;
+}
+
+/**
+ * Get the latest (most recent) invite for a given email.
+ * Useful to check if an email is authorized.
+ */
+export async function getRegistrationInviteByEmail(email: string) {
+  const normalizedEmail = email.trim().toLowerCase();
+  const results = await db
+    .select()
+    .from(schema.registrationInvites)
+    .where(eq(schema.registrationInvites.email, normalizedEmail))
+    .orderBy(desc(schema.registrationInvites.createdAt))
+    .limit(1);
+  return results[0] || null;
+}
+
+/**
+ * Mark an invite as used (sets usedAt to now).
+ * Returns the updated invite or null if not found.
+ */
+export async function markInviteUsed(id: string) {
+  await db
+    .update(schema.registrationInvites)
+    .set({ usedAt: new Date() })
+    .where(eq(schema.registrationInvites.id, id));
+  return getRegistrationInviteById(id);
+}
+
+/**
+ * List all invites (optionally filter by email).
+ * Admin use only.
+ */
+export async function listRegistrationInvites(limit = 100, offset = 0) {
+  return db
+    .select()
+    .from(schema.registrationInvites)
+    .orderBy(desc(schema.registrationInvites.createdAt))
+    .limit(limit)
+    .offset(offset);
+}
+
+/**
+ * Delete an invite by ID (soft-delete or hard-delete? We'll just delete it).
+ */
+export async function deleteRegistrationInvite(id: string) {
+  await db
+    .delete(schema.registrationInvites)
+    .where(eq(schema.registrationInvites.id, id));
+}
+
+/**
+ * Check if an invite is valid (exists, not used, not expired).
+ * Returns the invite if valid, null otherwise.
+ */
+export async function getValidRegistrationInvite(email: string) {
+  const normalizedEmail = email.trim().toLowerCase();
+  const invite = await getRegistrationInviteByEmail(normalizedEmail);
+  if (!invite) return null;
+  if (invite.usedAt) return null;
+  if (invite.expiresAt && new Date() > invite.expiresAt) return null;
+  return invite;
 }

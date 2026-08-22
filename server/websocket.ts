@@ -6,11 +6,18 @@ let wss: WebSocketServer | null = null;
 const clients = new Set<WebSocket>();
 
 export type WSEvent =
-  | { type: 'queue:updated'; data: { queueItemId: string; status: string } }
+  | { type: 'queue:updated'; data: { queueItemId: string; status: string; nextRetryAt?: string | null } }
   | { type: 'gap:created'; data: { gapId: string; knows: string } }
   | { type: 'deployment:created'; data: { deploymentId: string; gapId: string } }
   | { type: 'audit:completed'; data: { deploymentId: string; health: string } }
-  | { type: 'coreloop:status'; data: { isRunning: boolean; lastExecutedAt: string | null } }
+  | {
+      type: 'coreloop:status';
+      data: {
+        isRunning: boolean;
+        lastExecutedAt: string | null;
+        nextExecutionAt: string | null;
+      };
+    }
   | { type: 'worker:status'; data: { activeWorkers: number; totalProcessed: number } };
 
 export function initWebSocketServer(server: HttpServer): WebSocketServer {

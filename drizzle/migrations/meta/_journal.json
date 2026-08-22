@@ -15,6 +15,20 @@
       "when": 1784647207323,
       "tag": "0001_ambitious_calypso",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1787407762315,
+      "tag": "0002_soft_human_torch",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1787418294734,
+      "tag": "0003_slimy_goblin_queen",
+      "breakpoints": true
     }
   ]
 }

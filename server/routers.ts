@@ -6,15 +6,19 @@ import { Resend } from 'resend';
 import { TRPCError } from '@trpc/server';
 import { COOKIE_NAME, signSession, cookieOptions } from './_core/cookies';
 import * as db from './db';
-import { getWorkerStatus, setConcurrency } from './orchestrator';
-import { getConnectedClients } from './websocket';
-import { processOneGap, startCoreLoop, stopCoreLoop, getStatus } from './orchestrator';
+import {
+  setConcurrency,
+  processOneGap,
+  startCoreLoop,
+  stopCoreLoop,
+  updateCoreLoopInterval,
+} from './orchestrator';
 import { auditAllActiveDeployments, auditDeployment } from './auditScheduler';
 import { testGroqConnection } from './services/llm';
-import { crawlAndExtract, crawlUrl, extractGapsFromContent, ExtractedGap } from './services/crawler';
+import { crawlAndExtract } from './services/crawler';
 import { search as googleSearch, searchForGaps, trendingProblems } from './services/search';
-import { users, gaps, queueItems, deployments, auditLogs, policies, coreLoopState } from '../drizzle/schema';
-import { eq, and, asc, desc, sql, ne } from 'drizzle-orm';
+import { users, gaps, queueItems } from '../drizzle/schema';
+import { eq, asc } from 'drizzle-orm';
 
 const resendApiKey = process.env.RESEND_API_KEY || 're_dummy_key';
 const resend = new Resend(resendApiKey);
@@ -29,22 +33,35 @@ const authRouter = router({
       password: z.string().min(6),
     }))
     .mutation(async ({ input, ctx }) => {
+      // 1. Check if user already exists
       const existingUser = await db.getUserByEmail(input.email);
       if (existingUser) {
         throw new TRPCError({ code: 'CONFLICT', message: 'A user with this email already exists.' });
       }
+
+      // 2. Validate invitation
+      const invite = await db.getValidRegistrationInvite(input.email);
+      if (!invite) {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'No valid invitation found for this email.',
+        });
+      }
+
+      // 3. Create user with the role from the invitation
       const salt = await bcrypt.genSalt(10);
       const passwordHash = await bcrypt.hash(input.password, salt);
-      
-      const allUsers = await db.db.select().from(users);
-      const isFirst = allUsers.length === 0;
-      const role = isFirst ? 'admin' : 'user';
+      const role = invite.role as 'admin' | 'user';
 
       const user = await db.createUser(input.email, passwordHash, role);
       if (!user) {
         throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Failed to create user.' });
       }
 
+      // 4. Mark invitation as used
+      await db.markInviteUsed(invite.id);
+
+      // 5. Create session and set cookie
       const session = signSession(user.id);
       ctx.res.cookie(COOKIE_NAME, session, cookieOptions);
 
@@ -423,7 +440,7 @@ const auditRouter = router({
 
   get: protectedProcedure
     .input(z.string())
-    .query(async ({ input }) => {
+    .query(async () => {
       const logs = await db.listAuditLogs(1, 0);
       return logs[0] || null;
     }),
@@ -463,6 +480,17 @@ const policiesRouter = router({
 // CORE LOOP ROUTER
 // ==========================================
 const coreLoopRouter = router({
+  resetOperationalData: adminProcedure
+    .mutation(async () => {
+      stopCoreLoop();
+      await db.resetOperationalData();
+
+      return {
+        success: true,
+        message: 'Operational data reset successfully',
+      };
+    }),
+
   start: adminProcedure
     .mutation(async () => {
       await startCoreLoop();
@@ -471,7 +499,7 @@ const coreLoopRouter = router({
 
   stop: adminProcedure
     .mutation(async () => {
-      stopCoreLoop();
+      await stopCoreLoop();
       return { success: true, message: 'Core loop stopped' };
     }),
 
@@ -485,6 +513,15 @@ const coreLoopRouter = router({
     .mutation(async () => {
       await auditAllActiveDeployments();
       return { success: true, message: 'Audit triggered for all active deployments' };
+    }),
+
+  updateInterval: adminProcedure
+    .input(z.object({
+      intervalMs: z.number().min(60000),
+    }))
+    .mutation(async ({ input }) => {
+      await updateCoreLoopInterval(input.intervalMs);
+      return { success: true, intervalMs: input.intervalMs };
     }),
 
   status: protectedProcedure
@@ -502,25 +539,53 @@ const analyticsRouter = router({
       const allGaps = await db.listGaps(1000, 0);
       const allDeployments = await db.listDeployments();
       const queueStats = await db.getQueueStats();
-      
-      const totalRevenue = allDeployments.reduce((sum: number, d: any) => sum + parseFloat(d.revenue || '0'), 0);
-      
+      const auditStats = await db.getAuditStats();
+
+      const totalRevenue = allDeployments.reduce(
+        (sum: number, deployment: any) =>
+          sum + parseFloat(deployment.revenue || '0'),
+        0
+      );
+
       const gapsByStatus: Record<string, number> = {};
+
       for (const gap of allGaps) {
-        const s = (gap as any).status || 'unknown';
-        gapsByStatus[s] = (gapsByStatus[s] || 0) + 1;
+        const status = String((gap as any).status || 'unknown');
+        gapsByStatus[status] = (gapsByStatus[status] || 0) + 1;
       }
 
       const deploymentsByStatus: Record<string, number> = {};
-      for (const d of allDeployments) {
-        const s = (d as any).status || 'unknown';
-        deploymentsByStatus[s] = (deploymentsByStatus[s] || 0) + 1;
+
+      for (const deployment of allDeployments) {
+        const status = String((deployment as any).status || 'unknown');
+        deploymentsByStatus[status] =
+          (deploymentsByStatus[status] || 0) + 1;
       }
 
       return {
         totalGaps: allGaps.length,
-        activeDeployments: allDeployments.filter((d: any) => d.status === 'active').length,
-        queueItems: (queueStats as any)?.total || 0,
+        activeDeployments: deploymentsByStatus.active || 0,
+
+        queue: {
+          total: queueStats.total,
+          pending: queueStats.pending,
+          processing: queueStats.processing,
+          paused: queueStats.paused,
+          completed: queueStats.completed,
+          failed: queueStats.failed,
+        },
+
+        audits: {
+          total: auditStats.total,
+          safe: auditStats.safe,
+          unsafe: auditStats.unsafe,
+          gray: auditStats.gray,
+          false: auditStats.false,
+          allow: auditStats.allow,
+          review: auditStats.review,
+          block: auditStats.block,
+        },
+
         totalRevenue: totalRevenue.toFixed(2),
         gapsByStatus,
         deploymentsByStatus,
@@ -683,9 +748,36 @@ const settingsRouter = router({
       slackNotifications: z.boolean().optional(),
     }))
     .mutation(async ({ input }) => {
-      if (input.intervalMs) {
-        await db.updateCoreLoopState({ intervalMs: input.intervalMs });
+      const updates: Record<string, unknown> = {};
+
+      if (input.intervalMs !== undefined) {
+        updates.intervalMs = input.intervalMs;
       }
+
+      if (input.maxCostPerDay !== undefined) {
+        updates.maxCostPerDay = input.maxCostPerDay.toFixed(2);
+      }
+
+      if (input.maxDeployments !== undefined) {
+        updates.maxDeployments = input.maxDeployments;
+      }
+
+      if (input.autoPauseOnHighBanRisk !== undefined) {
+        updates.autoPauseOnHighBanRisk = input.autoPauseOnHighBanRisk;
+      }
+
+      if (input.emailNotifications !== undefined) {
+        updates.emailNotifications = input.emailNotifications;
+      }
+
+      if (input.slackNotifications !== undefined) {
+        updates.slackNotifications = input.slackNotifications;
+      }
+
+      if (Object.keys(updates).length > 0) {
+        await db.updateCoreLoopState(updates as any);
+      }
+
       return { success: true };
     }),
 
@@ -777,8 +869,56 @@ const settingsRouter = router({
 
   getConcurrency: adminProcedure
     .query(async () => {
-      const status = getWorkerStatus();
-      return { concurrency: status.totalWorkers || 1 };
+      const state = await db.getCoreLoopState();
+      return { concurrency: state?.concurrency || 1 };
+    }),
+});
+
+// ==========================================
+// INVITES ROUTER — Admin-only invitation management
+// ==========================================
+const invitesRouter = router({
+  create: adminProcedure
+    .input(z.object({
+      email: z.string().email(),
+      role: z.enum(['admin', 'user']).default('user'),
+      expiresAt: z.date().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      // Ensure the email is not already invited (optional check)
+      const existingInvite = await db.getRegistrationInviteByEmail(input.email);
+      if (existingInvite && !existingInvite.usedAt) {
+        throw new TRPCError({
+          code: 'CONFLICT',
+          message: 'An active invitation already exists for this email.',
+        });
+      }
+
+      const invite = await db.createRegistrationInvite(
+        input.email,
+        input.role,
+        ctx.user.id, // createdBy from authenticated admin
+        input.expiresAt
+      );
+      return invite;
+    }),
+
+  list: adminProcedure
+    .input(z.object({
+      limit: z.number().min(1).max(100).default(50),
+      offset: z.number().min(0).default(0),
+    }))
+    .query(async ({ input }) => {
+      return db.listRegistrationInvites(input.limit, input.offset);
+    }),
+
+  delete: adminProcedure
+    .input(z.object({
+      id: z.string(),
+    }))
+    .mutation(async ({ input }) => {
+      await db.deleteRegistrationInvite(input.id);
+      return { success: true };
     }),
 });
 
@@ -797,6 +937,7 @@ export const appRouter = router({
   discovery: discoveryRouter,
   integrations: integrationsRouter,
   settings: settingsRouter,
+  invites: invitesRouter, // <-- new admin invites router
 });
 
 export type AppRouter = typeof appRouter;

@@ -11,11 +11,11 @@ import {
   Clock,
   ShieldCheck
 } from 'lucide-react';
-import { Gap, AuditLog, Stats, CoreLoopStatus } from '../../lib/trpc';
+import { Gap, AuditLog, Stats } from '../../lib/trpc';
 import { useWebSocket } from '../../hooks/useWebSocket';
+import { trpc } from '../../lib/trpc'; // <-- added
 
 const Overview: React.FC = () => {
-  const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<Stats>({
     totalGaps: 0,
     activeDeployments: 0,
@@ -23,110 +23,97 @@ const Overview: React.FC = () => {
     totalRevenue: 0,
   });
 
-  const [coreLoopStatus, setCoreLoopStatus] = useState<CoreLoopStatus>({
-    running: true,
-    intervalMs: 10800000,
-    lastRun: new Date().toISOString()
-  });
+  // 👇 Replaced fake state with real tRPC query
+  const coreLoopStatusQuery = trpc.coreLoop.status.useQuery();
+
+  // 👇 Real mutations for core loop controls
+  const startLoop = trpc.coreLoop.start.useMutation();
+  const stopLoop = trpc.coreLoop.stop.useMutation();
+  const runOnce = trpc.coreLoop.runOnce.useMutation();
+  const runAudit = trpc.coreLoop.runAudit.useMutation();
 
   const { connected: wsConnected, lastEvent } = useWebSocket();
 
   const [recentGaps, setRecentGaps] = useState<Gap[]>([]);
   const [recentAuditLogs, setRecentAuditLogs] = useState<AuditLog[]>([]);
 
-  const loadData = async () => {
-    setLoading(true);
-    // Simulate query loading state
-    setTimeout(() => {
-      setStats({
-        totalGaps: 24,
-        activeDeployments: 3,
-        queueItems: 7,
-        totalRevenue: 12450.00,
-      });
+   // Real dashboard data from the backend
+  const analyticsQuery = trpc.analytics.overview.useQuery();
+  const gapsQuery = trpc.gaps.list.useQuery({ limit: 3, skip: 0 });
+  const auditLogsQuery = trpc.audit.list.useQuery({ limit: 3, skip: 0 });
 
-      setRecentGaps([
-        {
-          id: 'gap-1',
-          knows: 'Crypto whale alpha channels',
-          needs: 'Institutional slippage protection API',
-          controlsAccess: 'Telegram private community',
-          underestimatesValue: 'Direct bot routers',
-          source: 'Twitter Stream API',
-          status: 'deployed',
-          priority: 10,
-          createdAt: new Date(Date.now() - 3600000 * 2).toISOString()
-        },
-        {
-          id: 'gap-2',
-          knows: 'Stripe webhook latency details',
-          needs: 'Local high-frequency retriers',
-          controlsAccess: 'Stripe platform',
-          underestimatesValue: 'Bootstrapped SaaS founders',
-          source: 'Manual scan',
-          status: 'pending',
-          priority: 8,
-          createdAt: new Date(Date.now() - 3600000 * 5).toISOString()
-        },
-        {
-          id: 'gap-3',
-          knows: 'Ticketmaster pre-queue patterns',
-          needs: 'Parallel checkout containers',
-          controlsAccess: 'Cloudflare bypass headers',
-          underestimatesValue: 'Casual event-goers',
-          source: 'Discord webhook',
-          status: 'gray',
-          priority: 5,
-          createdAt: new Date(Date.now() - 3600000 * 12).toISOString()
-        }
-      ]);
+  const loading =
+    analyticsQuery.isLoading ||
+    gapsQuery.isLoading ||
+    auditLogsQuery.isLoading;
 
-      setRecentAuditLogs([
-        {
-          id: 'log-1',
-          timestamp: new Date(Date.now() - 600000).toISOString(),
-          decision: 'allow',
-          gapId: 'gap-1',
-          deploymentId: 'dep-1',
-          banRisk: 'low',
-          businessHealth: 'healthy',
-          explanation: 'Low rate-limiting flags, secure proxies verified.',
-          reasoning: 'Policy #4 satisfied. Risk calculation scored 0.12.'
-        },
-        {
-          id: 'log-2',
-          timestamp: new Date(Date.now() - 1200000).toISOString(),
-          decision: 'review',
-          gapId: 'gap-3',
-          banRisk: 'medium',
-          businessHealth: 'warning',
-          explanation: 'Requires manual verification of rotating user-agents.',
-          reasoning: 'Cloudflare rules triggered on test suite. Human verification recommended.'
-        }
-      ]);
-
-      setLoading(false);
-    }, 600);
+  const handleRefresh = async () => {
+    await Promise.all([
+      analyticsQuery.refetch(),
+      gapsQuery.refetch(),
+      auditLogsQuery.refetch(),
+      coreLoopStatusQuery.refetch(),
+    ]);
   };
 
   useEffect(() => {
-    loadData();
-  }, []);
+    if (analyticsQuery.data) {
+      setStats({
+        totalGaps: analyticsQuery.data.totalGaps ?? 0,
+        activeDeployments: analyticsQuery.data.activeDeployments ?? 0,
+        queueItems: analyticsQuery.data.queue?.total ?? 0,
+        totalRevenue: Number(analyticsQuery.data.totalRevenue ?? 0),
+      });
+    }
 
-  const handleStartLoop = () => {
-    setCoreLoopStatus(prev => ({ ...prev, running: true }));
+    if (gapsQuery.data) {
+      setRecentGaps(gapsQuery.data);
+    }
+
+    if (auditLogsQuery.data) {
+      setRecentAuditLogs(
+        (auditLogsQuery.data ?? []).map(log => ({
+          ...log,
+          gapId: log.gapId ?? undefined,
+          deploymentId: log.deploymentId ?? undefined,
+          decision: log.decision as AuditLog["decision"],
+        }))
+      );
+    }
+  }, [
+    analyticsQuery.data,
+    gapsQuery.data,
+    auditLogsQuery.data,
+  ]);
+
+
+
+  // 👇 Real action handlers using mutations
+  const handleStartLoop = async () => {
+    await startLoop.mutateAsync();
+    await coreLoopStatusQuery.refetch();
   };
 
-  const handleStopLoop = () => {
-    setCoreLoopStatus(prev => ({ ...prev, running: false }));
+  const handleStopLoop = async () => {
+    await stopLoop.mutateAsync();
+    await coreLoopStatusQuery.refetch();
   };
 
-  const handleRunOnce = () => {
-    alert('Core Loop triggered once in background!');
+  const handleRunOnce = async () => {
+    await runOnce.mutateAsync();
   };
 
-  const handleRunAudit = () => {
-    alert('Security audit triggered for all active deployments.');
+  const handleRunAudit = async () => {
+    await runAudit.mutateAsync();
+  };
+
+
+  // Derive core loop status from query result
+  const coreLoopStatus = coreLoopStatusQuery.data ?? {
+    isRunning: false,
+    intervalMs: 0,
+    lastExecutedAt: null,
+    nextExecutionAt: null,
   };
 
   if (loading) {
@@ -158,7 +145,7 @@ const Overview: React.FC = () => {
           <p className="text-sm text-neutral-400">Real-time telemetry and orchestrator loops</p>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={loadData} className="btn-secondary">
+          <button onClick={handleRefresh} className="btn-secondary">
             <RefreshCw className="h-4 w-4" />
             <span>Refresh Telemetry</span>
           </button>
@@ -219,9 +206,9 @@ const Overview: React.FC = () => {
               <div className="flex items-center gap-3">
                 <h3 className="text-lg font-bold text-white">Core Orchestration Loop</h3>
                 <div className="flex items-center gap-1.5">
-                  <span className={`status-indicator ${coreLoopStatus.running ? 'green' : 'red'}`}></span>
+                  <span className={`status-indicator ${coreLoopStatus.isRunning ? 'green' : 'red'}`}></span>
                   <span className="text-xs font-semibold uppercase tracking-wider text-neutral-400">
-                    {coreLoopStatus.running ? 'Active & Teleporting' : 'Paused'}
+                    {coreLoopStatus.isRunning ? 'Active & Teleporting' : 'Paused'}
                   </span>
                 </div>
               </div>
@@ -231,18 +218,18 @@ const Overview: React.FC = () => {
               <div className="flex items-center gap-4 mt-3 text-xs text-neutral-500">
                 <div className="flex items-center gap-1">
                   <Clock className="h-3.5 w-3.5" />
-                  <span>Interval: 3 hours</span>
+                  <span>Interval: {coreLoopStatus.intervalMs / 3600000} hours</span>
                 </div>
                 <div className="flex items-center gap-1">
                   <ShieldCheck className="h-3.5 w-3.5" />
-                  <span>Last Checked: {new Date(coreLoopStatus.lastRun || '').toLocaleTimeString()}</span>
+                  <span>Last Checked: {coreLoopStatus.lastExecutedAt ? new Date(coreLoopStatus.lastExecutedAt).toLocaleTimeString() : 'Never'}</span>
                 </div>
               </div>
             </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {coreLoopStatus.running ? (
+            {coreLoopStatus.isRunning ? (
               <button onClick={handleStopLoop} className="btn-danger">
                 <Square className="h-4 w-4 fill-white" />
                 <span>Pause Loop</span>
@@ -283,27 +270,35 @@ const Overview: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {recentGaps.map((gap) => (
-                    <tr key={gap.id}>
-                      <td className="max-w-[200px]">
-                        <div className="font-semibold text-white truncate">{gap.knows}</div>
-                        <div className="text-xs text-neutral-400 truncate mt-0.5">➔ {gap.needs}</div>
-                      </td>
-                      <td>
-                        <span className="badge-gray">{gap.source}</span>
-                      </td>
-                      <td>
-                        <span className={`badge-${
-                          gap.status === 'deployed' ? 'success' :
-                          gap.status === 'pending' ? 'primary' :
-                          gap.status === 'safe' ? 'success' :
-                          gap.status === 'unsafe' ? 'danger' : 'warning'
-                        }`}>
-                          {gap.status}
-                        </span>
+                  {recentGaps.length > 0 ? (
+                    recentGaps.map((gap) => (
+                      <tr key={gap.id}>
+                        <td className="max-w-[200px]">
+                          <div className="font-semibold text-white truncate">{gap.knows}</div>
+                          <div className="text-xs text-neutral-400 truncate mt-0.5">➔ {gap.needs}</div>
+                        </td>
+                        <td>
+                          <span className="badge-gray">{gap.source}</span>
+                        </td>
+                        <td>
+                          <span className={`badge-${
+                            gap.status === 'deployed' ? 'success' :
+                            gap.status === 'pending' ? 'primary' :
+                            gap.status === 'safe' ? 'success' :
+                            gap.status === 'unsafe' ? 'danger' : 'warning'
+                          }`}>
+                            {gap.status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={3} className="text-center py-8 text-neutral-500">
+                        No gaps found
                       </td>
                     </tr>
-                  ))}
+                  )}
                 </tbody>
               </table>
             </div>
@@ -327,27 +322,35 @@ const Overview: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {recentAuditLogs.map((log) => (
-                    <tr key={log.id}>
-                      <td>
-                        <span className={`badge-${
-                          log.decision === 'allow' ? 'success' :
-                          log.decision === 'block' ? 'danger' : 'warning'
-                        }`}>
-                          {log.decision}
-                        </span>
-                      </td>
-                      <td className="max-w-[220px]">
-                        <div className="font-semibold text-white truncate">{log.explanation}</div>
-                        <div className="text-xs text-neutral-400 truncate mt-0.5">{log.reasoning}</div>
-                      </td>
-                      <td>
-                        <span className="text-xs text-neutral-500">
-                          {new Date(log.timestamp).toLocaleTimeString()}
-                        </span>
+                  {recentAuditLogs.length > 0 ? (
+                    recentAuditLogs.map((log) => (
+                      <tr key={log.id}>
+                        <td>
+                          <span className={`badge-${
+                            log.decision === 'allow' ? 'success' :
+                            log.decision === 'block' ? 'danger' : 'warning'
+                          }`}>
+                            {log.decision}
+                          </span>
+                        </td>
+                        <td className="max-w-[220px]">
+                          <div className="font-semibold text-white truncate">{log.explanation}</div>
+                          <div className="text-xs text-neutral-400 truncate mt-0.5">{log.reasoning}</div>
+                        </td>
+                        <td>
+                          <span className="text-xs text-neutral-500">
+                            {new Date(log.timestamp).toLocaleTimeString()}
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={3} className="text-center py-8 text-neutral-500">
+                        No audit logs found
                       </td>
                     </tr>
-                  ))}
+                  )}
                 </tbody>
               </table>
             </div>

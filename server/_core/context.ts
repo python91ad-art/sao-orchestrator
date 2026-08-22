@@ -5,7 +5,14 @@ import { Context } from './trpc';
 
 export async function createContext({ req, res }: CreateExpressContextOptions): Promise<Context> {
   let user = null;
-  const sessionCookie = req.cookies?.[COOKIE_NAME] || req.headers.authorization;
+  const authorization = req.headers.authorization;
+  const bearerToken =
+    authorization?.startsWith('Bearer ')
+      ? authorization.slice(7)
+      : undefined;
+
+  const sessionCookie =
+    req.cookies?.[COOKIE_NAME] || bearerToken;
 
   if (sessionCookie) {
     const verified = verifySession(sessionCookie);

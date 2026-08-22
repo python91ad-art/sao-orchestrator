@@ -2,7 +2,6 @@ import { callLLM, callLLMJson, MODEL_CLASSIFIER, MODEL_BUSINESS_PLAN } from './s
 import * as db from './db';
 import { retryWithExponentialBackoff } from './retryEngine';
 
-let auditInterval: NodeJS.Timeout | null = null;
 
 // ==========================================
 // AUDIT SCHEDULER INITIALIZATION
@@ -11,7 +10,7 @@ export function scheduleAudits() {
   const threeDaysMs = 3 * 24 * 60 * 60 * 1000;
   console.log('Auditor scheduled to check active deployments every 3 days.');
   
-  auditInterval = setInterval(async () => {
+  setInterval(async () => {
     console.log('Starting scheduled 3-day active deployments audit...');
     await auditAllActiveDeployments();
   }, threeDaysMs);

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { RefreshCw, Eye, AlertCircle } from 'lucide-react';
-import { AuditLog } from '../../lib/trpc';
+import { RefreshCw, Eye } from 'lucide-react';
+import { AuditLog, trpc } from '../../lib/trpc';
 
 const AuditLogPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
@@ -8,49 +8,36 @@ const AuditLogPage: React.FC = () => {
   const [selectedLog, setSelectedLog] = useState<AuditLog | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
-  const loadData = async () => {
-    setLoading(true);
-    setTimeout(() => {
-      setLogs([
-        {
-          id: 'log-1',
-          timestamp: new Date(Date.now() - 300000).toISOString(),
-          decision: 'allow',
-          gapId: 'gap-1',
-          deploymentId: 'dep-1',
-          banRisk: 'low',
-          businessHealth: 'healthy',
-          explanation: 'Routine safety analysis confirmed. Proxies and API keys are verified with secure rotations.',
-          reasoning: 'Evaluation against Policy #1 (Compliance with terms of service) completed. Automated request checks found low frequency and correct User-Agent distributions. No further review required.'
-        },
-        {
-          id: 'log-2',
-          timestamp: new Date(Date.now() - 900000).toISOString(),
-          decision: 'review',
-          gapId: 'gap-3',
-          banRisk: 'medium',
-          businessHealth: 'warning',
-          explanation: 'Bypass parameters triggered cloud security thresholds on proxy router tests.',
-          reasoning: 'Header validation flags on Reddit API scraper. Recommendation: Throttle execution loop to 15-minute staggered intervals and acknowledge safety manual review.'
-        },
-        {
-          id: 'log-3',
-          timestamp: new Date(Date.now() - 3600000).toISOString(),
-          decision: 'block',
-          gapId: 'gap-4',
-          banRisk: 'high',
-          businessHealth: 'critical',
-          explanation: 'Potential anti-bot or account suspension risks flagged during dry-run checkout tests.',
-          reasoning: 'Critical Policy Violation: Direct scraping of sensitive, authenticated personal user streams was attempted without correct OAuth fallback credentials. Shutting down queue orchestrator thread immediately.'
-        }
-      ]);
-      setLoading(false);
-    }, 500);
-  };
+  const auditQuery = trpc.audit.list.useQuery({
+    limit: 100,
+    skip: 0,
+  });
 
   useEffect(() => {
-    loadData();
-  }, []);
+    setLoading(auditQuery.isLoading);
+
+    if (auditQuery.data) {
+      setLogs(
+        auditQuery.data.map(log => ({
+          ...log,
+          gapId: log.gapId ?? undefined,
+          deploymentId: log.deploymentId ?? undefined,
+          decision: log.decision as AuditLog["decision"],
+        }))
+      );
+    }
+  }, [auditQuery.data, auditQuery.isLoading]);
+
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      await auditQuery.refetch();
+    } catch (error) {
+      console.error('[AuditLog] Failed to load audit logs:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const openModal = (log: AuditLog) => {
     setSelectedLog(log);

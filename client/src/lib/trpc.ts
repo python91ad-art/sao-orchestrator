@@ -1,4 +1,5 @@
 import { createTRPCReact } from '@trpc/react-query';
+import type { AppRouter as ServerAppRouter } from "../../../server/routers";
 
 // ==========================================
 // TYPE DEFINITIONS
@@ -11,7 +12,7 @@ export interface Gap {
   controlsAccess: string;
   underestimatesValue: string;
   source: string;
-  status: 'safe' | 'unsafe' | 'gray' | 'false' | 'pending' | 'deployed';
+  status: 'pending' | 'processing' | 'safe' | 'unsafe' | 'gray' | 'false' | 'deployed' | 'failed';
   priority: number;
   createdAt: string;
 }
@@ -52,7 +53,7 @@ export interface AuditLog {
   gapId?: string;
   deploymentId?: string;
   banRisk: 'low' | 'medium' | 'high';
-  businessHealth: 'healthy' | 'warning' | 'critical';
+  businessHealth: 'healthy' | 'warning' | 'critical' | null;
   explanation: string;
   reasoning: string;
 }
@@ -104,22 +105,27 @@ export type AppRouter = {
   };
   queue: {
     list: { query: () => Promise<QueueItem[]> };
-    reorder: { mutate: (input: { id: string; direction: 'up' | 'down' }) => Promise<void> };
-    togglePause: { mutate: (input: { id: string }) => Promise<void> };
-    delete: { mutate: (input: { id: string }) => Promise<void> };
-    retry: { mutate: (input: { id: string }) => Promise<void> };
-    updateQueueItem: { mutate: (input: { id: string; priority: number }) => Promise<void> };
+    moveUp: { mutate: (input: string) => Promise<{ success: boolean }> };
+    moveDown: { mutate: (input: string) => Promise<{ success: boolean }> };
+    pause: { mutate: (input: string) => Promise<{ success: boolean }> };
+    resume: { mutate: (input: string) => Promise<{ success: boolean }> };
+    delete: { mutate: (input: string) => Promise<{ success: boolean }> };
+    retry: { mutate: (input: string) => Promise<{ success: boolean }> };
+    updatePriority: { mutate: (input: { id: string; priority: number }) => Promise<{ success: boolean }> };
     stats: { query: () => Promise<any> };
   };
   deployments: {
     list: { query: () => Promise<Deployment[]> };
-    togglePause: { mutate: (input: { id: string }) => Promise<void> };
-    stop: { mutate: (input: { id: string }) => Promise<void> };
-    audit: { mutate: (input: { id: string }) => Promise<void> };
-    stopAll: { mutate: () => Promise<void> };
-    resumeAll: { mutate: () => Promise<void> };
+    get: { query: (input: string) => Promise<Deployment> };
+    pause: { mutate: (input: string) => Promise<{ success: boolean }> };
+    resume: { mutate: (input: string) => Promise<{ success: boolean }> };
+    stop: { mutate: (input: string) => Promise<{ success: boolean }> };
+    stopAll: { mutate: () => Promise<{ success: boolean }> };
+    resumeAll: { mutate: () => Promise<{ success: boolean }> };
+    audit: { mutate: (input: string) => Promise<{ success: boolean }> };
+    stats: { query: () => Promise<any> };
   };
-  auditLogs: {
+  audit: {
     list: { query: (input?: { limit?: number; skip?: number }) => Promise<AuditLog[]> };
   };
   policies: {
@@ -169,7 +175,7 @@ export type AppRouter = {
   };
 };
 
-export const trpc = createTRPCReact<AppRouter>();
+export const trpc = createTRPCReact<ServerAppRouter>();
 
 // ==========================================
 // tRPC HTTP CLIENT HELPER
@@ -180,7 +186,7 @@ export const trpc = createTRPCReact<AppRouter>();
  * tRPC wraps responses in { result: { data: ... } }.
  */
 export async function trpcQuery<T = any>(procedure: string): Promise<T> {
-  const response = await fetch(`/api/trpc/${procedure}`);
+  const response = await fetch(`/api/trpc/${procedure}`, { credentials: 'include' });
   if (!response.ok) {
     throw new Error(`tRPC request failed (${response.status})`);
   }
@@ -198,6 +204,7 @@ export async function trpcQuery<T = any>(procedure: string): Promise<T> {
 export async function trpcMutation<T = any>(procedure: string, input: any): Promise<T> {
   const response = await fetch(`/api/trpc/${procedure}`, {
     method: 'POST',
+    credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
   });

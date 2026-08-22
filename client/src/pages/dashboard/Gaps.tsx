@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, HelpCircle, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
-import { Gap } from '../../lib/trpc';
+import { Plus, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
+import { Gap, trpc } from '../../lib/trpc';
 
 const Gaps: React.FC = () => {
   const [loading, setLoading] = useState(true);
@@ -17,79 +17,48 @@ const Gaps: React.FC = () => {
   const [source, setSource] = useState('manual');
   const [priority, setPriority] = useState<number>(5);
 
-  const loadData = async () => {
-    setLoading(true);
-    setTimeout(() => {
-      setGaps([
-        {
-          id: 'gap-1',
-          knows: 'Crypto whale alpha channels',
-          needs: 'Institutional slippage protection API',
-          controlsAccess: 'Telegram private community',
-          underestimatesValue: 'Direct bot routers',
-          source: 'Twitter Stream API',
-          status: 'deployed',
-          priority: 10,
-          createdAt: new Date(Date.now() - 3600000 * 2).toISOString()
-        },
-        {
-          id: 'gap-2',
-          knows: 'Stripe webhook latency details',
-          needs: 'Local high-frequency retriers',
-          controlsAccess: 'Stripe platform',
-          underestimatesValue: 'Bootstrapped SaaS founders',
-          source: 'manual',
-          status: 'pending',
-          priority: 8,
-          createdAt: new Date(Date.now() - 3600000 * 5).toISOString()
-        },
-        {
-          id: 'gap-3',
-          knows: 'Ticketmaster pre-queue patterns',
-          needs: 'Parallel checkout containers',
-          controlsAccess: 'Cloudflare bypass headers',
-          underestimatesValue: 'Casual event-goers',
-          source: 'Discord webhook',
-          status: 'gray',
-          priority: 5,
-          createdAt: new Date(Date.now() - 3600000 * 12).toISOString()
-        },
-        {
-          id: 'gap-4',
-          knows: 'Reddit meme-stock trends database',
-          needs: 'High frequency order execution engine',
-          controlsAccess: 'Reddit API Gatekeeper',
-          underestimatesValue: 'Retail traders',
-          source: 'manual',
-          status: 'unsafe',
-          priority: 8,
-          createdAt: new Date(Date.now() - 3600000 * 48).toISOString()
-        }
-      ]);
-      setLoading(false);
-    }, 500);
-  };
+  const gapsQuery = trpc.gaps.list.useQuery({ limit: 100, skip: 0 });
+
+  const createMutation = trpc.gaps.create.useMutation();
+  const retryMutation = trpc.gaps.retry.useMutation();
+
+  const gapsData = gapsQuery.data ?? [];
 
   useEffect(() => {
-    loadData();
-  }, []);
+    setGaps(gapsData);
+    setLoading(gapsQuery.isLoading);
+  }, [gapsQuery.data, gapsQuery.isLoading]);
 
-  const handleAddGap = (e: React.FormEvent) => {
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      await gapsQuery.refetch();
+    } catch (error) {
+      console.error('[Gaps] Failed to load gaps:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAddGap = async (e: React.FormEvent) => {
     e.preventDefault();
-    const newGap: Gap = {
-      id: `gap-${Date.now()}`,
-      knows,
-      needs,
-      controlsAccess,
-      underestimatesValue,
-      source,
-      status: 'pending',
-      priority,
-      createdAt: new Date().toISOString()
-    };
+    try {
+      const created = await createMutation.mutateAsync({
+        knows,
+        needs,
+        controlsAccess,
+        underestimatesValue,
+        source,
+        priority,
+      });
 
-    setGaps([newGap, ...gaps]);
-    setIsAddModalOpen(false);
+      setGaps(prev => [created, ...prev]);
+      setIsAddModalOpen(false);
+    } catch (error) {
+      console.error('[Gaps] Failed to create gap:', error);
+      alert('Failed to create gap.');
+      return;
+    }
     setKnows('');
     setNeeds('');
     setControlsAccess('');
@@ -97,9 +66,16 @@ const Gaps: React.FC = () => {
     setSource('manual');
   };
 
-  const handleRetry = (id: string) => {
-    alert(`Retrying safety checks and planning loops for gap ID: ${id}`);
-    setGaps(gaps.map(g => g.id === id ? { ...g, status: 'pending' } : g));
+  const handleRetry = async (id: string) => {
+    try {
+      await retryMutation.mutateAsync(id);
+      setGaps(prev =>
+        prev.map(g => g.id === id ? { ...g, status: 'pending' } : g)
+      );
+    } catch (error) {
+      console.error('[Gaps] Failed to retry gap:', error);
+      alert('Failed to retry gap.');
+    }
   };
 
   const toggleRow = (id: string) => {

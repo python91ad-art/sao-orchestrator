@@ -9,57 +9,83 @@ export function useWebSocket() {
   const [connected, setConnected] = useState(false);
   const [lastEvent, setLastEvent] = useState<WSEvent | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws`;
+    let stopped = false;
 
-    try {
-      const ws = new WebSocket(wsUrl);
-      wsRef.current = ws;
+    const connect = () => {
+      if (stopped) return;
 
-      ws.onopen = () => {
-        setConnected(true);
-        console.log('[WS] Connected');
-      };
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${window.location.host}/ws`;
 
-      ws.onmessage = (event) => {
-        try {
-          const parsed = JSON.parse(event.data);
-          if (parsed.type && parsed.type !== 'pong') {
-            setLastEvent({ type: parsed.type, data: parsed.data || parsed });
+      try {
+        const ws = new WebSocket(wsUrl);
+        wsRef.current = ws;
+
+        ws.onopen = () => {
+          setConnected(true);
+          console.log('[WS] Connected');
+        };
+
+        ws.onmessage = (event) => {
+          try {
+            const parsed = JSON.parse(event.data);
+            if (parsed.type && parsed.type !== 'pong') {
+              setLastEvent({
+                type: parsed.type,
+                data: parsed.data || parsed,
+              });
+            }
+          } catch {
+            // Ignore non-JSON messages.
           }
-        } catch {
-          // ignore non-JSON messages
-        }
-      };
+        };
 
-      ws.onclose = () => {
+        ws.onclose = () => {
+          setConnected(false);
+
+          if (!stopped) {
+            console.log('[WS] Disconnected, reconnecting in 3s...');
+            reconnectTimerRef.current = setTimeout(connect, 3000);
+          }
+        };
+
+        ws.onerror = () => {
+          setConnected(false);
+        };
+      } catch {
         setConnected(false);
-        console.log('[WS] Disconnected, reconnecting in 3s...');
-        setTimeout(() => {
-          // auto-reconnect
-        }, 3000);
-      };
 
-      ws.onerror = () => {
-        setConnected(false);
-      };
-
-      // Ping every 30s to keep connection alive
-      const pingInterval = setInterval(() => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ action: 'ping' }));
+        if (!stopped) {
+          reconnectTimerRef.current = setTimeout(connect, 3000);
         }
-      }, 30000);
+      }
+    };
 
-      return () => {
-        clearInterval(pingInterval);
-        ws.close();
-      };
-    } catch {
-      // WebSocket not available (dev environment without WS server)
-    }
+    connect();
+
+    const pingInterval = setInterval(() => {
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ action: 'ping' }));
+      }
+    }, 30000);
+
+    return () => {
+      stopped = true;
+
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+      }
+
+      clearInterval(pingInterval);
+
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+    };
   }, []);
 
   return { connected, lastEvent };

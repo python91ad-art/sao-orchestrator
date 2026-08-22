@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Check, Trash2, ShieldCheck, AlertCircle, RefreshCw } from 'lucide-react';
+import { Plus, Check, Trash2, ShieldCheck, AlertCircle } from 'lucide-react';
 import { Policy } from '../../lib/trpc';
 
 const Policies: React.FC = () => {

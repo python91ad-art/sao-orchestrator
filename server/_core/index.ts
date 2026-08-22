@@ -12,6 +12,7 @@ import { appRouter } from '../routers';
 import * as db from '../db';
 import { withRetry, databaseUrlResolved } from '../db';
 import { scheduleAudits } from '../auditScheduler';
+import { startCoreLoop } from '../orchestrator';
 import { initWebSocketServer } from '../websocket';
 import { createServer } from 'http';
 
@@ -179,6 +180,15 @@ async function bootstrap() {
       3000
     );
     console.log('Database and Core Loop State successfully initialized.');
+
+    const coreLoopState = await db.getCoreLoopState();
+
+    if (coreLoopState?.isRunning) {
+      await startCoreLoop();
+      console.log('Core Loop was previously running — startup/recovery completed.');
+    } else {
+      console.log('Core Loop was previously stopped — leaving it stopped.');
+    }
 
     scheduleAudits();
 

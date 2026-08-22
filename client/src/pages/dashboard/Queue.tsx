@@ -1,183 +1,79 @@
-import React, { useState, useEffect } from 'react';
-import { Play, Pause, Trash2, RefreshCw, ChevronDown, ChevronUp, AlertCircle } from 'lucide-react';
-import { QueueItem } from '../../lib/trpc';
+import React, { useState } from 'react';
+import { Play, Pause, Trash2, RefreshCw, AlertCircle } from 'lucide-react';
+import { trpc } from '../../lib/trpc';
 
 const Queue: React.FC = () => {
-  const [loading, setLoading] = useState(true);
-  const [queue, setQueue] = useState<QueueItem[]>([]);
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
   const [queueTypeFilter, setQueueTypeFilter] = useState<string>('all');
 
-  const loadData = async () => {
-    setLoading(true);
-    setTimeout(() => {
-      setQueue([
-        {
-          id: 'q-1',
-          gapId: 'gap-1',
-          status: 'processing',
-          queueType: 'synthesis',
-          priority: 10,
-          attempts: 1,
-          maxAttempts: 5,
-          sortOrder: 1,
-          dedupHash: '0xabc1237890ef',
-          createdAt: new Date(Date.now() - 1200000).toISOString(),
-          updatedAt: new Date(Date.now() - 1200000).toISOString(),
-          gap: {
-            id: 'gap-1',
-            knows: 'Crypto whale alpha channels',
-            needs: 'Institutional slippage protection API',
-            controlsAccess: 'Telegram private community',
-            underestimatesValue: 'Direct bot routers',
-            source: 'Twitter Stream API',
-            status: 'deployed',
-            priority: 10,
-            createdAt: new Date().toISOString()
-          }
-        },
-        {
-          id: 'q-2',
-          gapId: 'gap-2',
-          status: 'pending',
-          queueType: 'synthesis',
-          priority: 8,
-          attempts: 0,
-          maxAttempts: 5,
-          sortOrder: 2,
-          dedupHash: '0xdef456123abc',
-          createdAt: new Date(Date.now() - 3600000).toISOString(),
-          updatedAt: new Date(Date.now() - 3600000).toISOString(),
-          gap: {
-            id: 'gap-2',
-            knows: 'Stripe webhook latency details',
-            needs: 'Local high-frequency retriers',
-            controlsAccess: 'Stripe platform',
-            underestimatesValue: 'Bootstrapped SaaS founders',
-            source: 'manual',
-            status: 'pending',
-            priority: 8,
-            createdAt: new Date().toISOString()
-          }
-        },
-        {
-          id: 'q-3',
-          gapId: 'gap-3',
-          status: 'paused',
-          queueType: 'audit',
-          priority: 5,
-          attempts: 0,
-          maxAttempts: 5,
-          sortOrder: 3,
-          dedupHash: '0x9876543210fe',
-          createdAt: new Date(Date.now() - 7200000).toISOString(),
-          updatedAt: new Date(Date.now() - 7200000).toISOString(),
-          gap: {
-            id: 'gap-3',
-            knows: 'Ticketmaster pre-queue patterns',
-            needs: 'Parallel checkout containers',
-            controlsAccess: 'Cloudflare bypass headers',
-            underestimatesValue: 'Casual event-goers',
-            source: 'Discord webhook',
-            status: 'gray',
-            priority: 5,
-            createdAt: new Date().toISOString()
-          }
-        },
-        {
-          id: 'q-4',
-          gapId: 'gap-4',
-          status: 'failed',
-          queueType: 'deployment',
-          priority: 8,
-          attempts: 5,
-          maxAttempts: 5,
-          sortOrder: 4,
-          dedupHash: '0xdeadbeef789a',
-          lastError: 'Max attempts reached. Plan synthesis generated conflicting logic.',
-          createdAt: new Date(Date.now() - 86400000).toISOString(),
-          updatedAt: new Date(Date.now() - 86400000).toISOString(),
-          gap: {
-            id: 'gap-4',
-            knows: 'Reddit meme-stock trends database',
-            needs: 'High frequency order execution engine',
-            controlsAccess: 'Reddit API Gatekeeper',
-            underestimatesValue: 'Retail traders',
-            source: 'manual',
-            status: 'unsafe',
-            priority: 8,
-            createdAt: new Date().toISOString()
-          }
-        }
-      ]);
-      setLoading(false);
-    }, 500);
+  const queueQuery = trpc.queue.list.useQuery();
+  const queueStatsQuery = trpc.queue.stats.useQuery();
+
+  const moveUpMutation = trpc.queue.moveUp.useMutation();
+  const moveDownMutation = trpc.queue.moveDown.useMutation();
+  const pauseMutation = trpc.queue.pause.useMutation();
+  const resumeMutation = trpc.queue.resume.useMutation();
+  const deleteMutation = trpc.queue.delete.useMutation();
+  const retryMutation = trpc.queue.retry.useMutation();
+
+  const queue = (queueQuery.data ?? []).map(({ queueItem, gap }) => ({
+    ...queueItem,
+    gap,
+  }));
+  const loading = queueQuery.isLoading;
+
+  const refreshQueue = async () => {
+    await Promise.all([
+      queueQuery.refetch(),
+      queueStatsQuery.refetch(),
+    ]);
   };
 
-  useEffect(() => {
-    loadData();
-  }, []);
 
-  const handleMove = (id: string, direction: 'up' | 'down') => {
-    const index = queue.findIndex(item => item.id === id);
-    if (index === -1) return;
-    const nextIndex = direction === 'up' ? index - 1 : index + 1;
-    if (nextIndex < 0 || nextIndex >= queue.length) return;
-
-    const newQueue = [...queue];
-    const temp = newQueue[index];
-    newQueue[index] = newQueue[nextIndex];
-    newQueue[nextIndex] = temp;
-
-    // Update sort order values dynamically
-    const reordered = newQueue.map((item, i) => ({ ...item, sortOrder: i + 1 }));
-    setQueue(reordered);
+  const handleMove = async (id: string, direction: 'up' | 'down') => {
+    if (direction === 'up') {
+      await moveUpMutation.mutateAsync(id);
+    } else {
+      await moveDownMutation.mutateAsync(id);
+    }
+    await refreshQueue();
   };
 
-  const handleTogglePause = (id: string) => {
-    setQueue(queue.map(item => {
-      if (item.id === id) {
-        return {
-          ...item,
-          status: item.status === 'paused' ? 'pending' : 'paused'
-        };
-      }
-      return item;
-    }));
+  const handleTogglePause = async (id: string, status: string) => {
+    if (status === 'paused') {
+      await resumeMutation.mutateAsync(id);
+    } else {
+      await pauseMutation.mutateAsync(id);
+    }
+    await refreshQueue();
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (confirm('Are you sure you want to remove this item from the pipeline queue?')) {
-      setQueue(queue.filter(item => item.id !== id));
+      await deleteMutation.mutateAsync(id);
+      await refreshQueue();
     }
   };
 
-  const handleRetry = (id: string) => {
-    setQueue(queue.map(item => {
-      if (item.id === id) {
-        return {
-          ...item,
-          status: 'pending',
-          attempts: 0,
-          lastError: undefined
-        };
-      }
-      return item;
-    }));
+  const handleRetry = async (id: string) => {
+    await retryMutation.mutateAsync(id);
+    await refreshQueue();
   };
 
   const toggleRow = (id: string) => {
     setExpandedRow(expandedRow === id ? null : id);
   };
 
-  // Compute Statistics
+  // Real queue statistics from the backend
+  const backendStats = queueStatsQuery.data;
+
   const stats = {
-    total: queue.length,
-    pending: queue.filter(q => q.status === 'pending').length,
-    processing: queue.filter(q => q.status === 'processing').length,
-    paused: queue.filter(q => q.status === 'paused').length,
-    completed: queue.filter(q => q.status === 'completed').length,
-    failed: queue.filter(q => q.status === 'failed').length,
+    total: backendStats?.total ?? queue.length,
+    pending: backendStats?.pending ?? queue.filter(q => q.status === 'pending').length,
+    processing: backendStats?.processing ?? queue.filter(q => q.status === 'processing').length,
+    paused: backendStats?.paused ?? queue.filter(q => q.status === 'paused').length,
+    completed: backendStats?.completed ?? queue.filter(q => q.status === 'completed').length,
+    failed: backendStats?.failed ?? queue.filter(q => q.status === 'failed').length,
   };
 
   if (loading) {
@@ -209,7 +105,7 @@ const Queue: React.FC = () => {
             <option value="audit">Audit</option>
             <option value="maintenance">Maintenance</option>
           </select>
-          <button onClick={loadData} className="btn-secondary">
+          <button onClick={refreshQueue} className="btn-secondary">
             <RefreshCw className="h-4 w-4" />
             <span>Reload Queue</span>
           </button>
@@ -371,7 +267,7 @@ const Queue: React.FC = () => {
                         <td className="text-right">
                           <div className="flex items-center justify-end gap-1.5">
                             <button
-                              onClick={() => handleTogglePause(item.id)}
+                              onClick={() => handleTogglePause(item.id, item.status)}
                               className="btn-secondary p-1.5"
                               title={item.status === 'paused' ? 'Resume Processing' : 'Pause Processing'}
                             >

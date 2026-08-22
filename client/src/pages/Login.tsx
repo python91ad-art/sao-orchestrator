@@ -2,14 +2,12 @@ import React, { useState } from 'react';
 import { useAuth } from '../hooks/useAuth';
 
 const Login: React.FC = () => {
-  const { login, register, requestReset, resetPassword } = useAuth();
-  const [isRegister, setIsRegister] = useState(false);
+  const { login, requestReset, resetPassword } = useAuth();
   const [isResetMode, setIsResetMode] = useState(false);
   const [isResetConfirmMode, setIsResetConfirmMode] = useState(false);
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [name, setName] = useState('');
   const [code, setCode] = useState('');
   const [newPassword, setNewPassword] = useState('');
 
@@ -30,15 +28,11 @@ const Login: React.FC = () => {
         setSuccess('Password updated successfully. You can now login.');
         setIsResetConfirmMode(false);
         setIsResetMode(false);
-        setIsRegister(false);
       } else if (isResetMode) {
         if (!email) throw new Error('Email is required.');
         await requestReset(email);
         setSuccess('Verification code sent to your email.');
         setIsResetConfirmMode(true);
-      } else if (isRegister) {
-        if (!name || !email || !password) throw new Error('All fields are required.');
-        await register(name, email, password);
       } else {
         if (!email || !password) throw new Error('Email and password are required.');
         await login(email, password);
@@ -62,19 +56,20 @@ const Login: React.FC = () => {
               ? 'Enter Reset Code'
               : isResetMode
               ? 'Reset Password'
-              : isRegister
-              ? 'Create your account'
               : 'Sign in to SAO'}
           </h2>
           <p className="mt-2 text-sm text-neutral-400">
             {isResetConfirmMode
-              ? 'Check your inbox for a 6-digit confirmation code'
+              ? 'Check your inbox for a 6‑digit confirmation code'
               : isResetMode
               ? 'We will send you an OTP to reset your password'
-              : isRegister
-              ? 'Join the Situational Arbitrage Orchestrator'
               : 'Orchestrate asymmetric market opportunities'}
           </p>
+          {!isResetMode && !isResetConfirmMode && (
+            <p className="mt-1 text-xs text-neutral-500">
+              Registration is by invitation only.
+            </p>
+          )}
         </div>
 
         <div className="card-bold">
@@ -91,21 +86,6 @@ const Login: React.FC = () => {
             )}
 
             <div className="space-y-4">
-              {isRegister && !isResetMode && !isResetConfirmMode && (
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">
-                    Full Name
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="Enter your name"
-                  />
-                </div>
-              )}
-
               {!isResetConfirmMode && (
                 <div>
                   <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">
@@ -193,8 +173,6 @@ const Login: React.FC = () => {
                   'Reset Password'
                 ) : isResetMode ? (
                   'Send Reset Code'
-                ) : isRegister ? (
-                  'Sign Up'
                 ) : (
                   'Sign In'
                 )}
@@ -202,8 +180,8 @@ const Login: React.FC = () => {
             </div>
           </form>
 
-          <div className="mt-6 border-t border-neutral-800 pt-6 text-center">
-            {isResetMode || isResetConfirmMode ? (
+          {(isResetMode || isResetConfirmMode) && (
+            <div className="mt-6 border-t border-neutral-800 pt-6 text-center">
               <button
                 onClick={() => {
                   setIsResetMode(false);
@@ -215,19 +193,8 @@ const Login: React.FC = () => {
               >
                 Back to Login
               </button>
-            ) : (
-              <button
-                onClick={() => {
-                  setIsRegister(!isRegister);
-                  setError(null);
-                  setSuccess(null);
-                }}
-                className="text-sm font-medium text-purple-400 hover:text-purple-300 transition-colors"
-              >
-                {isRegister ? 'Already have an account? Sign in' : "Don't have an account? Sign up"}
-              </button>
-            )}
-          </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { RefreshCw, TrendingUp, Activity, Filter, Zap } from 'lucide-react';
+import { trpc } from '../../lib/trpc';
 
 const Analytics: React.FC = () => {
   const [loading, setLoading] = useState(true);
@@ -7,36 +8,72 @@ const Analytics: React.FC = () => {
   const [funnel, setFunnel] = useState<any>(null);
   const [recentActivity, setRecentActivity] = useState<any[]>([]);
 
-  const loadData = async () => {
-    setLoading(true);
-    setTimeout(() => {
-      setAnalytics({
-        gaps: { total: 42, deployed: 12, safe: 18, unsafe: 6, gray: 4, pending: 2 },
-        queue: { total: 28, completed: 15, failed: 3, pending: 7, processing: 3, synthesis: 20, deployment: 5, audit: 3, maintenance: 0 },
-        deployments: { total: 12, active: 8, paused: 3, stopped: 1, totalRevenue: 4580.50 },
-        audits: { total: 38, safe: 18, unsafe: 6, gray: 4, false: 10 },
-      });
-      setFunnel({
-        totalGaps: 42,
-        queuedGaps: 28,
-        classifiedGaps: 38,
-        deployedGaps: 12,
-        conversionRate: { toQueue: '66.7', toClassified: '82.1', toDeployed: '31.6' },
-      });
-      setRecentActivity([
-        { id: '1', gapId: 'gap-1', decision: 'safe', banRisk: 'low', timestamp: new Date(Date.now() - 600000).toISOString() },
-        { id: '2', gapId: 'gap-2', decision: 'unsafe', banRisk: 'high', timestamp: new Date(Date.now() - 1800000).toISOString() },
-        { id: '3', gapId: 'gap-3', decision: 'gray', banRisk: 'medium', timestamp: new Date(Date.now() - 3600000).toISOString() },
-        { id: '4', gapId: 'gap-1', decision: 'safe', banRisk: 'low', timestamp: new Date(Date.now() - 7200000).toISOString() },
-        { id: '5', gapId: 'gap-4', decision: 'false', banRisk: 'low', timestamp: new Date(Date.now() - 10800000).toISOString() },
-      ]);
-      setLoading(false);
-    }, 500);
-  };
+  const analyticsQuery = trpc.analytics.overview.useQuery();
 
   useEffect(() => {
-    loadData();
-  }, []);
+    setLoading(analyticsQuery.isLoading);
+
+    const data = analyticsQuery.data;
+
+    if (!data) return;
+
+    setAnalytics({
+      gaps: {
+        total: data.totalGaps || 0,
+        ...(data.gapsByStatus || {}),
+      },
+      queue: {
+        ...(data.queue || {}),
+      },
+      deployments: {
+        total: Object.values(data.deploymentsByStatus || {})
+          .reduce(
+            (sum: number, value: any) => sum + Number(value || 0),
+            0
+          ),
+        ...(data.deploymentsByStatus || {}),
+        totalRevenue: Number(data.totalRevenue || 0),
+      },
+      audits: {
+        ...(data.audits || {}),
+      },
+    });
+
+    const totalGaps = Number(data.totalGaps || 0);
+    const queuedGaps = Number(data.queue?.total || 0);
+    const deployedGaps = Number(
+      data.deploymentsByStatus?.active || 0
+    );
+
+    setFunnel({
+      totalGaps,
+      queuedGaps,
+      classifiedGaps: totalGaps,
+      deployedGaps,
+      conversionRate: {
+        toQueue: totalGaps
+          ? ((queuedGaps / totalGaps) * 100).toFixed(1)
+          : '0.0',
+        toClassified: totalGaps ? '100.0' : '0.0',
+        toDeployed: totalGaps
+          ? ((deployedGaps / totalGaps) * 100).toFixed(1)
+          : '0.0',
+      },
+    });
+
+    setRecentActivity([]);
+  }, [analyticsQuery.data, analyticsQuery.isLoading]);
+
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      await analyticsQuery.refetch();
+    } catch (error) {
+      console.error('[Analytics] Failed to load analytics:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -47,8 +84,11 @@ const Analytics: React.FC = () => {
   }
 
   const gapData = analytics?.gaps || {};
+
   const queueData = analytics?.queue || {};
+
   const deployData = analytics?.deployments || {};
+
   const auditData = analytics?.audits || {};
 
   return (
@@ -70,7 +110,7 @@ const Analytics: React.FC = () => {
         <div className="card-bold p-5 text-center">
           <p className="text-[10px] font-bold uppercase tracking-wider text-neutral-400 mb-1">Total Revenue</p>
           <p className="text-2xl font-black text-white">${Number(deployData.totalRevenue || 0).toLocaleString()}</p>
-          <p className="text-[10px] text-emerald-400 mt-1">↗ {deployData.active || 0} active deployments</p>
+          <p className="text-[10px] text-emerald-400 mt-1">↗ {analytics?.activeDeployments || 0} active deployments</p>
         </div>
         <div className="card-bold p-5 text-center">
           <p className="text-[10px] font-bold uppercase tracking-wider text-neutral-400 mb-1">Gaps Discovered</p>

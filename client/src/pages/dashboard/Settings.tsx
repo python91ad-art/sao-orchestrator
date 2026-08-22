@@ -1,8 +1,10 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Save, RotateCcw, Key, ShieldCheck, DollarSign, Bell } from 'lucide-react';
-import { trpcQuery, type IntegrationTestResult } from '../../lib/trpc';
+import { trpcQuery, trpcMutation, type IntegrationTestResult } from '../../lib/trpc';
+import { trpc } from '../../lib/trpc';
 
 const Settings: React.FC = () => {
+  const resetOperationalDataMutation = trpc.coreLoop.resetOperationalData.useMutation();
   // Retry Config state
   const [maxAttempts, setMaxAttempts] = useState(3);
   const [backoffMultiplier, setBackoffMultiplier] = useState(1.5);
@@ -19,6 +21,127 @@ const Settings: React.FC = () => {
   const [concurrencySaved, setConcurrencySaved] = useState(false);
   // Loop Settings
   const [intervalMs, setIntervalMs] = useState<number>(10800000);
+
+  // Load authoritative runtime configuration from the backend.
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const state: any = await trpcQuery('coreLoop.status');
+
+        if (cancelled || !state) {
+          return;
+        }
+
+        if (typeof state.intervalMs === 'number') {
+          setIntervalMs(state.intervalMs);
+        }
+
+        if (state.maxCostPerDay !== undefined) {
+          setMaxCost(Number(state.maxCostPerDay));
+        }
+
+        if (typeof state.maxDeployments === 'number') {
+          setMaxDeployments(state.maxDeployments);
+        }
+
+        if (typeof state.autoPauseOnHighBanRisk === 'boolean') {
+          setAutoPause(state.autoPauseOnHighBanRisk);
+        }
+
+        if (typeof state.emailNotifications === 'boolean') {
+          setEmailNotify(state.emailNotifications);
+        }
+
+        if (typeof state.slackNotifications === 'boolean') {
+          setSlackNotify(state.slackNotifications);
+        }
+      } catch (error) {
+        console.error('[Settings] Failed to load runtime configuration:', error);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Load persisted concurrency configuration.
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const value: any = await trpcQuery('settings.getConcurrency');
+
+        if (!cancelled && typeof value?.concurrency === 'number') {
+          setConcurrencyLevel(value.concurrency);
+        }
+      } catch (error) {
+        console.error('[Settings] Failed to load concurrency:', error);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Load persisted retry configuration.
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const value: any = await trpcQuery('settings.getRetryConfig');
+
+        if (!cancelled && value) {
+          if (typeof value.maxAttempts === 'number') {
+            setMaxAttempts(value.maxAttempts);
+          }
+          if (typeof value.backoffMultiplier === 'number') {
+            setBackoffMultiplier(value.backoffMultiplier);
+          }
+          if (typeof value.baseDelayMs === 'number') {
+            setBaseDelayMs(value.baseDelayMs);
+          }
+        }
+      } catch (error) {
+        console.error('[Settings] Failed to load retry configuration:', error);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Load persisted queue limits.
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const value: any = await trpcQuery('settings.getQueueLimits');
+
+        if (!cancelled && value) {
+          if (typeof value.maxSize === 'number') {
+            setQueueMaxSize(value.maxSize);
+          }
+          if (typeof value.expirationHours === 'number') {
+            setQueueExpirationHours(value.expirationHours);
+          }
+        }
+      } catch (error) {
+        console.error('[Settings] Failed to load queue limits:', error);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // API Keys (Free APIs)
   const [groqKey, setGroqKey] = useState<string>(() => localStorage.getItem('sao_key_groq') || '');
@@ -42,25 +165,67 @@ const Settings: React.FC = () => {
   const [testing, setTesting] = useState<string | null>(null);
   const [testResults, setTestResults] = useState<Record<string, IntegrationTestResult | null>>({});
 
-  const handleSave = () => {
-    localStorage.setItem('sao_key_groq', groqKey);
-    localStorage.setItem('sao_key_google_search', googleSearchKey);
-    localStorage.setItem('sao_key_google_cx', googleSearchCx);
-    localStorage.setItem('sao_key_github', githubKey);
-    localStorage.setItem('sao_key_slack', slackKey);
-    localStorage.setItem('sao_key_resend', resendKey);
-    localStorage.setItem('sao_key_stripe', stripeKey);
-    alert('Settings saved! All API keys stored locally.');
+  const handleSave = async () => {
+    try {
+      // Browser-local API keys remain local.
+      localStorage.setItem('sao_key_groq', groqKey);
+      localStorage.setItem('sao_key_google_search', googleSearchKey);
+      localStorage.setItem('sao_key_google_cx', googleSearchCx);
+      localStorage.setItem('sao_key_github', githubKey);
+      localStorage.setItem('sao_key_slack', slackKey);
+      localStorage.setItem('sao_key_resend', resendKey);
+      localStorage.setItem('sao_key_stripe', stripeKey);
+
+      // Runtime configuration is persisted by the backend.
+      await trpcMutation('settings.save', {
+        intervalMs,
+        maxCostPerDay: maxCost,
+        maxDeployments,
+        autoPauseOnHighBanRisk: autoPause,
+        emailNotifications: emailNotify,
+        slackNotifications: slackNotify,
+      });
+
+      alert('Settings saved and applied to the application.');
+    } catch (error: any) {
+      console.error('[Settings] Failed to save configuration:', error);
+      alert(`Settings could not be saved: ${error?.message || 'Unknown error'}`);
+    }
   };
 
-  const handleReset = () => {
-    if (confirm('Are you sure you want to restore default configuration states?')) {
-      setIntervalMs(10800000);
-      setMaxCost(50.00);
-      setMaxDeployments(10);
-      setAutoPause(true);
-      setEmailNotify(true);
-      setSlackNotify(false);
+  const handleReset = async () => {
+    if (!confirm(
+      'RESET OPERATIONAL DATA?\\n\\n' +
+      'This will permanently delete all gaps, queue items, deployments, audit logs, health checks, and recurring actors.\\n\\n' +
+      'Users, policies, invitations, and application configuration will be preserved.\\n\\n' +
+      'This action cannot be undone.'
+    )) {
+      return;
+    }
+
+    try {
+      await resetOperationalDataMutation.mutateAsync();
+
+      const defaults = {
+        intervalMs: 10800000,
+        maxCost: 50.00,
+        maxDeployments: 10,
+        autoPause: true,
+        emailNotify: true,
+        slackNotify: false,
+      };
+
+      setIntervalMs(defaults.intervalMs);
+      setMaxCost(defaults.maxCost);
+      setMaxDeployments(defaults.maxDeployments);
+      setAutoPause(defaults.autoPause);
+      setEmailNotify(defaults.emailNotify);
+      setSlackNotify(defaults.slackNotify);
+
+      alert('Operational data reset successfully. Runtime state restored to defaults.');
+    } catch (error: any) {
+      console.error('[Settings] Failed to reset operational data:', error);
+      alert(`Operational reset failed: ${error?.message || 'Unknown error'}`);
     }
   };
 
@@ -149,7 +314,7 @@ const Settings: React.FC = () => {
         <div className="flex items-center gap-2">
           <button onClick={handleReset} className="btn-secondary">
             <RotateCcw className="h-4 w-4" />
-            <span>Reset Defaults</span>
+            <span>Reset Operational Data</span>
           </button>
           <button onClick={handleSave} className="btn-bold-primary">
             <Save className="h-4 w-4" />
@@ -251,11 +416,20 @@ const Settings: React.FC = () => {
             <button
               onClick={async () => {
                 try {
-                  await fetch('/api/trpc/settings.retryConfig', {
+                  const res = await fetch('/api/trpc/settings.retryConfig', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ maxAttempts, backoffMultiplier, baseDelayMs }),
+                    body: JSON.stringify({
+                      maxAttempts,
+                      backoffMultiplier,
+                      baseDelayMs,
+                    }),
                   });
+
+                  if (!res.ok) {
+                    throw new Error(`Retry configuration save failed (${res.status})`);
+                  }
+
                   setRetrySaved(true);
                   setTimeout(() => setRetrySaved(false), 2000);
                 } catch (e) { console.error(e); }
@@ -287,11 +461,19 @@ const Settings: React.FC = () => {
             <button
               onClick={async () => {
                 try {
-                  await fetch('/api/trpc/settings.queueLimits', {
+                  const res = await fetch('/api/trpc/settings.queueLimits', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ maxSize: queueMaxSize, expirationHours: queueExpirationHours }),
+                    body: JSON.stringify({
+                      maxSize: queueMaxSize,
+                      expirationHours: queueExpirationHours,
+                    }),
                   });
+
+                  if (!res.ok) {
+                    throw new Error(`Queue configuration save failed (${res.status})`);
+                  }
+
                   setQueueSaved(true);
                   setTimeout(() => setQueueSaved(false), 2000);
                 } catch (e) { console.error(e); }
