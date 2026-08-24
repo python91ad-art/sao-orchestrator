@@ -1,4 +1,4 @@
-import { mysqlTable, varchar, text, datetime, mysqlEnum, int, decimal, boolean, uniqueIndex } from 'drizzle-orm/mysql-core';
+import { mysqlTable, varchar, text, datetime, mysqlEnum, int, decimal, boolean } from 'drizzle-orm/mysql-core';
 import { sql } from 'drizzle-orm';
 
 export const users = mysqlTable('users', {
@@ -118,28 +118,6 @@ export const coreLoopState = mysqlTable('core_loop_state', {
   emailNotifications: boolean('email_notifications').default(true).notNull(),
   slackNotifications: boolean('slack_notifications').default(false).notNull(),
   updatedAt: datetime('updated_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
-});
-
-export const integrationCredentials = mysqlTable('integration_credentials', {
-  id: varchar('id', { length: 255 }).primaryKey(),
-  service: varchar('service', { length: 64 }).notNull(),
-  encryptedValue: text('encrypted_value').notNull(),
-  encryptionVersion: int('encryption_version').default(1).notNull(),
-  enabled: boolean('enabled').default(true).notNull(),
-  createdAt: datetime('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
-  updatedAt: datetime('updated_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
-}, (table) => ({
-  serviceUnique: uniqueIndex('integration_credentials_service_unique').on(table.service),
-}));
-
-export const credentialAuditLogs = mysqlTable('credential_audit_logs', {
-  id: varchar('id', { length: 255 }).primaryKey(),
-  userId: varchar('user_id', { length: 255 }),
-  service: varchar('service', { length: 64 }).notNull(),
-  operation: varchar('operation', { length: 64 }).notNull(),
-  success: boolean('success').default(true).notNull(),
-  message: varchar('message', { length: 255 }),
-  createdAt: datetime('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 
 // ==========================================

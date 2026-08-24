@@ -1,5 +1,4 @@
 import { ExtractedGap, extractGapsFromContent } from './crawler';
-import { getCredential } from './credentials';
 
 export interface GitHubIssue {
   id: number;
@@ -14,7 +13,7 @@ export interface GitHubIssue {
 }
 
 export async function listIssues(owner: string, repo: string): Promise<GitHubIssue[]> {
-  const token = await getCredential('github');
+  const token = process.env.GITHUB_TOKEN;
   const headers: Record<string, string> = {
     'Accept': 'application/vnd.github+json',
     'User-Agent': 'SAO-Orchestrator-App',
@@ -31,18 +30,19 @@ export async function listIssues(owner: string, repo: string): Promise<GitHubIss
     });
 
     if (!response.ok) {
-      throw new Error(`GitHub API returned status ${response.status}.`);
+      const text = await response.text();
+      throw new Error(`GitHub API returned status ${response.status}: ${text}`);
     }
 
     return await response.json();
   } catch (error) {
-    console.error(`Failed to list GitHub issues for ${owner}/${repo}:`, error instanceof Error ? error.message : error);
+    console.error(`Failed to list GitHub issues for ${owner}/${repo}:`, error);
     return [];
   }
 }
 
 export async function searchIssues(query: string): Promise<GitHubIssue[]> {
-  const token = await getCredential('github');
+  const token = process.env.GITHUB_TOKEN;
   const headers: Record<string, string> = {
     'Accept': 'application/vnd.github+json',
     'User-Agent': 'SAO-Orchestrator-App',
@@ -60,13 +60,14 @@ export async function searchIssues(query: string): Promise<GitHubIssue[]> {
     });
 
     if (!response.ok) {
-      throw new Error(`GitHub Search API returned status ${response.status}.`);
+      const text = await response.text();
+      throw new Error(`GitHub Search API returned status ${response.status}: ${text}`);
     }
 
     const data = await response.json();
     return data.items || [];
   } catch (error) {
-    console.error(`Failed to search GitHub issues for query "${query}":`, error instanceof Error ? error.message : error);
+    console.error(`Failed to search GitHub issues for query "${query}":`, error);
     return [];
   }
 }

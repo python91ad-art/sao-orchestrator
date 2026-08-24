@@ -1,6 +1,5 @@
 import { callLLMJson } from './llm';
 import { ExtractedGap } from './crawler';
-import { getCredential } from './credentials';
 
 export interface SearchResult {
   title: string;
@@ -15,7 +14,7 @@ export interface SearchResult {
  * existing SearchResult interface and all downstream gap detection.
  */
 export async function search(query: string, options: { maxResults?: number } = {}): Promise<SearchResult[]> {
-  const apiKey = await getCredential('tavily');
+  const apiKey = process.env.TAVILY_API_KEY;
 
   if (!apiKey) {
     console.warn('[Search] Tavily API key not configured. Returning empty results.');
@@ -43,7 +42,8 @@ export async function search(query: string, options: { maxResults?: number } = {
     });
 
     if (!response.ok) {
-      console.error(`[Search] Tavily returned ${response.status}.`);
+      const errorText = await response.text();
+      console.error(`[Search] Tavily returned ${response.status}: ${errorText}`);
       return [];
     }
 
@@ -57,7 +57,7 @@ export async function search(query: string, options: { maxResults?: number } = {
       displayLink: item.url ? new URL(item.url).hostname : '',
     }));
   } catch (error: any) {
-    console.error('[Search] Tavily search failed:', error?.message || error);
+    console.error('[Search] Tavily search failed:', error);
     return [];
   }
 }

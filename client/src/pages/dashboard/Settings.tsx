@@ -1,38 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { Save, RotateCcw, Key, ShieldCheck, DollarSign, Bell, Trash2, Power, PowerOff } from 'lucide-react';
+import { Save, RotateCcw, Key, ShieldCheck, DollarSign, Bell } from 'lucide-react';
 import { trpcQuery, trpcMutation, type IntegrationTestResult } from '../../lib/trpc';
 import { trpc } from '../../lib/trpc';
-
-type CredentialService = 'groq' | 'google-search' | 'github' | 'stripe' | 'resend' | 'slack' | 'tavily';
-
-interface CredentialStatus {
-  service: CredentialService;
-  configured: boolean;
-  enabled: boolean;
-  updatedAt: string | null;
-}
-
-const credentialDefinitions: Array<{
-  service: CredentialService;
-  label: string;
-  placeholder: string;
-  secondaryLabel?: string;
-  secondaryPlaceholder?: string;
-}> = [
-  { service: 'groq', label: 'Groq', placeholder: 'gsk_...' },
-  {
-    service: 'google-search',
-    label: 'Google Search',
-    placeholder: 'AIza...',
-    secondaryLabel: 'Search CX',
-    secondaryPlaceholder: 'Search engine ID',
-  },
-  { service: 'github', label: 'GitHub', placeholder: 'ghp_...' },
-  { service: 'stripe', label: 'Stripe', placeholder: 'sk_live_...' },
-  { service: 'resend', label: 'Resend', placeholder: 're_...' },
-  { service: 'slack', label: 'Slack', placeholder: 'xoxb-...' },
-  { service: 'tavily', label: 'Tavily', placeholder: 'tvly-...' },
-];
 
 const Settings: React.FC = () => {
   const resetOperationalDataMutation = trpc.coreLoop.resetOperationalData.useMutation();
@@ -174,6 +143,15 @@ const Settings: React.FC = () => {
     };
   }, []);
 
+  // API Keys (Free APIs)
+  const [groqKey, setGroqKey] = useState<string>(() => localStorage.getItem('sao_key_groq') || '');
+  const [googleSearchKey, setGoogleSearchKey] = useState<string>(() => localStorage.getItem('sao_key_google_search') || '');
+  const [googleSearchCx, setGoogleSearchCx] = useState<string>(() => localStorage.getItem('sao_key_google_cx') || '');
+  const [githubKey, setGithubKey] = useState<string>(() => localStorage.getItem('sao_key_github') || '');
+  const [slackKey, setSlackKey] = useState<string>(() => localStorage.getItem('sao_key_slack') || '');
+  const [resendKey, setResendKey] = useState<string>(() => localStorage.getItem('sao_key_resend') || '');
+  const [stripeKey, setStripeKey] = useState<string>(() => localStorage.getItem('sao_key_stripe') || '');
+
   // Budgets
   const [maxCost, setMaxCost] = useState<number>(50.00);
   const [maxDeployments, setMaxDeployments] = useState<number>(10);
@@ -186,25 +164,18 @@ const Settings: React.FC = () => {
   // Test connection states
   const [testing, setTesting] = useState<string | null>(null);
   const [testResults, setTestResults] = useState<Record<string, IntegrationTestResult | null>>({});
-  const [credentialStatuses, setCredentialStatuses] = useState<CredentialStatus[]>([]);
-  const [credentialInputs, setCredentialInputs] = useState<Record<string, string>>({});
-  const [credentialSecondaryInputs, setCredentialSecondaryInputs] = useState<Record<string, string>>({});
-  const [credentialBusy, setCredentialBusy] = useState<string | null>(null);
-  const [credentialMessage, setCredentialMessage] = useState<string | null>(null);
-
-  const loadCredentialStatuses = async () => {
-    const statuses = await trpcQuery<CredentialStatus[]>('settings.credentials.list');
-    setCredentialStatuses(statuses);
-  };
-
-  useEffect(() => {
-    loadCredentialStatuses().catch((error) => {
-      console.error('[Settings] Failed to load credential status:', error);
-    });
-  }, []);
 
   const handleSave = async () => {
     try {
+      // Browser-local API keys remain local.
+      localStorage.setItem('sao_key_groq', groqKey);
+      localStorage.setItem('sao_key_google_search', googleSearchKey);
+      localStorage.setItem('sao_key_google_cx', googleSearchCx);
+      localStorage.setItem('sao_key_github', githubKey);
+      localStorage.setItem('sao_key_slack', slackKey);
+      localStorage.setItem('sao_key_resend', resendKey);
+      localStorage.setItem('sao_key_stripe', stripeKey);
+
       // Runtime configuration is persisted by the backend.
       await trpcMutation('settings.save', {
         intervalMs,
@@ -261,76 +232,30 @@ const Settings: React.FC = () => {
   // ==========================================
   // TEST CONNECTION HANDLER
   // ==========================================
-  const handleSetCredential = async (service: CredentialService) => {
-    const definition = credentialDefinitions.find(item => item.service === service);
-    const value = credentialInputs[service]?.trim() || '';
-    const secondaryValue = credentialSecondaryInputs[service]?.trim() || '';
-
-    if (!value || (definition?.secondaryLabel && !secondaryValue)) {
-      setCredentialMessage('Enter the required credential fields before saving.');
-      return;
-    }
+  const handleTestConnection = async (name: string) => {
+    setTesting(name);
+    setTestResults(prev => ({ ...prev, [name]: null }));
 
     try {
-      setCredentialBusy(service);
-      await trpcMutation('settings.credentials.set', {
-        service,
-        value,
-        secondaryValue: definition?.secondaryLabel ? secondaryValue : undefined,
-      });
-      setCredentialInputs(prev => ({ ...prev, [service]: '' }));
-      setCredentialSecondaryInputs(prev => ({ ...prev, [service]: '' }));
-      setCredentialMessage(`${definition?.label || service} credential saved.`);
-      await loadCredentialStatuses();
-    } catch (error: any) {
-      setCredentialMessage(error?.message || 'Credential could not be saved.');
-    } finally {
-      setCredentialBusy(null);
-    }
-  };
+      const procedureMap: Record<string, string> = {
+        'Groq': 'integrations.testGroq',
+        'Google Search': 'integrations.testGoogleSearch',
+        'GitHub': 'integrations.testGitHub',
+        'Slack': 'integrations.testSlack',
+        'Resend': 'integrations.testResend',
+        'Stripe': 'integrations.testStripe',
+      };
 
-  const handleRemoveCredential = async (service: CredentialService) => {
-    const definition = credentialDefinitions.find(item => item.service === service);
-    if (!confirm(`Remove the ${definition?.label || service} credential? Environment fallback may still apply if configured.`)) {
-      return;
-    }
+      const procedure = procedureMap[name];
+      if (!procedure) {
+        setTestResults(prev => ({ ...prev, [name]: { success: false, message: 'Unknown service.' } }));
+        return;
+      }
 
-    try {
-      setCredentialBusy(service);
-      await trpcMutation('settings.credentials.remove', { service });
-      setCredentialMessage(`${definition?.label || service} credential removed.`);
-      await loadCredentialStatuses();
-    } catch (error: any) {
-      setCredentialMessage(error?.message || 'Credential could not be removed.');
-    } finally {
-      setCredentialBusy(null);
-    }
-  };
-
-  const handleToggleCredential = async (service: CredentialService, enabled: boolean) => {
-    const definition = credentialDefinitions.find(item => item.service === service);
-
-    try {
-      setCredentialBusy(service);
-      await trpcMutation(enabled ? 'settings.credentials.disable' : 'settings.credentials.enable', { service });
-      setCredentialMessage(`${definition?.label || service} credential ${enabled ? 'disabled' : 'enabled'}.`);
-      await loadCredentialStatuses();
-    } catch (error: any) {
-      setCredentialMessage(error?.message || 'Credential status could not be changed.');
-    } finally {
-      setCredentialBusy(null);
-    }
-  };
-
-  const handleTestConnection = async (service: CredentialService) => {
-    setTesting(service);
-    setTestResults(prev => ({ ...prev, [service]: null }));
-
-    try {
-      const result = await trpcMutation<IntegrationTestResult>('settings.credentials.test', { service });
+      const result = await trpcQuery<IntegrationTestResult>(procedure);
       setTestResults(prev => ({
         ...prev,
-        [service]: {
+        [name]: {
           success: result.success,
           message: result.message || (result.success ? 'Connected successfully.' : 'Connection failed.'),
         }
@@ -338,7 +263,7 @@ const Settings: React.FC = () => {
     } catch (error: any) {
       setTestResults(prev => ({
         ...prev,
-        [service]: { success: false, message: error.message || 'Connection failed. Is the server running?' }
+        [name]: { success: false, message: error.message || 'Connection failed. Is the server running?' }
       }));
     } finally {
       setTesting(null);
@@ -349,14 +274,15 @@ const Settings: React.FC = () => {
   // REUSABLE TEST UI COMPONENTS
   // ==========================================
 
-  const TestButton = ({ service }: { service: CredentialService }) => (
+  const TestButton = ({ name, fullWidth = false }: { name: string; fullWidth?: boolean }) => (
     <button
       type="button"
-      onClick={() => handleTestConnection(service)}
-      disabled={testing === service || credentialBusy === service}
+      onClick={() => handleTestConnection(name)}
+      disabled={testing === name}
       className="btn-secondary py-2.5 px-3.5"
+      style={fullWidth ? { width: '100%' } : {}}
     >
-      {testing === service ? (
+      {testing === name ? (
         <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
           <span className="spinner" style={{ width: '14px', height: '14px' }} />
           Testing...
@@ -367,89 +293,13 @@ const Settings: React.FC = () => {
     </button>
   );
 
-  const TestResult = ({ service }: { service: CredentialService }) => {
-    const result = testResults[service];
+  const TestResult = ({ name }: { name: string }) => {
+    const result = testResults[name];
     if (!result) return null;
     return (
       <p className={`text-[11px] mt-1.5 ${result.success ? 'text-emerald-400' : 'text-red-400'}`}>
-        {result.success ? 'Success: ' : 'Failed: '}{result.message}
+        {result.success ? '✅ ' : '❌ '}{result.message}
       </p>
-    );
-  };
-
-  const CredentialCard = ({ definition }: { definition: typeof credentialDefinitions[number] }) => {
-    const status = credentialStatuses.find(item => item.service === definition.service);
-    const isBusy = credentialBusy === definition.service;
-    const inputValue = credentialInputs[definition.service] || '';
-    const secondaryValue = credentialSecondaryInputs[definition.service] || '';
-
-    return (
-      <div className="rounded-md border border-[#221c32] bg-[#111018] p-4 space-y-3">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <p className="text-sm font-semibold text-white">{definition.label}</p>
-            <p className={`text-xs mt-1 ${status?.configured ? 'text-emerald-400' : 'text-neutral-500'}`}>
-              {status?.configured ? 'Configured' : 'Not configured'}
-              {status?.configured && !status.enabled ? ' • Disabled' : ''}
-            </p>
-            <p className="text-[11px] text-neutral-500 mt-1">
-              Updated: {status?.updatedAt ? new Date(status.updatedAt).toLocaleString() : 'Never'}
-            </p>
-          </div>
-          {status?.configured && (
-            <button
-              type="button"
-              onClick={() => handleToggleCredential(definition.service, Boolean(status.enabled))}
-              disabled={isBusy}
-              className="btn-secondary py-2 px-3"
-              title={status.enabled ? 'Disable credential' : 'Enable credential'}
-            >
-              {status.enabled ? <PowerOff className="h-4 w-4" /> : <Power className="h-4 w-4" />}
-            </button>
-          )}
-        </div>
-
-        <div className="space-y-2">
-          <input
-            type="password"
-            value={inputValue}
-            onChange={(e) => setCredentialInputs(prev => ({ ...prev, [definition.service]: e.target.value }))}
-            placeholder={status?.configured ? 'Enter replacement credential' : definition.placeholder}
-          />
-          {definition.secondaryLabel && (
-            <input
-              type="password"
-              value={secondaryValue}
-              onChange={(e) => setCredentialSecondaryInputs(prev => ({ ...prev, [definition.service]: e.target.value }))}
-              placeholder={status?.configured ? `Enter replacement ${definition.secondaryLabel}` : definition.secondaryPlaceholder}
-            />
-          )}
-        </div>
-
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => handleSetCredential(definition.service)}
-            disabled={isBusy}
-            className="btn-bold-primary py-2 px-3"
-          >
-            {status?.configured ? 'Replace' : 'Add'}
-          </button>
-          <TestButton service={definition.service} />
-          {status?.configured && (
-            <button
-              type="button"
-              onClick={() => handleRemoveCredential(definition.service)}
-              disabled={isBusy}
-              className="btn-secondary py-2 px-3"
-              title="Remove credential"
-            >
-              <Trash2 className="h-4 w-4" />
-            </button>
-          )}
-        </div>
-        <TestResult service={definition.service} />
-      </div>
     );
   };
 
@@ -687,20 +537,78 @@ const Settings: React.FC = () => {
             )}
           </div>
 
-          {/* Integration Credentials */}
+          {/* Free API Keys */}
           <div className="card-bold space-y-4">
             <div className="flex items-center gap-3 border-b border-[#221c32] pb-2">
               <Key className="h-5 w-5 text-purple-400" />
-              <h3 className="text-base font-bold text-white">Integration Credentials</h3>
+              <h3 className="text-base font-bold text-white">Free API Keys</h3>
             </div>
-            <div className="grid grid-cols-1 gap-3">
-              {credentialDefinitions.map(definition => (
-                <CredentialCard key={definition.service} definition={definition} />
-              ))}
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">Groq API Key (Free LLM)</label>
+                <div className="flex gap-2">
+                  <input type="password" value={groqKey} onChange={(e) => setGroqKey(e.target.value)} placeholder="gsk_..." className="flex-1" />
+                  <TestButton name="Groq" />
+                </div>
+                <TestResult name="Groq" />
+                <p className="text-[11px] text-neutral-500 mt-1">Get free key at console.groq.com/keys</p>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">Google Search API Key</label>
+                <input type="password" value={googleSearchKey} onChange={(e) => setGoogleSearchKey(e.target.value)} placeholder="AIza..." />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">Google Search CX (Engine ID)</label>
+                <div className="flex gap-2">
+                  <input type="text" value={googleSearchCx} onChange={(e) => setGoogleSearchCx(e.target.value)} placeholder="your_search_engine_id" className="flex-1" />
+                  <TestButton name="Google Search" />
+                </div>
+                <TestResult name="Google Search" />
+                <p className="text-[11px] text-neutral-500 mt-1">100 free queries/day via Google Custom Search API</p>
+              </div>
             </div>
-            {credentialMessage && (
-              <p className="text-xs text-neutral-300">{credentialMessage}</p>
-            )}
+          </div>
+
+          {/* Integration Keys */}
+          <div className="card-bold space-y-4">
+            <div className="flex items-center gap-3 border-b border-[#221c32] pb-2">
+              <Key className="h-5 w-5 text-purple-400" />
+              <h3 className="text-base font-bold text-white">Integrations (All Free)</h3>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">GitHub Token</label>
+                <div className="flex gap-2">
+                  <input type="password" value={githubKey} onChange={(e) => setGithubKey(e.target.value)} placeholder="ghp_..." className="flex-1" />
+                  <TestButton name="GitHub" />
+                </div>
+                <TestResult name="GitHub" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">Slack Bot Token</label>
+                <div className="flex gap-2">
+                  <input type="password" value={slackKey} onChange={(e) => setSlackKey(e.target.value)} placeholder="xoxb-..." className="flex-1" />
+                  <TestButton name="Slack" />
+                </div>
+                <TestResult name="Slack" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">Resend API Key</label>
+                <div className="flex gap-2">
+                  <input type="password" value={resendKey} onChange={(e) => setResendKey(e.target.value)} placeholder="re_..." className="flex-1" />
+                  <TestButton name="Resend" />
+                </div>
+                <TestResult name="Resend" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">Stripe Secret Key</label>
+                <div className="flex gap-2">
+                  <input type="password" value={stripeKey} onChange={(e) => setStripeKey(e.target.value)} placeholder="sk_live_..." className="flex-1" />
+                  <TestButton name="Stripe" />
+                </div>
+                <TestResult name="Stripe" />
+              </div>
+            </div>
           </div>
 
           {/* Notifications */}

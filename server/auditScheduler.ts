@@ -1,7 +1,6 @@
 import { callLLM, callLLMJson, MODEL_CLASSIFIER, MODEL_BUSINESS_PLAN } from './services/llm';
 import * as db from './db';
 import { retryWithExponentialBackoff } from './retryEngine';
-import { getCredential } from './services/credentials';
 
 
 // ==========================================
@@ -21,10 +20,10 @@ export function scheduleAudits() {
 // SEND SLACK ALERT HELPER
 // ==========================================
 async function sendSlackAlert(deploymentId: string, issue: string, health: string) {
-  const slackToken = await getCredential('slack');
+  const slackToken = process.env.SLACK_BOT_TOKEN;
   const slackChannel = process.env.SLACK_CHANNEL || '#alerts';
   if (!slackToken) {
-    console.warn('Slack alert skipped: Slack token not configured.');
+    console.warn('Slack alert skipped: SLACK_BOT_TOKEN not configured.');
     return;
   }
 
@@ -43,7 +42,7 @@ async function sendSlackAlert(deploymentId: string, issue: string, health: strin
       body: JSON.stringify(payload),
     });
   } catch (error) {
-    console.error('Failed to send audit alert to Slack:', error instanceof Error ? error.message : error);
+    console.error('Failed to send audit alert to Slack:', error);
   }
 }
 

@@ -14,32 +14,14 @@ import {
   updateCoreLoopInterval,
 } from './orchestrator';
 import { auditAllActiveDeployments, auditDeployment } from './auditScheduler';
-import { testCredential } from './services/credentialTests';
-import {
-  PublicCredentialService,
-  listCredentialStatus,
-  recordCredentialAudit,
-  removePublicCredential,
-  setPublicCredential,
-  setPublicCredentialEnabled,
-  getCredential,
-} from './services/credentials';
+import { testGroqConnection } from './services/llm';
 import { crawlAndExtract } from './services/crawler';
 import { search as googleSearch, searchForGaps, trendingProblems } from './services/search';
 import { users, gaps, queueItems } from '../drizzle/schema';
 import { eq, asc } from 'drizzle-orm';
 
-const credentialServiceSchema = z.enum([
-  'groq',
-  'google-search',
-  'github',
-  'stripe',
-  'resend',
-  'slack',
-  'tavily',
-]);
-
-const credentialValueSchema = z.string().trim().min(1).max(8192);
+const resendApiKey = process.env.RESEND_API_KEY || 're_dummy_key';
+const resend = new Resend(resendApiKey);
 
 // ==========================================
 // AUTH ROUTER
@@ -132,21 +114,14 @@ const authRouter = router({
       await db.updateUserResetCode(input.email, resetCode, expiry);
 
       try {
-        const resendApiKey = await getCredential('resend');
-        if (!resendApiKey) {
-          console.warn('Password reset email skipped: Resend API key is not configured.');
-          return { success: true };
-        }
-
-        const resend = new Resend(resendApiKey);
         await resend.emails.send({
           from: 'SAO Password Reset <noreply@situationalarbitrage.com>',
           to: [input.email],
           subject: 'Password Reset Code - SAO',
           text: `Your password reset code is ${resetCode}. It is valid for 15 minutes.`,
         });
-      } catch {
-        console.error('Failed to send password reset email.');
+      } catch (error) {
+        console.error('Failed to send password reset email:', error);
       }
 
       return { success: true };
@@ -709,141 +684,53 @@ const discoveryRouter = router({
 const integrationsRouter = router({
   testGroq: adminProcedure
     .query(async () => {
-      return testCredential('groq');
+      return testGroqConnection();
     }),
 
   testGitHub: adminProcedure
     .query(async () => {
-      return testCredential('github');
+      const token = process.env.GITHUB_TOKEN;
+      return {
+        success: !!token,
+        message: token ? 'GitHub token is configured' : 'GitHub token is missing',
+      };
     }),
 
   testStripe: adminProcedure
     .query(async () => {
-      return testCredential('stripe');
+      const key = process.env.STRIPE_SECRET_KEY;
+      return {
+        success: !!key,
+        message: key ? 'Stripe key is configured' : 'Stripe key is missing',
+      };
     }),
 
   testResend: adminProcedure
     .query(async () => {
-      return testCredential('resend');
+      const key = process.env.RESEND_API_KEY;
+      return {
+        success: !!key,
+        message: key ? 'Resend key is configured' : 'Resend key is missing',
+      };
     }),
 
   testSlack: adminProcedure
     .query(async () => {
-      return testCredential('slack');
+      const token = process.env.SLACK_BOT_TOKEN;
+      return {
+        success: !!token,
+        message: token ? 'Slack token is configured' : 'Slack token is missing',
+      };
     }),
 
   testGoogleSearch: adminProcedure
     .query(async () => {
-      return testCredential('google-search');
-    }),
-
-  testTavily: adminProcedure
-    .query(async () => {
-      return testCredential('tavily');
-    }),
-});
-
-const credentialsRouter = router({
-  list: adminProcedure
-    .query(async () => {
-      return listCredentialStatus();
-    }),
-
-  set: adminProcedure
-    .input(z.object({
-      service: credentialServiceSchema,
-      value: credentialValueSchema,
-      secondaryValue: credentialValueSchema.optional(),
-    }))
-    .mutation(async ({ input, ctx }) => {
-      const service = input.service as PublicCredentialService;
-      try {
-        const operation = await setPublicCredential(service, input.value, input.secondaryValue);
-        await recordCredentialAudit({
-          userId: ctx.user.id,
-          service,
-          operation: operation === 'created' ? 'credential.created' : 'credential.updated',
-          success: true,
-        });
-        return { success: true };
-      } catch (error) {
-        await recordCredentialAudit({
-          userId: ctx.user.id,
-          service,
-          operation: 'credential.updated',
-          success: false,
-          message: error instanceof Error ? error.message : 'Credential update failed.',
-        }).catch(() => undefined);
-        throw error;
-      }
-    }),
-
-  remove: adminProcedure
-    .input(z.object({ service: credentialServiceSchema }))
-    .mutation(async ({ input, ctx }) => {
-      const service = input.service as PublicCredentialService;
-      try {
-        await removePublicCredential(service);
-        await recordCredentialAudit({
-          userId: ctx.user.id,
-          service,
-          operation: 'credential.removed',
-          success: true,
-        });
-        return { success: true };
-      } catch (error) {
-        await recordCredentialAudit({
-          userId: ctx.user.id,
-          service,
-          operation: 'credential.removed',
-          success: false,
-          message: 'Credential removal failed.',
-        }).catch(() => undefined);
-        throw error;
-      }
-    }),
-
-  enable: adminProcedure
-    .input(z.object({ service: credentialServiceSchema }))
-    .mutation(async ({ input, ctx }) => {
-      const service = input.service as PublicCredentialService;
-      await setPublicCredentialEnabled(service, true);
-      await recordCredentialAudit({
-        userId: ctx.user.id,
-        service,
-        operation: 'credential.enabled',
-        success: true,
-      });
-      return { success: true };
-    }),
-
-  disable: adminProcedure
-    .input(z.object({ service: credentialServiceSchema }))
-    .mutation(async ({ input, ctx }) => {
-      const service = input.service as PublicCredentialService;
-      await setPublicCredentialEnabled(service, false);
-      await recordCredentialAudit({
-        userId: ctx.user.id,
-        service,
-        operation: 'credential.disabled',
-        success: true,
-      });
-      return { success: true };
-    }),
-
-  test: adminProcedure
-    .input(z.object({ service: credentialServiceSchema }))
-    .mutation(async ({ input, ctx }) => {
-      const service = input.service as PublicCredentialService;
-      const result = await testCredential(service);
-      await recordCredentialAudit({
-        userId: ctx.user.id,
-        service,
-        operation: 'credential.tested',
-        success: result.success,
-        message: result.message,
-      });
-      return result;
+      const key = process.env.GOOGLE_SEARCH_API_KEY;
+      const cx = process.env.GOOGLE_SEARCH_CX;
+      return {
+        success: !!key && !!cx,
+        message: (key && cx) ? 'Google Search API key and CX are configured' : 'Google Search API key or CX is missing',
+      };
     }),
 });
 
@@ -851,8 +738,6 @@ const credentialsRouter = router({
 // SETTINGS ROUTER
 // ==========================================
 const settingsRouter = router({
-  credentials: credentialsRouter,
-
   save: adminProcedure
     .input(z.object({
       intervalMs: z.number().min(60000).optional(),
@@ -898,10 +783,29 @@ const settingsRouter = router({
 
   testConnection: adminProcedure
     .input(z.object({
-      service: credentialServiceSchema,
+      service: z.enum(['groq', 'google-search', 'github', 'slack', 'resend', 'stripe']),
     }))
     .mutation(async ({ input }) => {
-      return testCredential(input.service as PublicCredentialService);
+      const envMap: Record<string, string[]> = {
+        groq: ['GROQ_API_KEY'],
+        'google-search': ['GOOGLE_SEARCH_API_KEY', 'GOOGLE_SEARCH_CX'],
+        github: ['GITHUB_TOKEN'],
+        slack: ['SLACK_BOT_TOKEN'],
+        resend: ['RESEND_API_KEY'],
+        stripe: ['STRIPE_SECRET_KEY'],
+      };
+
+      if (input.service === 'groq') {
+        return testGroqConnection();
+      }
+
+      const envVars = envMap[input.service] || [];
+      const allConfigured = envVars.every(v => process.env[v]);
+      return {
+        service: input.service,
+        configured: allConfigured,
+        message: allConfigured ? `${input.service} is configured` : `${input.service} key(s) missing`,
+      };
     }),
 
   // Retry Configuration
