@@ -351,15 +351,23 @@ const queueRouter = router({
 // ==========================================
 const deploymentsRouter = router({
   list: protectedProcedure
-    .query(async () => {
-      return db.listDeployments();
+    .query(async ({ ctx }) => {
+      // Admins see all deployments; regular users only their own.
+      if (ctx.user.role === 'admin') {
+        return db.listDeployments();
+      }
+      return db.listDeployments(ctx.user.id);
     }),
 
   get: protectedProcedure
     .input(z.string())
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const deployment = await db.getDeploymentById(input);
       if (!deployment) throw new TRPCError({ code: 'NOT_FOUND', message: 'Deployment not found' });
+      // Ownership check — admins may access any deployment.
+      if (ctx.user.role !== 'admin' && deployment.userId !== ctx.user.id) {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this deployment.' });
+      }
       return deployment;
     }),
 
@@ -414,14 +422,41 @@ const deploymentsRouter = router({
     }),
 
   stats: protectedProcedure
-    .query(async () => {
-      const allDeployments = await db.listDeployments();
+    .query(async ({ ctx }) => {
+      const allDeployments = ctx.user.role === 'admin'
+        ? await db.listDeployments()
+        : await db.listDeployments(ctx.user.id);
       return {
         total: allDeployments.length,
         active: allDeployments.filter((d: any) => d.status === 'active').length,
         paused: allDeployments.filter((d: any) => d.status === 'paused').length,
         stopped: allDeployments.filter((d: any) => d.status === 'stopped').length,
       };
+    }),
+
+  listProviders: protectedProcedure
+    .input(z.string())
+    .query(async ({ input, ctx }) => {
+      // Verify ownership before returning provider data
+      const deployment = await db.getDeploymentById(input);
+      if (!deployment) throw new TRPCError({ code: 'NOT_FOUND', message: 'Deployment not found.' });
+      if (ctx.user.role !== 'admin' && deployment.userId !== ctx.user.id) {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this deployment.' });
+      }
+      return db.getProvidersForDeployment(input);
+    }),
+
+  getDeploymentUrl: protectedProcedure
+    .input(z.string())
+    .query(async ({ input, ctx }) => {
+      // Verify ownership before returning URL
+      const deployment = await db.getDeploymentById(input);
+      if (!deployment) throw new TRPCError({ code: 'NOT_FOUND', message: 'Deployment not found.' });
+      if (ctx.user.role !== 'admin' && deployment.userId !== ctx.user.id) {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this deployment.' });
+      }
+      const provider = await db.getActiveProvider(input, 'vercel');
+      return { deploymentUrl: provider?.deploymentUrl || null };
     }),
 });
 
@@ -535,9 +570,11 @@ const coreLoopRouter = router({
 // ==========================================
 const analyticsRouter = router({
   overview: protectedProcedure
-    .query(async () => {
+    .query(async ({ ctx }) => {
       const allGaps = await db.listGaps(1000, 0);
-      const allDeployments = await db.listDeployments();
+      const allDeployments = ctx.user.role === 'admin'
+        ? await db.listDeployments()
+        : await db.listDeployments(ctx.user.id);
       const queueStats = await db.getQueueStats();
       const auditStats = await db.getAuditStats();
 
@@ -593,8 +630,10 @@ const analyticsRouter = router({
     }),
 
   revenueHistory: protectedProcedure
-    .query(async () => {
-      const allDeployments = await db.listDeployments();
+    .query(async ({ ctx }) => {
+      const allDeployments = ctx.user.role === 'admin'
+        ? await db.listDeployments()
+        : await db.listDeployments(ctx.user.id);
       return allDeployments
         .filter((d: any) => parseFloat(d.revenue || '0') > 0)
         .map((d: any) => ({
@@ -731,6 +770,46 @@ const integrationsRouter = router({
         success: !!key && !!cx,
         message: (key && cx) ? 'Google Search API key and CX are configured' : 'Google Search API key or CX is missing',
       };
+    }),
+
+  testVercel: adminProcedure
+    .query(async () => {
+      const { testVercelConnection } = await import('./services/vercel');
+      return testVercelConnection();
+    }),
+});
+
+// ==========================================
+// PAYMENTS ROUTER — provider-agnostic payment ledger.
+// (Mollie was retired as the payment provider; payment creation will
+//  be supplied by a future payment provider. Read-only ledger queries remain.)
+// ==========================================
+const paymentsRouter = router({
+
+  get: protectedProcedure
+    .input(z.string())
+    .query(async ({ input, ctx }) => {
+      const payment = await db.getPaymentById(input);
+      if (!payment) throw new TRPCError({ code: 'NOT_FOUND', message: 'Payment not found.' });
+      // Ownership check via associated deployment
+      const deployment = await db.getDeploymentById(payment.deploymentId);
+      if (!deployment) throw new TRPCError({ code: 'NOT_FOUND', message: 'Deployment not found.' });
+      if (ctx.user.role !== 'admin' && deployment.userId !== ctx.user.id) {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this payment.' });
+      }
+      return payment;
+    }),
+
+  listForDeployment: protectedProcedure
+    .input(z.string())
+    .query(async ({ input, ctx }) => {
+      // Verify ownership before returning payment history
+      const deployment = await db.getDeploymentById(input);
+      if (!deployment) throw new TRPCError({ code: 'NOT_FOUND', message: 'Deployment not found.' });
+      if (ctx.user.role !== 'admin' && deployment.userId !== ctx.user.id) {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this deployment.' });
+      }
+      return db.listPaymentsForDeployment(input);
     }),
 });
 
@@ -937,7 +1016,8 @@ export const appRouter = router({
   discovery: discoveryRouter,
   integrations: integrationsRouter,
   settings: settingsRouter,
-  invites: invitesRouter, // <-- new admin invites router
+  invites: invitesRouter,
+  payments: paymentsRouter,
 });
 
 export type AppRouter = typeof appRouter;

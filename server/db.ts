@@ -262,6 +262,20 @@ export async function getUserById(id: string) {
   return results[0] || null;
 }
 
+/**
+ * Returns the first admin user ID — used by internal orchestrator
+ * to assign ownership of autonomously-created deployments.
+ */
+export async function getAdminUserId(): Promise<string | null> {
+  const results = await db
+    .select({ id: schema.users.id })
+    .from(schema.users)
+    .where(eq(schema.users.role, 'admin'))
+    .orderBy(asc(schema.users.createdAt))
+    .limit(1);
+  return results[0]?.id || null;
+}
+
 export async function updateUserResetCode(
   email: string,
   resetCode: string,
@@ -596,6 +610,7 @@ export async function getQueueStats() {
 // ==========================================
 export async function createDeployment(deploymentData: {
   gapId: string;
+  userId?: string | null;
   businessPlan?: string;
   revenue?: string;
   costPerDay?: string;
@@ -609,6 +624,7 @@ export async function createDeployment(deploymentData: {
   await db.insert(schema.deployments).values({
     id,
     gapId: deploymentData.gapId,
+    userId: deploymentData.userId || null,
     businessPlan: deploymentData.businessPlan || '',
     revenue: deploymentData.revenue || '0.00',
     costPerDay: deploymentData.costPerDay || '0.00',
@@ -643,11 +659,35 @@ export async function getDeploymentByGapId(gapId: string) {
   return results[0] || null;
 }
 
-export async function listDeployments() {
+export async function listDeployments(userId?: string) {
+  if (userId) {
+    return db
+      .select()
+      .from(schema.deployments)
+      .where(eq(schema.deployments.userId, userId))
+      .orderBy(desc(schema.deployments.createdAt));
+  }
   return db
     .select()
     .from(schema.deployments)
     .orderBy(desc(schema.deployments.createdAt));
+}
+
+export async function getDeploymentForUser(
+  id: string,
+  userId: string
+) {
+  const results = await db
+    .select()
+    .from(schema.deployments)
+    .where(
+      and(
+        eq(schema.deployments.id, id),
+        eq(schema.deployments.userId, userId)
+      )
+    )
+    .limit(1);
+  return results[0] || null;
 }
 
 export async function updateDeployment(
@@ -663,6 +703,192 @@ export async function updateDeployment(
     .where(eq(schema.deployments.id, id));
 
   return getDeploymentById(id);
+}
+
+// ==========================================
+// Deployment Providers (infrastructure providers, e.g. Vercel)
+// ==========================================
+export async function createDeploymentProvider(
+  deploymentId: string,
+  providerType: 'vercel' | 'mollie',
+  providerConfig: Record<string, unknown>,
+  deploymentUrl?: string
+) {
+  const id = generateId();
+  await db.insert(schema.deploymentProviders).values({
+    id,
+    deploymentId,
+    providerType,
+    providerConfig,
+    deploymentUrl: deploymentUrl || null,
+    status: 'pending',
+  });
+  const results = await db
+    .select()
+    .from(schema.deploymentProviders)
+    .where(eq(schema.deploymentProviders.id, id))
+    .limit(1);
+  return results[0] || null;
+}
+
+export async function getProvidersForDeployment(deploymentId: string) {
+  return db
+    .select()
+    .from(schema.deploymentProviders)
+    .where(eq(schema.deploymentProviders.deploymentId, deploymentId))
+    .orderBy(desc(schema.deploymentProviders.createdAt));
+}
+
+export async function getActiveProvider(
+  deploymentId: string,
+  providerType: 'vercel' | 'mollie'
+) {
+  const results = await db
+    .select()
+    .from(schema.deploymentProviders)
+    .where(
+      and(
+        eq(schema.deploymentProviders.deploymentId, deploymentId),
+        eq(schema.deploymentProviders.providerType, providerType),
+        eq(schema.deploymentProviders.status, 'active')
+      )
+    )
+    .limit(1);
+  return results[0] || null;
+}
+
+export async function updateProviderStatus(
+  id: string,
+  status: 'pending' | 'active' | 'failed' | 'superseded',
+  updates?: { deploymentUrl?: string; providerConfig?: Record<string, unknown> }
+) {
+  const setData: Record<string, unknown> = {
+    status,
+    updatedAt: new Date(),
+  };
+  if (updates?.deploymentUrl !== undefined) {
+    setData.deploymentUrl = updates.deploymentUrl;
+  }
+  if (updates?.providerConfig !== undefined) {
+    setData.providerConfig = updates.providerConfig;
+  }
+  await db
+    .update(schema.deploymentProviders)
+    .set(setData as any)
+    .where(eq(schema.deploymentProviders.id, id));
+}
+
+export async function supersedeActiveProviders(
+  deploymentId: string,
+  providerType: 'vercel' | 'mollie'
+) {
+  const active = await db
+    .select()
+    .from(schema.deploymentProviders)
+    .where(
+      and(
+        eq(schema.deploymentProviders.deploymentId, deploymentId),
+        eq(schema.deploymentProviders.providerType, providerType),
+        eq(schema.deploymentProviders.status, 'active')
+      )
+    );
+  for (const row of active) {
+    await db
+      .update(schema.deploymentProviders)
+      .set({ status: 'superseded', updatedAt: new Date() })
+      .where(eq(schema.deploymentProviders.id, row.id));
+  }
+}
+
+// ==========================================
+// Payments (provider-agnostic payment ledger)
+// ==========================================
+export async function createPayment(paymentData: {
+  deploymentId: string;
+  providerType: string;
+  providerPaymentId: string;
+  amount: string;
+  currency: string;
+  checkoutUrl?: string;
+}) {
+  const id = generateId();
+  await db.insert(schema.payments).values({
+    id,
+    deploymentId: paymentData.deploymentId,
+    providerType: paymentData.providerType,
+    providerPaymentId: paymentData.providerPaymentId,
+    amount: paymentData.amount,
+    currency: paymentData.currency,
+    checkoutUrl: paymentData.checkoutUrl || null,
+    status: 'pending',
+  });
+  const results = await db
+    .select()
+    .from(schema.payments)
+    .where(eq(schema.payments.id, id))
+    .limit(1);
+  return results[0] || null;
+}
+
+export async function getPaymentById(id: string) {
+  const results = await db
+    .select()
+    .from(schema.payments)
+    .where(eq(schema.payments.id, id))
+    .limit(1);
+  return results[0] || null;
+}
+
+export async function getPaymentByProviderPaymentId(
+  providerType: string,
+  providerPaymentId: string
+) {
+  const results = await db
+    .select()
+    .from(schema.payments)
+    .where(
+      and(
+        eq(schema.payments.providerType, providerType),
+        eq(schema.payments.providerPaymentId, providerPaymentId)
+      )
+    )
+    .limit(1);
+  return results[0] || null;
+}
+
+export async function listPaymentsForDeployment(deploymentId: string) {
+  return db
+    .select()
+    .from(schema.payments)
+    .where(eq(schema.payments.deploymentId, deploymentId))
+    .orderBy(desc(schema.payments.createdAt));
+}
+
+export async function updatePayment(
+  id: string,
+  updates: {
+    status?: string;
+    paidAt?: Date | null;
+    checkoutUrl?: string | null;
+  }
+) {
+  const setData: Record<string, unknown> = {
+    updatedAt: new Date(),
+  };
+  if (updates.status !== undefined) {
+    setData.status = updates.status;
+  }
+  if (updates.paidAt !== undefined) {
+    setData.paidAt = updates.paidAt;
+  }
+  if (updates.checkoutUrl !== undefined) {
+    setData.checkoutUrl = updates.checkoutUrl;
+  }
+  await db
+    .update(schema.payments)
+    .set(setData as any)
+    .where(eq(schema.payments.id, id));
+  return getPaymentById(id);
 }
 
 // ==========================================

@@ -18,7 +18,19 @@ export type WSEvent =
         nextExecutionAt: string | null;
       };
     }
-  | { type: 'worker:status'; data: { activeWorkers: number; totalProcessed: number } };
+  | { type: 'worker:status'; data: { activeWorkers: number; totalProcessed: number } }
+  | {
+      type: 'deployment:provider';
+      data: {
+        deploymentId: string;
+        providerType: string;
+        providerId: string;
+        status: string;
+        note?: string;
+      };
+    }
+  | { type: 'application:generation_started'; data: { deploymentId: string; gapId: string } }
+  | { type: 'application:generation_completed'; data: { deploymentId: string; fileCount: number } };
 
 export function initWebSocketServer(server: HttpServer): WebSocketServer {
   if (wss) return wss;

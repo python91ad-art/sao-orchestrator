@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS deployment_health_checks (
 CREATE TABLE IF NOT EXISTS deployments (
   id varchar(255) NOT NULL,
   gap_id varchar(255) NOT NULL,
+  user_id varchar(255),
   status enum('active','paused','stopped') NOT NULL DEFAULT 'active',
   business_plan text,
   revenue decimal(10,2) NOT NULL DEFAULT '0.00',
@@ -135,6 +136,44 @@ CREATE TABLE IF NOT EXISTS users (
   CONSTRAINT users_email_unique UNIQUE(email)
 );
 
+CREATE TABLE IF NOT EXISTS registration_invites (
+  id varchar(255) NOT NULL,
+  email varchar(255) NOT NULL,
+  role enum('admin','user') NOT NULL DEFAULT 'user',
+  created_by varchar(255) NOT NULL,
+  expires_at datetime,
+  used_at datetime,
+  created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT registration_invites_id PRIMARY KEY(id)
+);
+
+CREATE TABLE IF NOT EXISTS deployment_providers (
+  id varchar(255) NOT NULL,
+  deployment_id varchar(255) NOT NULL,
+  provider_type enum('vercel','mollie') NOT NULL,
+  provider_config json NOT NULL,
+  deployment_url varchar(512),
+  status enum('pending','active','failed','superseded') NOT NULL DEFAULT 'pending',
+  created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT deployment_providers_id PRIMARY KEY(id)
+);
+
+CREATE TABLE IF NOT EXISTS payments (
+  id varchar(255) NOT NULL,
+  deployment_id varchar(255) NOT NULL,
+  provider_type varchar(50) NOT NULL,
+  provider_payment_id varchar(255) NOT NULL,
+  amount decimal(10,2) NOT NULL,
+  currency varchar(10) NOT NULL DEFAULT 'EUR',
+  status enum('pending','paid','failed','canceled','expired','authorized','unknown') NOT NULL DEFAULT 'pending',
+  checkout_url varchar(1024),
+  paid_at datetime,
+  created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT payments_id PRIMARY KEY(id)
+);
+
 INSERT INTO core_loop_state (id, is_running, interval_ms, total_gaps_processed, total_deployments_created)
 VALUES ('singleton', false, 10800000, 0, 0)
 ON DUPLICATE KEY UPDATE id = id;
@@ -150,6 +189,8 @@ const ALTER_COLUMNS = [
   { table: 'core_loop_state', column: 'concurrency', definition: 'INT NOT NULL DEFAULT 1' },
   { table: 'queue_items', column: 'queue_type', definition: "enum('synthesis','deployment','audit','maintenance') NOT NULL DEFAULT 'synthesis'" },
   { table: 'queue_items', column: 'worker_id', definition: 'varchar(255)' },
+  { table: 'queue_items', column: 'next_retry_at', definition: 'datetime' },
+  { table: 'deployments', column: 'user_id', definition: 'varchar(255)' },
 ];
 
 async function main() {
@@ -248,6 +289,32 @@ async function main() {
   const [tables] = await conn.execute('SHOW TABLES');
   console.log('\n=== All tables in database ===');
   tables.forEach(t => console.log('  -', Object.values(t)[0]));
+
+  // Ensure ownership index exists
+  try {
+    await conn.execute('CREATE INDEX idx_deployments_user ON deployments(user_id)');
+    console.log('✅ Added index: deployments.user_id');
+  } catch (err) {
+    if (err.code === 'ER_DUP_KEYNAME') {
+      console.log('⏭️  deployments.user_id index already exists');
+    } else {
+      console.error('❌ Failed to add deployments.user_id index:', err.message);
+    }
+  }
+
+  // Backfill ownership for legacy deployments (assign to first admin)
+  try {
+    const [result] = await conn.execute(
+      `UPDATE deployments SET user_id = (SELECT id FROM users WHERE role = 'admin' ORDER BY created_at ASC LIMIT 1) WHERE user_id IS NULL`
+    );
+    if (result.affectedRows > 0) {
+      console.log(`✅ Assigned admin ownership to ${result.affectedRows} legacy deployment(s).`);
+    } else {
+      console.log('⏭️  No unowned deployments to backfill.');
+    }
+  } catch (err) {
+    console.error('❌ Failed to backfill deployment ownership:', err.message);
+  }
 
   // Verify queue_items has the new columns
   console.log('\n=== queue_items columns ===');

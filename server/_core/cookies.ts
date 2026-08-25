@@ -1,7 +1,18 @@
 import crypto from 'crypto';
 
 export const COOKIE_NAME = 'sao_session';
-const JWT_SECRET = process.env.JWT_SECRET || 'sao_default_super_secret_key_1234567890_orchestrator';
+// JWT_SECRET is required in production — session cookies are HMAC-signed with it.
+// A hardcoded fallback is only acceptable for local development, never production,
+// because the fallback value would be publicly known.
+const JWT_SECRET =
+  process.env.JWT_SECRET ||
+  (process.env.NODE_ENV === 'production'
+    ? (() => {
+        throw new Error(
+          'JWT_SECRET is required in production. Set JWT_SECRET to a cryptographically random secret (e.g. openssl rand -hex 32).'
+        );
+      })()
+    : 'sao_default_super_secret_key_1234567890_orchestrator');
 
 export const cookieOptions = {
   httpOnly: true,

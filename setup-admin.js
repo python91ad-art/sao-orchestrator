@@ -50,8 +50,6 @@ async function createAdmin() {
     };
   }
 
-  }
-
   let connection;
   try {
     connection = await mysql.createConnection(connectionConfig);

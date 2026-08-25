@@ -260,8 +260,10 @@ async function processSynthesisQueueItem(queueItem: any, _worker: Worker): Promi
       backoffMultiplier
     );
 
+    const adminUserId = await db.getAdminUserId();
     const deployment = await db.createDeployment({
       gapId: gap.id,
+      userId: adminUserId,
       businessPlan: plan,
       banRisk: classification.banRisk,
       health: 'healthy',
@@ -316,24 +318,118 @@ async function processDeploymentQueueItem(queueItem: any, _worker: Worker): Prom
     return false;
   }
 
-  const existing = await db.getDeploymentByGapId(queueItem.gapId);
-  if (existing) {
+  const existingDeployment = await db.getDeploymentByGapId(queueItem.gapId);
+  if (!existingDeployment) {
+    await db.updateQueueItem(queueItem.id, { status: 'failed', lastError: 'No SAO deployment record found — synthesis must run first.', workerId: null, nextRetryAt: null });
+    return false;
+  }
+
+  // Check for existing active Vercel provider with a real deployment URL
+  const existingProvider = await db.getActiveProvider(existingDeployment.id, 'vercel');
+  if (existingProvider && existingProvider.deploymentUrl) {
+    console.log(`[Deployment] SAO deployment ${existingDeployment.id} already live at ${existingProvider.deploymentUrl}.`);
     await db.updateQueueItem(queueItem.id, { status: 'completed', workerId: null, nextRetryAt: null });
+    broadcastEvent({
+      type: 'deployment:provider',
+      data: { deploymentId: existingDeployment.id, providerType: 'vercel', providerId: existingProvider.id, status: 'active' },
+    });
     return true;
   }
 
-  if (gap.status === 'safe' || gap.status === 'deployed') {
-    const plan = await generateBusinessPlan(gap);
-    const deployment = await db.createDeployment({
+  // ============================================================
+  // Full pipeline: generate application → deploy to Vercel
+  // ============================================================
+
+  const { generateApplication } = await import('./services/applicationGenerator');
+  const { createVercelProject, deployToVercel, makeVercelProjectName } = await import('./services/vercel');
+
+  // ---- Step 1: Generate application artifact ----
+  broadcastEvent({ type: 'application:generation_started', data: { deploymentId: existingDeployment.id, gapId: gap.id } });
+
+  const genResult = await retryWithExponentialBackoff(
+    () => generateApplication({
       gapId: gap.id,
-      businessPlan: plan,
-      banRisk: 'low',
-      health: 'healthy',
-    });
-    broadcastEvent({ type: 'deployment:created', data: { deploymentId: deployment.id, gapId: gap.id } });
+      deploymentId: existingDeployment.id,
+      knows: gap.knows,
+      needs: gap.needs,
+      controlsAccess: gap.controlsAccess,
+      underestimatesValue: gap.underestimatesValue,
+      businessPlan: existingDeployment.businessPlan || '',
+    }),
+    2,
+    3000
+  );
+
+  if (!genResult.success || !genResult.application) {
+    const errMsg = genResult.error || 'Application generation produced no output.';
+    throw new Error(errMsg);
   }
 
+  broadcastEvent({ type: 'application:generation_completed', data: { deploymentId: existingDeployment.id, fileCount: genResult.application.files.length } });
+
+  console.log(`[Deployment] Generated ${genResult.application.files.length} files for deployment ${existingDeployment.id}.`);
+
+  // ---- Step 2: Create/reuse Vercel project ----
+  const projectName = makeVercelProjectName(existingDeployment.id);
+  const { projectId } = await retryWithExponentialBackoff(
+    () => createVercelProject({ name: projectName, framework: genResult.application.framework }),
+    3,
+    2000
+  );
+
+  // ---- Step 3: Deploy to Vercel ----
+  const vercelFiles = genResult.application.files.map((f) => ({
+    file: f.path,
+    data: f.content,
+  }));
+
+  const deployResult = await retryWithExponentialBackoff(
+    () => deployToVercel({
+      projectId,
+      files: vercelFiles,
+      name: `deploy-${Date.now()}`,
+      target: 'production',
+    }),
+    3,
+    3000
+  );
+
+  // ---- Step 4: Handle redeployment ----
+  // Supersede any prior active providers for this deployment
+  await db.supersedeActiveProviders(existingDeployment.id, 'vercel');
+
+  // ---- Step 5: Create provider record with real deployment data ----
+  const provider = await db.createDeploymentProvider(
+    existingDeployment.id,
+    'vercel',
+    {
+      vercelProjectId: projectId,
+      vercelDeploymentId: deployResult.deploymentId,
+      framework: genResult.application.framework,
+    },
+    deployResult.deploymentUrl || null
+  );
+
+  await db.updateProviderStatus(provider.id, 'active');
+
+  // ---- Step 6: Mark queue item complete ----
   await db.updateQueueItem(queueItem.id, { status: 'completed', workerId: null, nextRetryAt: null });
+
+  broadcastEvent({
+    type: 'deployment:provider',
+    data: {
+      deploymentId: existingDeployment.id,
+      providerType: 'vercel',
+      providerId: provider.id,
+      status: 'active',
+    },
+  });
+
+  console.log(`[Deployment] SAO deployment ${existingDeployment.id} deployed to ${deployResult.deploymentUrl || 'Vercel'} (provider ${provider.id}).`);
+
+  const currentState = await getStatus();
+  await db.updateCoreLoopState({ totalDeploymentsCreated: currentState.totalDeploymentsCreated + 1 });
+
   return true;
 }
 
@@ -552,6 +648,7 @@ export async function processOneGap(): Promise<boolean> {
     });
 
     if (classification.classification === 'safe') {
+      const adminUserId = await db.getAdminUserId();
       const plan = await retryWithExponentialBackoff(
         () => generateBusinessPlan(gap),
         maxAttempts,
@@ -561,6 +658,7 @@ export async function processOneGap(): Promise<boolean> {
 
       await db.createDeployment({
         gapId: gap.id,
+        userId: adminUserId,
         businessPlan: plan,
         banRisk: classification.banRisk,
         health: 'healthy',

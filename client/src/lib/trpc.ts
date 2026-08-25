@@ -46,6 +46,31 @@ export interface Deployment {
   createdAt: string;
 }
 
+export interface DeploymentProvider {
+  id: string;
+  deploymentId: string;
+  providerType: 'vercel' | 'mollie';
+  providerConfig: Record<string, unknown>;
+  deploymentUrl: string | null;
+  status: 'pending' | 'active' | 'failed' | 'superseded';
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Payment {
+  id: string;
+  deploymentId: string;
+  providerType: string;
+  providerPaymentId: string;
+  amount: string;
+  currency: string;
+  status: 'pending' | 'paid' | 'failed' | 'canceled' | 'expired' | 'authorized' | 'unknown';
+  checkoutUrl: string | null;
+  paidAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface AuditLog {
   id: string;
   timestamp: string;
@@ -83,6 +108,7 @@ export interface IntegrationTestResult {
   message: string;
   storeName?: string;
   url?: string;
+  user?: { username: string; email: string };
 }
 
 // ==========================================
@@ -124,6 +150,8 @@ export type AppRouter = {
     resumeAll: { mutate: () => Promise<{ success: boolean }> };
     audit: { mutate: (input: string) => Promise<{ success: boolean }> };
     stats: { query: () => Promise<any> };
+    listProviders: { query: (input: string) => Promise<DeploymentProvider[]> };
+    getDeploymentUrl: { query: (input: string) => Promise<{ deploymentUrl: string | null }> };
   };
   audit: {
     list: { query: (input?: { limit?: number; skip?: number }) => Promise<AuditLog[]> };
@@ -172,6 +200,11 @@ export type AppRouter = {
     testResend: { query: () => Promise<IntegrationTestResult> };
     testSlack: { query: () => Promise<IntegrationTestResult> };
     testGoogleSearch: { query: () => Promise<IntegrationTestResult> };
+    testVercel: { query: () => Promise<IntegrationTestResult> };
+  };
+  payments: {
+    get: { query: (input: string) => Promise<Payment> };
+    listForDeployment: { query: (input: string) => Promise<Payment[]> };
   };
 };
 
@@ -186,15 +219,31 @@ export const trpc = createTRPCReact<ServerAppRouter>();
  * tRPC wraps responses in { result: { data: ... } }.
  */
 export async function trpcQuery<T = any>(procedure: string): Promise<T> {
-  const response = await fetch(`/api/trpc/${procedure}`, { credentials: 'include' });
+  const response = await fetch(`/api/trpc/${procedure}`, {
+    method: 'GET',
+    credentials: 'include',
+  });
+
+  const json = await response.json().catch(() => null);
+
   if (!response.ok) {
-    throw new Error(`tRPC request failed (${response.status})`);
+    const message =
+      json?.error?.json?.message ||
+      json?.error?.message ||
+      json?.message ||
+      `tRPC request failed (${response.status})`;
+
+    throw new Error(message);
   }
-  const json = await response.json();
-  // tRPC wraps results in { result: { data: ... } }
+
+  if (json?.result?.data?.json !== undefined) {
+    return json.result.data.json as T;
+  }
+
   if (json?.result?.data !== undefined) {
     return json.result.data as T;
   }
+
   return json as T;
 }
 
@@ -205,15 +254,33 @@ export async function trpcMutation<T = any>(procedure: string, input: any): Prom
   const response = await fetch(`/api/trpc/${procedure}`, {
     method: 'POST',
     credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      json: input,
+    }),
   });
+
+  const json = await response.json().catch(() => null);
+
   if (!response.ok) {
-    throw new Error(`tRPC request failed (${response.status})`);
+    const message =
+      json?.error?.json?.message ||
+      json?.error?.message ||
+      json?.message ||
+      `tRPC request failed (${response.status})`;
+
+    throw new Error(message);
   }
-  const json = await response.json();
+
+  if (json?.result?.data?.json !== undefined) {
+    return json.result.data.json as T;
+  }
+
   if (json?.result?.data !== undefined) {
     return json.result.data as T;
   }
+
   return json as T;
 }

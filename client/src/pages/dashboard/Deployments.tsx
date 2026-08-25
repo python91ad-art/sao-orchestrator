@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Play, Pause, Square, ShieldCheck, Eye, RefreshCw } from 'lucide-react';
+import { Play, Pause, Square, ShieldCheck, Eye, RefreshCw, ExternalLink } from 'lucide-react';
 import { Deployment, trpc } from '../../lib/trpc';
 
 const Deployments: React.FC = () => {
@@ -163,6 +163,7 @@ const Deployments: React.FC = () => {
                 <th>Gap ID / Deployment</th>
                 <th>Business Plan Preview</th>
                 <th>Status</th>
+                <th>Provider</th>
                 <th>Daily Yield / Cost</th>
                 <th>Risk & Health</th>
                 <th className="text-right">Orchestrator Controls</th>
@@ -194,6 +195,9 @@ const Deployments: React.FC = () => {
                     }`}>
                       {dep.status}
                     </span>
+                  </td>
+                  <td>
+                    <span className="text-xs text-neutral-400">Vercel</span>
                   </td>
                   <td>
                     <div className="font-semibold text-white">

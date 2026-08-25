@@ -1,4 +1,4 @@
-import { mysqlTable, varchar, text, datetime, mysqlEnum, int, decimal, boolean } from 'drizzle-orm/mysql-core';
+import { mysqlTable, varchar, text, datetime, mysqlEnum, int, decimal, boolean, json, index } from 'drizzle-orm/mysql-core';
 import { sql } from 'drizzle-orm';
 
 export const users = mysqlTable('users', {
@@ -46,6 +46,7 @@ export const queueItems = mysqlTable('queue_items', {
 export const deployments = mysqlTable('deployments', {
   id: varchar('id', { length: 255 }).primaryKey(),
   gapId: varchar('gap_id', { length: 255 }).notNull(),
+  userId: varchar('user_id', { length: 255 }),
   status: mysqlEnum('status', ['active', 'paused', 'stopped']).default('active').notNull(),
   businessPlan: text('business_plan'),
   revenue: decimal('revenue', { precision: 10, scale: 2 }).default('0.00').notNull(),
@@ -56,7 +57,10 @@ export const deployments = mysqlTable('deployments', {
   stripePriceId: varchar('stripe_price_id', { length: 255 }),
   createdAt: datetime('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
   updatedAt: datetime('updated_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
-});
+}, (table) => [
+  index('idx_deployments_user').on(table.userId),
+  index('idx_deployments_gap').on(table.gapId),
+]);
 
 export const auditLogs = mysqlTable('audit_logs', {
   id: varchar('id', { length: 255 }).primaryKey(),
@@ -132,3 +136,39 @@ export const registrationInvites = mysqlTable('registration_invites', {
   usedAt: datetime('used_at'),
   createdAt: datetime('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
+
+// ==========================================
+// Deployment Providers (infrastructure providers, e.g. Vercel)
+// ==========================================
+export const deploymentProviders = mysqlTable('deployment_providers', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  deploymentId: varchar('deployment_id', { length: 255 }).notNull(),
+  providerType: mysqlEnum('provider_type', ['vercel', 'mollie']).notNull(),
+  providerConfig: json('provider_config').notNull(),
+  deploymentUrl: varchar('deployment_url', { length: 512 }),
+  status: mysqlEnum('status', ['pending', 'active', 'failed', 'superseded']).default('pending').notNull(),
+  createdAt: datetime('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: datetime('updated_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('idx_dp_deployment_provider_status').on(table.deploymentId, table.providerType, table.status),
+]);
+
+// ==========================================
+// Payments (provider-agnostic payment ledger)
+// ==========================================
+export const payments = mysqlTable('payments', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  deploymentId: varchar('deployment_id', { length: 255 }).notNull(),
+  providerType: varchar('provider_type', { length: 50 }).notNull(),
+  providerPaymentId: varchar('provider_payment_id', { length: 255 }).notNull(),
+  amount: decimal('amount', { precision: 10, scale: 2 }).notNull(),
+  currency: varchar('currency', { length: 10 }).notNull().default('EUR'),
+  status: mysqlEnum('status', ['pending', 'paid', 'failed', 'canceled', 'expired', 'authorized', 'unknown']).default('pending').notNull(),
+  checkoutUrl: varchar('checkout_url', { length: 1024 }),
+  paidAt: datetime('paid_at'),
+  createdAt: datetime('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: datetime('updated_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('idx_payments_deployment').on(table.deploymentId),
+  index('idx_payments_provider_payment').on(table.providerType, table.providerPaymentId),
+]);

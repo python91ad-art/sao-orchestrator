@@ -244,6 +244,7 @@ const Settings: React.FC = () => {
         'Slack': 'integrations.testSlack',
         'Resend': 'integrations.testResend',
         'Stripe': 'integrations.testStripe',
+        'Vercel': 'integrations.testVercel',
       };
 
       const procedure = procedureMap[name];
@@ -607,6 +608,14 @@ const Settings: React.FC = () => {
                   <TestButton name="Stripe" />
                 </div>
                 <TestResult name="Stripe" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">Vercel Deployment</label>
+                <div className="flex gap-2">
+                  <input type="text" value="" readOnly placeholder="Configured via VERCEL_API_TOKEN env var" className="flex-1 bg-[#0c0a12] text-neutral-500 text-sm" />
+                  <TestButton name="Vercel" />
+                </div>
+                <TestResult name="Vercel" />
               </div>
             </div>
           </div>

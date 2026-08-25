@@ -1,0 +1,1149 @@
+{
+  "version": "5",
+  "dialect": "mysql",
+  "id": "2681b504-72aa-421c-aafb-69098856b151",
+  "prevId": "e928a940-4795-40ab-a6f6-32cf5f498589",
+  "tables": {
+    "audit_logs": {
+      "name": "audit_logs",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "deployment_id": {
+          "name": "deployment_id",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "gap_id": {
+          "name": "gap_id",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "decision": {
+          "name": "decision",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "reasoning": {
+          "name": "reasoning",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "explanation": {
+          "name": "explanation",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "ban_risk": {
+          "name": "ban_risk",
+          "type": "enum('low','medium','high')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'low'"
+        },
+        "business_health": {
+          "name": "business_health",
+          "type": "enum('healthy','warning','critical')",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "timestamp": {
+          "name": "timestamp",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "audit_logs_id": {
+          "name": "audit_logs_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "core_loop_state": {
+      "name": "core_loop_state",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'singleton'"
+        },
+        "is_running": {
+          "name": "is_running",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "interval_ms": {
+          "name": "interval_ms",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 10800000
+        },
+        "last_executed_at": {
+          "name": "last_executed_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "next_execution_at": {
+          "name": "next_execution_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "total_gaps_processed": {
+          "name": "total_gaps_processed",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "total_deployments_created": {
+          "name": "total_deployments_created",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "max_attempts": {
+          "name": "max_attempts",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 3
+        },
+        "backoff_multiplier": {
+          "name": "backoff_multiplier",
+          "type": "decimal(3,1)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'1.5'"
+        },
+        "base_delay_ms": {
+          "name": "base_delay_ms",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 5000
+        },
+        "queue_max_size": {
+          "name": "queue_max_size",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1000
+        },
+        "queue_expiration_hours": {
+          "name": "queue_expiration_hours",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 72
+        },
+        "concurrency": {
+          "name": "concurrency",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "max_cost_per_day": {
+          "name": "max_cost_per_day",
+          "type": "decimal(10,2)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'50.00'"
+        },
+        "max_deployments": {
+          "name": "max_deployments",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 10
+        },
+        "auto_pause_on_high_ban_risk": {
+          "name": "auto_pause_on_high_ban_risk",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": true
+        },
+        "email_notifications": {
+          "name": "email_notifications",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": true
+        },
+        "slack_notifications": {
+          "name": "slack_notifications",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "core_loop_state_id": {
+          "name": "core_loop_state_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "deployment_health_checks": {
+      "name": "deployment_health_checks",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "deployment_id": {
+          "name": "deployment_id",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "revenue": {
+          "name": "revenue",
+          "type": "decimal(10,2)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "ban_risk": {
+          "name": "ban_risk",
+          "type": "enum('low','medium','high')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "health": {
+          "name": "health",
+          "type": "enum('healthy','warning','critical')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "action": {
+          "name": "action",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "success": {
+          "name": "success",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": true
+        },
+        "checked_at": {
+          "name": "checked_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "deployment_health_checks_id": {
+          "name": "deployment_health_checks_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "deployment_providers": {
+      "name": "deployment_providers",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "deployment_id": {
+          "name": "deployment_id",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "provider_type": {
+          "name": "provider_type",
+          "type": "enum('vercel','mollie')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "provider_config": {
+          "name": "provider_config",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "deployment_url": {
+          "name": "deployment_url",
+          "type": "varchar(512)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "enum('pending','active','failed','superseded')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'pending'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      },
+      "indexes": {
+        "idx_dp_deployment_provider_status": {
+          "name": "idx_dp_deployment_provider_status",
+          "columns": [
+            "deployment_id",
+            "provider_type",
+            "status"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "deployment_providers_id": {
+          "name": "deployment_providers_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "deployments": {
+      "name": "deployments",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "gap_id": {
+          "name": "gap_id",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "enum('active','paused','stopped')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'active'"
+        },
+        "business_plan": {
+          "name": "business_plan",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "revenue": {
+          "name": "revenue",
+          "type": "decimal(10,2)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'0.00'"
+        },
+        "cost_per_day": {
+          "name": "cost_per_day",
+          "type": "decimal(10,2)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'0.00'"
+        },
+        "ban_risk": {
+          "name": "ban_risk",
+          "type": "enum('low','medium','high')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'low'"
+        },
+        "health": {
+          "name": "health",
+          "type": "enum('healthy','warning','critical')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'healthy'"
+        },
+        "stripe_product_id": {
+          "name": "stripe_product_id",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "stripe_price_id": {
+          "name": "stripe_price_id",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "deployments_id": {
+          "name": "deployments_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "gaps": {
+      "name": "gaps",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "knows": {
+          "name": "knows",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "needs": {
+          "name": "needs",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "controls_access": {
+          "name": "controls_access",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "underestimates_value": {
+          "name": "underestimates_value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source": {
+          "name": "source",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "enum('pending','processing','safe','unsafe','gray','false','deployed','failed')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'pending'"
+        },
+        "priority": {
+          "name": "priority",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 5
+        },
+        "dedup_hash": {
+          "name": "dedup_hash",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "gaps_id": {
+          "name": "gaps_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "gaps_dedup_hash_unique": {
+          "name": "gaps_dedup_hash_unique",
+          "columns": [
+            "dedup_hash"
+          ]
+        }
+      },
+      "checkConstraint": {}
+    },
+    "payments": {
+      "name": "payments",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "deployment_id": {
+          "name": "deployment_id",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "provider_type": {
+          "name": "provider_type",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "provider_payment_id": {
+          "name": "provider_payment_id",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "amount": {
+          "name": "amount",
+          "type": "decimal(10,2)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "currency": {
+          "name": "currency",
+          "type": "varchar(10)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'EUR'"
+        },
+        "status": {
+          "name": "status",
+          "type": "enum('pending','paid','failed','canceled','expired','authorized','unknown')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'pending'"
+        },
+        "checkout_url": {
+          "name": "checkout_url",
+          "type": "varchar(1024)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "paid_at": {
+          "name": "paid_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      },
+      "indexes": {
+        "idx_payments_deployment": {
+          "name": "idx_payments_deployment",
+          "columns": [
+            "deployment_id"
+          ],
+          "isUnique": false
+        },
+        "idx_payments_provider_payment": {
+          "name": "idx_payments_provider_payment",
+          "columns": [
+            "provider_type",
+            "provider_payment_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "payments_id": {
+          "name": "payments_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "policies": {
+      "name": "policies",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "rule_text": {
+          "name": "rule_text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "acknowledged_at": {
+          "name": "acknowledged_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "policies_id": {
+          "name": "policies_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "queue_items": {
+      "name": "queue_items",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "gap_id": {
+          "name": "gap_id",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "enum('pending','processing','paused','completed','failed')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'pending'"
+        },
+        "queue_type": {
+          "name": "queue_type",
+          "type": "enum('synthesis','deployment','audit','maintenance')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'synthesis'"
+        },
+        "worker_id": {
+          "name": "worker_id",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "attempts": {
+          "name": "attempts",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "max_attempts": {
+          "name": "max_attempts",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 3
+        },
+        "last_error": {
+          "name": "last_error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "next_retry_at": {
+          "name": "next_retry_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "dedup_hash": {
+          "name": "dedup_hash",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "priority": {
+          "name": "priority",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 5
+        },
+        "sort_order": {
+          "name": "sort_order",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "queue_items_id": {
+          "name": "queue_items_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "recurring_actors": {
+      "name": "recurring_actors",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "actor_hash": {
+          "name": "actor_hash",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "frequency": {
+          "name": "frequency",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "last_seen": {
+          "name": "last_seen",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "pattern": {
+          "name": "pattern",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "anonymized_id": {
+          "name": "anonymized_id",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "recurring_actors_id": {
+          "name": "recurring_actors_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "recurring_actors_actor_hash_unique": {
+          "name": "recurring_actors_actor_hash_unique",
+          "columns": [
+            "actor_hash"
+          ]
+        }
+      },
+      "checkConstraint": {}
+    },
+    "registration_invites": {
+      "name": "registration_invites",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "email": {
+          "name": "email",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "role": {
+          "name": "role",
+          "type": "enum('admin','user')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'user'"
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "used_at": {
+          "name": "used_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "registration_invites_id": {
+          "name": "registration_invites_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "users": {
+      "name": "users",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "email": {
+          "name": "email",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "password_hash": {
+          "name": "password_hash",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "role": {
+          "name": "role",
+          "type": "enum('admin','user')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'user'"
+        },
+        "reset_code": {
+          "name": "reset_code",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "reset_code_expiry": {
+          "name": "reset_code_expiry",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "last_signed_in": {
+          "name": "last_signed_in",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "users_id": {
+          "name": "users_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "users_email_unique": {
+          "name": "users_email_unique",
+          "columns": [
+            "email"
+          ]
+        }
+      },
+      "checkConstraint": {}
+    }
+  },
+  "views": {},
+  "_meta": {
+    "schemas": {},
+    "tables": {},
+    "columns": {}
+  },
+  "internal": {
+    "tables": {},
+    "indexes": {}
+  }
+}

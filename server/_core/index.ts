@@ -96,13 +96,18 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
   res.json({ received: true });
 });
 
+
 // ==========================================
 // 2. STANDARD EXPRESS MIDDLEWARES
 // ==========================================
 app.use(express.json());
 app.use(cookieParser());
+// CORS: only allow explicitly configured frontend origins.
+// Fall back to `false` (same-origin only) rather than a permissive wildcard
+// when FRONTEND_URL/CORS_ORIGIN are unset in production.
+const corsOrigin = process.env.FRONTEND_URL || process.env.CORS_ORIGIN;
 app.use(cors({
-  origin: process.env.FRONTEND_URL || process.env.CORS_ORIGIN || true,
+  origin: corsOrigin || false,
   credentials: true,
 }));
 
