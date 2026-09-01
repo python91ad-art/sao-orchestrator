@@ -18,7 +18,7 @@ import { testGroqConnection, testLLMRouter } from './services/llm';
 import { crawlAndExtract } from './services/crawler';
 import { search as googleSearch, searchForGaps, trendingProblems } from './services/search';
 import { users, gaps, queueItems } from '../drizzle/schema';
-import { eq, asc } from 'drizzle-orm';
+import { eq, asc, sql } from 'drizzle-orm';
 import { createCryptoPayment, toSafePaymentView } from './services/crypto';
 import { hasNowPaymentsApiKey, getNowPaymentsConfig } from './services/nowpayments';
 
@@ -847,6 +847,57 @@ const discoveryRouter = router({
   trending: adminProcedure
     .query(async () => {
       return trendingProblems();
+    }),
+
+  // ==========================================
+  // Live Discovery Pipeline Diagnostic
+  // Traces the ENTIRE pipeline: Core Loop → Tavily → LLM → DB → Queue
+  // ==========================================
+  pipelineDiagnostic: adminProcedure
+    .query(async () => {
+      const { getDiscoveryStatus } = await import('./services/search');
+      const discoveryStatus = getDiscoveryStatus();
+
+      const coreLoopState = await db.getCoreLoopState();
+      
+      const [gapCount, queueCount] = await Promise.all([
+        db.db.select({ count: sql<number>`count(*)` }).from(gaps).then(r => r[0]?.count || 0),
+        db.db.select({ count: sql<number>`count(*)` }).from(queueItems).then(r => r[0]?.count || 0),
+      ]);
+
+      return {
+        timestamp: new Date().toISOString(),
+        tavily: {
+          configured: discoveryStatus.tavilyConfigured,
+          lastSearchStatus: discoveryStatus.lastSearchStatus,
+          lastSearchStatusTime: discoveryStatus.lastSearchStatusTime,
+        },
+        coreLoop: {
+          isRunning: coreLoopState?.isRunning ?? false,
+          intervalMs: coreLoopState?.intervalMs ?? 10800000,
+          lastExecutedAt: coreLoopState?.lastExecutedAt ? new Date(coreLoopState.lastExecutedAt).toISOString() : null,
+          nextExecutionAt: coreLoopState?.nextExecutionAt ? new Date(coreLoopState.nextExecutionAt).toISOString() : null,
+          totalGapsProcessed: coreLoopState?.totalGapsProcessed ?? 0,
+          totalDeploymentsCreated: coreLoopState?.totalDeploymentsCreated ?? 0,
+        },
+        database: {
+          gapsCount: Number(gapCount),
+          queueItemsCount: Number(queueCount),
+          gapStatuses: {} as Record<string, number>,
+        },
+        status: (() => {
+          const issues: string[] = [];
+          if (!discoveryStatus.tavilyConfigured) issues.push('TAVILY_API_KEY not configured');
+          if (!coreLoopState?.isRunning) issues.push('Core Loop is not running');
+          if (discoveryStatus.lastSearchStatus === 'api_error') issues.push('Last Tavily API call failed');
+          if (discoveryStatus.lastSearchStatus === 'not_configured') issues.push('Tavily is not configured');
+          if (Number(gapCount) === 0) issues.push('Zero gaps in database');
+          return {
+            healthy: issues.length === 0,
+            issues,
+          };
+        })(),
+      };
     }),
 });
 

@@ -756,37 +756,52 @@ export async function processOneGap(): Promise<boolean> {
 // Replaces WooCommerce/Odoo adapters. Uses Google Search + Groq LLM.
 // ==========================================
 async function queueGaps(gaps: DetectedGap[]): Promise<number> {
+  console.log(`[Auto-Discovery] 📥 queueGaps called with ${gaps.length} candidate gaps`);
   let queued = 0;
+  let skippedDuplicate = 0;
+  let failedInsert = 0;
+  
   for (const g of gaps) {
     const concatenated = g.knows + g.needs + g.controlsAccess + g.underestimatesValue + g.source;
     const dedupHash = crypto.createHash('sha256').update(concatenated).digest('hex');
 
     // Deduplicate — skip if gap already exists
-    const existing = await db.getGapByHash(dedupHash);
-    if (existing) continue;
+    try {
+      const existing = await db.getGapByHash(dedupHash);
+      if (existing) {
+        skippedDuplicate++;
+        continue;
+      }
 
-    const gap = await db.createGap({
-      knows: g.knows,
-      needs: g.needs,
-      controlsAccess: g.controlsAccess,
-      underestimatesValue: g.underestimatesValue,
-      source: g.source || 'google_search',
-      priority: g.priority || 5,
-      dedupHash,
-      status: 'pending',
-    });
-
-    if (gap) {
-      await db.createQueueItem({
-        gapId: gap.id,
-        dedupHash,
+      const gap = await db.createGap({
+        knows: g.knows,
+        needs: g.needs,
+        controlsAccess: g.controlsAccess,
+        underestimatesValue: g.underestimatesValue,
+        source: g.source || 'tavily_search',
         priority: g.priority || 5,
-        sortOrder: 0,
+        dedupHash,
+        status: 'pending',
       });
-      queued++;
+
+      if (gap) {
+        await db.createQueueItem({
+          gapId: gap.id,
+          dedupHash,
+          priority: g.priority || 5,
+          sortOrder: 0,
+        });
+        queued++;
+      } else {
+        failedInsert++;
+      }
+    } catch (error: any) {
+      console.error(`[Auto-Discovery] ❌ Failed to insert gap: ${error?.message || error}`);
+      failedInsert++;
     }
   }
-  console.log(`[Auto-Discovery] Queued ${queued} new gaps from search detection.`);
+  
+  console.log(`[Auto-Discovery] 📊 queueGaps result: ${queued} inserted, ${skippedDuplicate} duplicates skipped, ${failedInsert} failed`);
   return queued;
 }
 
@@ -799,9 +814,14 @@ async function runCoreLoopTick(): Promise<void> {
   coreLoopTickRunning = true;
 
   try {
-    console.log('Orchestration tick: Auto-discovering gaps + processing queue...');
+    const tickStart = Date.now();
+    console.log('[Core Loop] 🚀 Tick started — Auto-discovering gaps + processing queue...');
+    
+    const currentState = await getStatus();
+    console.log(`[Core Loop] Current state: isRunning=${currentState.isRunning}, intervalMs=${currentState.intervalMs}, concurrency=${(currentState as any).concurrency || 1}`);
 
-    // Auto-discover new gaps via Google Search + Groq LLM
+    // Auto-discover new gaps via Tavily Search + LLM
+    console.log('[Core Loop] 📡 Starting gap discovery phase...');
     try {
       const [ecommerceGaps, operationalGaps] = await Promise.all([
         detectEcommerceGaps(),
@@ -809,31 +829,40 @@ async function runCoreLoopTick(): Promise<void> {
       ]);
 
       const allGaps = [...ecommerceGaps, ...operationalGaps];
+      console.log(`[Core Loop] 🔬 Discovery complete: ${ecommerceGaps.length} e-commerce + ${operationalGaps.length} operational = ${allGaps.length} total candidate gaps`);
 
       if (allGaps.length > 0) {
-        await queueGaps(allGaps);
+        const queued = await queueGaps(allGaps);
+        console.log(`[Core Loop] 📦 Queued ${queued} new gaps into database`);
+      } else {
+        console.log('[Core Loop] ⚠️ No gaps discovered in this tick');
       }
     } catch (error) {
-      console.error('[Core Loop] Auto-discovery failed:', error);
+      console.error('[Core Loop] ❌ Auto-discovery failed:', error);
     }
 
+    console.log('[Core Loop] 🔧 Starting queue processing phase...');
     await processWithWorkerPool();
 
-    const currentState = await getStatus();
+    const endState = await getStatus();
 
-    if (!currentState.isRunning) {
+    if (!endState.isRunning) {
+      console.log('[Core Loop] 🛑 Core loop was stopped during tick — not rescheduling.');
       return;
     }
 
     const now = new Date();
     const nextExecutionAt = new Date(
-      now.getTime() + currentState.intervalMs
+      now.getTime() + endState.intervalMs
     );
 
     await db.updateCoreLoopState({
       lastExecutedAt: now,
       nextExecutionAt,
     });
+
+    const tickDuration = Date.now() - tickStart;
+    console.log(`[Core Loop] ✅ Tick completed in ${tickDuration}ms. Next tick at ${nextExecutionAt.toISOString()}`);
 
     broadcastEvent({
       type: 'coreloop:status',
@@ -844,7 +873,7 @@ async function runCoreLoopTick(): Promise<void> {
       }
     });
 
-    scheduleCoreLoopTick(currentState.intervalMs);
+    scheduleCoreLoopTick(endState.intervalMs);
   } finally {
     coreLoopTickRunning = false;
   }

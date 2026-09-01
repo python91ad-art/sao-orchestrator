@@ -39,6 +39,8 @@ export async function search(query: string, options: { maxResults?: number } = {
 
   const maxResults = Math.min(options.maxResults || 10, 10);
 
+  console.log(`[Search] 🔍 Tavily request → query: "${query.slice(0, 80)}" maxResults: ${maxResults}`);
+
   try {
     const response = await fetch('https://api.tavily.com/search', {
       method: 'POST',
@@ -57,9 +59,11 @@ export async function search(query: string, options: { maxResults?: number } = {
       signal: AbortSignal.timeout(15000),
     });
 
+    console.log(`[Search] 📡 Tavily HTTP ${response.status} for query: "${query.slice(0, 60)}"`);
+
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`[Search] Tavily returned ${response.status}: ${errorText}`);
+      console.error(`[Search] ❌ Tavily returned ${response.status}: ${errorText}`);
       _lastSearchStatus = 'api_error';
       _lastSearchStatusTime = Date.now();
       return [];
@@ -72,7 +76,9 @@ export async function search(query: string, options: { maxResults?: number } = {
     _lastSearchStatusTime = Date.now();
 
     if (results.length === 0) {
-      console.log(`[Search] Tavily returned 0 results for query: ${query.slice(0, 60)}`);
+      console.log(`[Search] ⚠️ Tavily returned 0 results for query: ${query.slice(0, 60)}`);
+    } else {
+      console.log(`[Search] ✅ Tavily returned ${results.length} results for query: "${query.slice(0, 60)}"`);
     }
 
     return results.map((item: any) => ({
@@ -82,7 +88,7 @@ export async function search(query: string, options: { maxResults?: number } = {
       displayLink: item.url ? new URL(item.url).hostname : '',
     }));
   } catch (error: any) {
-    console.error('[Search] Tavily search failed:', error?.message || error);
+    console.error('[Search] ❌ Tavily search failed:', error?.message || error);
     _lastSearchStatus = 'api_error';
     _lastSearchStatusTime = Date.now();
     return [];
@@ -197,10 +203,15 @@ export async function detectEcommerceGaps(): Promise<DetectedGap[]> {
     'ecommerce inventory sync oversell stockout pain points',
   ];
 
+  console.log(`[Ecommerce Gap Detection] 🔍 Starting detection with ${queries.length} queries`);
+
   const allGaps: DetectedGap[] = [];
 
-  for (const query of queries) {
+  for (let i = 0; i < queries.length; i++) {
+    const query = queries[i];
+    console.log(`[Ecommerce Gap Detection] Query ${i+1}/${queries.length}: "${query}"`);
     const results = await search(query, { maxResults: 5 });
+    console.log(`[Ecommerce Gap Detection] Query ${i+1}: ${results.length} Tavily results`);
     if (results.length === 0) continue;
 
     // Concatenate snippets and extract gaps via LLM
@@ -218,7 +229,7 @@ export async function detectEcommerceGaps(): Promise<DetectedGap[]> {
     }
   }
 
-  console.log(`[Ecommerce Gap Detection] Found ${allGaps.length} e-commerce gaps.`);
+  console.log(`[Ecommerce Gap Detection] ✅ Total: ${allGaps.length} e-commerce gaps discovered from ${queries.length} queries.`);
   return allGaps;
 }
 
@@ -236,10 +247,15 @@ export async function detectOperationalGaps(): Promise<DetectedGap[]> {
     '"no solution for" underserved market opportunity',
   ];
 
+  console.log(`[Operational Gap Detection] 🔍 Starting detection with ${queries.length} queries`);
+
   const allGaps: DetectedGap[] = [];
 
-  for (const query of queries) {
+  for (let i = 0; i < queries.length; i++) {
+    const query = queries[i];
+    console.log(`[Operational Gap Detection] Query ${i+1}/${queries.length}: "${query}"`);
     const results = await search(query, { maxResults: 5 });
+    console.log(`[Operational Gap Detection] Query ${i+1}: ${results.length} Tavily results`);
     if (results.length === 0) continue;
 
     const content = results
@@ -256,7 +272,7 @@ export async function detectOperationalGaps(): Promise<DetectedGap[]> {
     }
   }
 
-  console.log(`[Operational Gap Detection] Found ${allGaps.length} operational gaps.`);
+  console.log(`[Operational Gap Detection] ✅ Total: ${allGaps.length} operational gaps discovered from ${queries.length} queries.`);
   return allGaps;
 }
 
@@ -294,16 +310,23 @@ Respond with valid JSON containing a list of gaps under a "gaps" property:
 If no real gaps are found, return { "gaps": [] }`;
 
   try {
+    console.log(`[extractGapFromText] 🤖 Calling LLM to extract gaps from ${sourceTag} (text length: ${text.length} chars)`);
+    
     const parsed = await callLLMJson<{ gaps: any[] }>(prompt, {
       systemPrompt: 'You are a market intelligence analyst specializing in situational arbitrage gap detection.',
       maxTokens: 2000,
       temperature: 0.4,
     });
 
-    if (!parsed.gaps || !Array.isArray(parsed.gaps)) return [];
+    if (!parsed.gaps || !Array.isArray(parsed.gaps)) {
+      console.log(`[extractGapFromText] ⚠️ LLM returned no valid gaps array for ${sourceTag}`);
+      return [];
+    }
 
-    return parsed.gaps
-      .filter((g: any) => g.knows && g.needs) // Must have at least knows + needs
+    const filtered = parsed.gaps.filter((g: any) => g.knows && g.needs);
+    console.log(`[extractGapFromText] ✅ LLM extracted ${filtered.length} candidate gaps from ${sourceTag} (${parsed.gaps.length} raw, ${parsed.gaps.length - filtered.length} rejected missing knows/needs)`);
+
+    return filtered
       .map((g: any) => ({
         knows: g.knows || '',
         needs: g.needs || '',
@@ -313,7 +336,7 @@ If no real gaps are found, return { "gaps": [] }`;
         priority: typeof g.priority === 'number' ? Math.max(1, Math.min(10, g.priority)) : 5,
       }));
   } catch (error) {
-    console.error(`[extractGapFromText] Failed to parse gaps from ${sourceTag}:`, error);
+    console.error(`[extractGapFromText] ❌ Failed to parse gaps from ${sourceTag}:`, error);
     return [];
   }
 }

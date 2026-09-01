@@ -423,9 +423,11 @@ const Settings: React.FC = () => {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                      maxAttempts,
-                      backoffMultiplier,
-                      baseDelayMs,
+                      json: {
+                        maxAttempts,
+                        backoffMultiplier,
+                        baseDelayMs,
+                      },
                     }),
                   });
 
@@ -468,8 +470,10 @@ const Settings: React.FC = () => {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                      maxSize: queueMaxSize,
-                      expirationHours: queueExpirationHours,
+                      json: {
+                        maxSize: queueMaxSize,
+                        expirationHours: queueExpirationHours,
+                      },
                     }),
                   });
 
@@ -520,7 +524,7 @@ const Settings: React.FC = () => {
                         const res = await fetch('/api/trpc/settings.setConcurrency', {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ level: concurrencyLevel }),
+                          body: JSON.stringify({ json: { level: concurrencyLevel } }),
                         });
                         if (res.ok) setConcurrencySaved(true);
                       } catch (e) { console.error(e); }
