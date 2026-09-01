@@ -212,7 +212,8 @@ export async function checkQueueHealth() {
     
     return { healthy: true, message: `Failure rate ${failureRate.toFixed(1)}% — within bounds` };
   } catch (error) {
-    console.error('[Queue Health] Error:', error);
-    return { healthy: true, message: 'Unable to check queue health' };
+    console.error('[Queue Health] ❌ Error checking queue health:', error);
+    // DO NOT report healthy when we cannot determine queue state.
+    return { healthy: false, message: 'Unable to check queue health — system may be degraded' };
   }
 }

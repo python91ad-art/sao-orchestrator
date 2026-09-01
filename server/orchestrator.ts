@@ -4,7 +4,7 @@ import { retryWithExponentialBackoff, aiRateLimiter } from './retryEngine';
 import { sql } from 'drizzle-orm';
 import { queueItems } from '../drizzle/schema';
 import { broadcastEvent } from './websocket';
-import { detectEcommerceGaps, detectOperationalGaps, DetectedGap } from './services/search';
+import { detectEcommerceGaps, detectOperationalGaps, DetectedGap, getDiscoveryStatus, getExtractionMetrics } from './services/search';
 import crypto from 'crypto';
 
 let loopInterval: NodeJS.Timeout | null = null;
@@ -341,7 +341,7 @@ async function processDeploymentQueueItem(queueItem: any, _worker: Worker): Prom
   // ============================================================
 
   const { generateApplication } = await import('./services/applicationGenerator');
-  const { createVercelProject, deployToVercel, makeVercelProjectName } = await import('./services/vercel');
+  const { createVercelProject, deployToVercel, makeVercelProjectName, mapFrameworkForVercel } = await import('./services/vercel');
 
   // ---- Step 1: Generate application artifact ----
   broadcastEvent({ type: 'application:generation_started', data: { deploymentId: existingDeployment.id, gapId: gap.id } });
@@ -370,10 +370,37 @@ async function processDeploymentQueueItem(queueItem: any, _worker: Worker): Prom
 
   console.log(`[Deployment] Generated ${app.files.length} files for deployment ${existingDeployment.id}.`);
 
+  // ---- Step 1.5: Smoke test the generated application ---- 
+  const { smokeTestApplication } = await import('./services/applicationGenerator');
+  const smokeResult = smokeTestApplication(app);
+  
+  console.log(
+    `[Deployment] Smoke test for ${existingDeployment.id}: ` +
+    `${smokeResult.passed ? 'PASSED' : 'FAILED'} ` +
+    `(${smokeResult.stats.totalFiles} files, ${smokeResult.stats.totalChars} chars, ` +
+    `${smokeResult.errors.length} errors, ${smokeResult.warnings.length} warnings)`
+  );
+
+  if (!smokeResult.passed) {
+    const errorDetail = smokeResult.errors.join('; ');
+    console.error(`[Deployment] ❌ Smoke test FAILED for ${existingDeployment.id}: ${errorDetail}`);
+    throw new Error(`Application smoke test failed: ${errorDetail}`);
+  }
+
+  if (smokeResult.warnings.length > 0) {
+    console.warn(
+      `[Deployment] ⚠️ Smoke test warnings for ${existingDeployment.id}: ` +
+      smokeResult.warnings.join('; ')
+    );
+  }
+
   // ---- Step 2: Create/reuse Vercel project ----
   const projectName = makeVercelProjectName(existingDeployment.id);
   const { projectId } = await retryWithExponentialBackoff(
-    () => createVercelProject({ name: projectName, framework: app.framework }),
+    () => createVercelProject({
+      name: projectName,
+      framework: mapFrameworkForVercel(app.framework),
+    }),
     3,
     2000
   );
@@ -443,6 +470,35 @@ export async function getStatus() {
     state = await db.initCoreLoopState();
   }
   return state;
+}
+
+/**
+ * Enhanced status including discovery health and extraction metrics.
+ * Safe for dashboard display — never exposes credentials.
+ */
+export async function getEnhancedStatus() {
+  const state = await getStatus();
+  const discoveryStatus = getDiscoveryStatus();
+  const extractionMetrics = getExtractionMetrics();
+  return {
+    ...state,
+    discovery: {
+      tavilyConfigured: discoveryStatus.tavilyConfigured,
+      lastSearchStatus: discoveryStatus.lastSearchStatus,
+      lastSearchStatusTime: discoveryStatus.lastSearchStatusTime,
+    },
+    extraction: {
+      totalAttempts: extractionMetrics.totalAttempts,
+      llmSuccesses: extractionMetrics.llmSuccesses,
+      llmNoValidGaps: extractionMetrics.llmNoValidGaps,
+      llmSchemaFailures: extractionMetrics.llmSchemaFailures,
+      totalGapsExtracted: extractionMetrics.totalGapsExtracted,
+      failures: extractionMetrics.failures,
+      lastFailureReason: extractionMetrics.lastFailureReason,
+      lastFailureTime: extractionMetrics.lastFailureTime ? new Date(extractionMetrics.lastFailureTime).toISOString() : null,
+      lastSuccessTime: extractionMetrics.lastSuccessTime ? new Date(extractionMetrics.lastSuccessTime).toISOString() : null,
+    },
+  };
 }
 
 // ==========================================
@@ -886,8 +942,19 @@ function scheduleCoreLoopTick(intervalMs: number): void {
   }
 
   loopInterval = setTimeout(() => {
-    runCoreLoopTick().catch((error) => {
+    runCoreLoopTick().catch(async (error) => {
       console.error('[Core Loop] Tick failed:', error);
+      // If the tick crashed before rescheduling itself, recover by scheduling
+      // the next tick. This prevents the loop from dying silently.
+      try {
+        const state = await getStatus();
+        if (state.isRunning) {
+          console.log('[Core Loop] Recovering from tick crash — rescheduling next tick.');
+          scheduleCoreLoopTick(state.intervalMs);
+        }
+      } catch (stateErr) {
+        console.error('[Core Loop] Could not recover loop state after crash:', stateErr);
+      }
     });
   }, intervalMs);
 }

@@ -1,5 +1,6 @@
 import { callLLMJson } from './llm';
 import { ExtractedGap } from './crawler';
+import { retryWithExponentialBackoff } from '../retryEngine';
 
 export interface SearchResult {
   title: string;
@@ -20,6 +21,99 @@ export function getDiscoveryStatus() {
     lastSearchStatus: _lastSearchStatus,
     lastSearchStatusTime: _lastSearchStatusTime ? new Date(_lastSearchStatusTime).toISOString() : null,
   };
+}
+
+// ==========================================
+// EXTRACTION HEALTH METRICS — Observable failure categorization
+// ==========================================
+
+export type ExtractionFailureReason =
+  | 'llm_unavailable'
+  | 'llm_timeout'
+  | 'malformed_json'
+  | 'schema_validation_failure'
+  | 'provider_failure'
+  | 'rate_limit'
+  | 'auth_failure'
+  | 'network_error'
+  | 'unknown';
+
+export interface ExtractionMetrics {
+  totalAttempts: number;
+  /** LLM was reached and returned parseable structured output (even if 0 gaps). */
+  llmSuccesses: number;
+  /** LLM returned valid JSON gaps array but all entries were filtered out. */
+  llmNoValidGaps: number;
+  /** LLM returned output but it failed structural validation. */
+  llmSchemaFailures: number;
+  /** LLM call itself failed (network, auth, timeout, rate limit, etc). */
+  failures: Record<Exclude<ExtractionFailureReason, 'schema_validation_failure'>, number>;
+  lastFailureReason: ExtractionFailureReason | null;
+  lastFailureTime: number | null;
+  lastSuccessTime: number | null;
+  /** Total valid gaps successfully extracted across all calls. */
+  totalGapsExtracted: number;
+}
+
+const extractionMetrics: ExtractionMetrics = {
+  totalAttempts: 0,
+  llmSuccesses: 0,
+  llmNoValidGaps: 0,
+  llmSchemaFailures: 0,
+  failures: {
+    llm_unavailable: 0,
+    llm_timeout: 0,
+    malformed_json: 0,
+    provider_failure: 0,
+    rate_limit: 0,
+    auth_failure: 0,
+    network_error: 0,
+    unknown: 0,
+  },
+  lastFailureReason: null,
+  lastFailureTime: null,
+  lastSuccessTime: null,
+  totalGapsExtracted: 0,
+};
+
+export function getExtractionMetrics(): ExtractionMetrics {
+  return { ...extractionMetrics, failures: { ...extractionMetrics.failures } };
+}
+
+function recordExtractionFailure(reason: ExtractionFailureReason): void {
+  extractionMetrics.totalAttempts++;
+  extractionMetrics.lastFailureReason = reason;
+  extractionMetrics.lastFailureTime = Date.now();
+  if (reason === 'schema_validation_failure') {
+    extractionMetrics.llmSchemaFailures++;
+  } else {
+    extractionMetrics.failures[reason]++;
+  }
+}
+
+function recordExtractionSuccess(gapCount: number = 0): void {
+  extractionMetrics.totalAttempts++;
+  extractionMetrics.llmSuccesses++;
+  extractionMetrics.lastSuccessTime = Date.now();
+  extractionMetrics.lastFailureReason = null;
+  extractionMetrics.totalGapsExtracted += gapCount;
+  if (gapCount === 0) {
+    extractionMetrics.llmNoValidGaps++;
+  }
+}
+
+function categorizeLLMError(error: any): ExtractionFailureReason {
+  const msg = String(error?.message || error || '').toLowerCase();
+  const code = String(error?.code || '').toLowerCase();
+  const name = String(error?.name || '').toLowerCase();
+
+  if (/rate.?limit|too many requests|quota|429|tpm|rpm/.test(msg)) return 'rate_limit';
+  if (/unauthorized|forbidden|invalid api key|authentication|401|403/.test(msg)) return 'auth_failure';
+  if (/timed? ?out|abort|etimedout|408/.test(msg + code)) return 'llm_timeout';
+  if (/network|fetch failed|econnrefused|econnreset|enotfound|socket/.test(msg)) return 'network_error';
+  if (/json|parse|unexpected token|syntax error|cannot parse/i.test(msg)) return 'malformed_json';
+  if (name === 'llmrouterexhaustederror' || code === 'llm_all_providers_exhausted') return 'llm_unavailable';
+  return 'unknown';
 }
 
 /**
@@ -109,7 +203,15 @@ export async function searchForGaps(topic: string): Promise<ExtractedGap[]> {
     .map(r => `Source: ${r.url}\nTitle: ${r.title}\nSnippet: ${r.snippet}`)
     .join('\n\n---\n\n');
 
-  return extractGapsFromSearchContent(concatenatedContent, `tavily_search:${topic}`);
+  try {
+    return await extractGapsFromSearchContent(concatenatedContent, `tavily_search:${topic}`);
+  } catch (error: any) {
+    console.error(
+      `[Search] ❌ Gap extraction failed for topic "${topic}" ` +
+      `(category: ${error?.category || 'unknown'}): ${error?.message || error}`
+    );
+    return [];
+  }
 }
 
 /**
@@ -142,22 +244,47 @@ Respond with valid JSON containing a list of gaps under a "gaps" property, match
 }`;
 
   try {
-    const parsed = await callLLMJson<{ gaps: any[] }>(prompt, {
-      systemPrompt: 'You are a market intelligence analyst specializing in situational arbitrage.',
-    });
+    const result = await retryWithExponentialBackoff(
+      async () => {
+        const parsed = await callLLMJson<{ gaps: any[] }>(prompt, {
+          systemPrompt: 'You are a market intelligence analyst specializing in situational arbitrage.',
+        });
 
-    if (!parsed.gaps || !Array.isArray(parsed.gaps)) return [];
+        if (!parsed.gaps || !Array.isArray(parsed.gaps)) {
+          recordExtractionFailure('schema_validation_failure');
+          return [] as ExtractedGap[];
+        }
 
-    return parsed.gaps.map((g: any) => ({
-      knows: g.knows || '',
-      needs: g.needs || '',
-      controlsAccess: g.controlsAccess || '',
-      underestimatesValue: g.underestimatesValue || '',
-      source: sourceUrl,
-    }));
-  } catch (error) {
-    console.error('[Search] Failed to extract gaps from search results:', error);
-    return [];
+        const extracted = parsed.gaps.map((g: any) => ({
+          knows: g.knows || '',
+          needs: g.needs || '',
+          controlsAccess: g.controlsAccess || '',
+          underestimatesValue: g.underestimatesValue || '',
+          source: sourceUrl,
+        }));
+
+        recordExtractionSuccess(extracted.length);
+        return extracted;
+      },
+      3,
+      1000,
+      2
+    );
+
+    return result;
+  } catch (error: any) {
+    const category = categorizeLLMError(error);
+    recordExtractionFailure(category);
+
+    console.error(
+      `[Search] Failed to extract gaps from search results ` +
+      `(category: ${category}): ${error?.message || error}`
+    );
+
+    throw Object.assign(
+      new Error(`LLM gap extraction failed [${category}]: ${error?.message || 'Unknown error'}`),
+      { code: 'EXTRACTION_FAILED', category, sourceUrl }
+    );
   }
 }
 
@@ -205,7 +332,8 @@ export async function detectEcommerceGaps(): Promise<DetectedGap[]> {
 
   console.log(`[Ecommerce Gap Detection] 🔍 Starting detection with ${queries.length} queries`);
 
-  const allGaps: DetectedGap[] = [];
+const allGaps: DetectedGap[] = [];
+  let extractionFailures = 0;
 
   for (let i = 0; i < queries.length; i++) {
     const query = queries[i];
@@ -219,17 +347,29 @@ export async function detectEcommerceGaps(): Promise<DetectedGap[]> {
       .map(r => `Source: ${r.url}\nTitle: ${r.title}\nSnippet: ${r.snippet}`)
       .join('\n\n---\n\n');
 
-    const gaps = await extractGapFromText(content, 'tavily_search:ecommerce');
-    for (const g of gaps) {
-      allGaps.push({
-        ...g,
-        source: 'tavily_search',
-        priority: g.priority || 5,
-      });
+    try {
+      const gaps = await extractGapFromText(content, 'tavily_search:ecommerce');
+      for (const g of gaps) {
+        allGaps.push({
+          ...g,
+          source: 'tavily_search',
+          priority: g.priority || 5,
+        });
+      }
+    } catch (error: any) {
+      extractionFailures++;
+      console.error(
+        `[Ecommerce Gap Detection] ❌ Extraction failed for query ${i+1} ` +
+        `(category: ${error?.category || 'unknown'}): ${error?.message || error}`
+      );
+      continue;
     }
   }
 
-  console.log(`[Ecommerce Gap Detection] ✅ Total: ${allGaps.length} e-commerce gaps discovered from ${queries.length} queries.`);
+  console.log(
+    `[Ecommerce Gap Detection] ✅ Total: ${allGaps.length} e-commerce gaps discovered from ${queries.length} queries.` +
+    `${extractionFailures > 0 ? ` ${extractionFailures} extraction failure(s).` : ''}`
+  );
   return allGaps;
 }
 
@@ -250,6 +390,7 @@ export async function detectOperationalGaps(): Promise<DetectedGap[]> {
   console.log(`[Operational Gap Detection] 🔍 Starting detection with ${queries.length} queries`);
 
   const allGaps: DetectedGap[] = [];
+  let extractionFailures = 0;
 
   for (let i = 0; i < queries.length; i++) {
     const query = queries[i];
@@ -262,23 +403,39 @@ export async function detectOperationalGaps(): Promise<DetectedGap[]> {
       .map(r => `Source: ${r.url}\nTitle: ${r.title}\nSnippet: ${r.snippet}`)
       .join('\n\n---\n\n');
 
-    const gaps = await extractGapFromText(content, 'tavily_search:operational');
-    for (const g of gaps) {
-      allGaps.push({
-        ...g,
-        source: 'tavily_search',
-        priority: g.priority || 5,
-      });
+    try {
+      const gaps = await extractGapFromText(content, 'tavily_search:operational');
+      for (const g of gaps) {
+        allGaps.push({
+          ...g,
+          source: 'tavily_search',
+          priority: g.priority || 5,
+        });
+      }
+    } catch (error: any) {
+      extractionFailures++;
+      console.error(
+        `[Operational Gap Detection] ❌ Extraction failed for query ${i+1} ` +
+        `(category: ${error?.category || 'unknown'}): ${error?.message || error}`
+      );
+      continue;
     }
   }
 
-  console.log(`[Operational Gap Detection] ✅ Total: ${allGaps.length} operational gaps discovered from ${queries.length} queries.`);
+  console.log(
+    `[Operational Gap Detection] ✅ Total: ${allGaps.length} operational gaps discovered from ${queries.length} queries.` +
+    `${extractionFailures > 0 ? ` ${extractionFailures} extraction failure(s).` : ''}`
+  );
   return allGaps;
 }
 
 /**
- * Extract a gap object from a text snippet using Groq LLM.
- * Handles failures gracefully — returns empty array on parse error.
+ * Extract a gap object from a text snippet using LLM (with retry & fallback).
+ * 
+ * Failure modes are tracked separately via extractionMetrics.
+ * Retries transient failures (rate_limit, timeout, network) up to 2 times with
+ * exponential backoff. Returns empty array only when no valid gaps exist —
+ * LLM crashes are propagated so callers can distinguish "no gaps" from "failed".
  */
 async function extractGapFromText(text: string, sourceTag: string): Promise<DetectedGap[]> {
   const prompt = `Analyze the following content and extract concrete "Situational Arbitrage" market gaps.
@@ -312,31 +469,62 @@ If no real gaps are found, return { "gaps": [] }`;
   try {
     console.log(`[extractGapFromText] 🤖 Calling LLM to extract gaps from ${sourceTag} (text length: ${text.length} chars)`);
     
-    const parsed = await callLLMJson<{ gaps: any[] }>(prompt, {
-      systemPrompt: 'You are a market intelligence analyst specializing in situational arbitrage gap detection.',
-      maxTokens: 2000,
-      temperature: 0.4,
-    });
+    const result = await retryWithExponentialBackoff(
+      async () => {
+        const parsed = await callLLMJson<{ gaps: any[] }>(prompt, {
+          systemPrompt: 'You are a market intelligence analyst specializing in situational arbitrage gap detection.',
+          maxTokens: 2000,
+          temperature: 0.4,
+        });
 
-    if (!parsed.gaps || !Array.isArray(parsed.gaps)) {
-      console.log(`[extractGapFromText] ⚠️ LLM returned no valid gaps array for ${sourceTag}`);
-      return [];
-    }
+        if (!parsed.gaps || !Array.isArray(parsed.gaps)) {
+          recordExtractionFailure('schema_validation_failure');
+          console.log(`[extractGapFromText] ⚠️ LLM returned no valid gaps array for ${sourceTag}`);
+          // LLM was reached but output was structurally wrong — NOT "success with 0 gaps"
+          return [] as DetectedGap[];
+        }
 
-    const filtered = parsed.gaps.filter((g: any) => g.knows && g.needs);
-    console.log(`[extractGapFromText] ✅ LLM extracted ${filtered.length} candidate gaps from ${sourceTag} (${parsed.gaps.length} raw, ${parsed.gaps.length - filtered.length} rejected missing knows/needs)`);
+        const filtered = parsed.gaps.filter((g: any) => g.knows && g.needs);
+        console.log(`[extractGapFromText] ✅ LLM extracted ${filtered.length} candidate gaps from ${sourceTag} (${parsed.gaps.length} raw, ${parsed.gaps.length - filtered.length} rejected missing knows/needs)`);
 
-    return filtered
-      .map((g: any) => ({
-        knows: g.knows || '',
-        needs: g.needs || '',
-        controlsAccess: g.controlsAccess || '',
-        underestimatesValue: g.underestimatesValue || '',
-        source: sourceTag,
-        priority: typeof g.priority === 'number' ? Math.max(1, Math.min(10, g.priority)) : 5,
-      }));
-  } catch (error) {
-    console.error(`[extractGapFromText] ❌ Failed to parse gaps from ${sourceTag}:`, error);
-    return [];
+        // LLM succeeded and gave us parseable output. Track success, gap count may be 0.
+        recordExtractionSuccess(filtered.length);
+
+        return filtered
+          .map((g: any) => ({
+            knows: g.knows || '',
+            needs: g.needs || '',
+            controlsAccess: g.controlsAccess || '',
+            underestimatesValue: g.underestimatesValue || '',
+            source: sourceTag,
+            priority: typeof g.priority === 'number' ? Math.max(1, Math.min(10, g.priority)) : 5,
+          }));
+      },
+      3,      // maxAttempts
+      1000,   // baseDelay
+      2       // backoffMultiplier
+    );
+
+    return result;
+  } catch (error: any) {
+    const category = categorizeLLMError(error);
+    recordExtractionFailure(category);
+
+    console.error(
+      `[extractGapFromText] ❌ LLM extraction FAILED for ${sourceTag} ` +
+      `(category: ${category}): ${error?.message || error}`
+    );
+
+    // Do NOT silently swallow — throw a structured error so callers know
+    // this was an extraction failure, not an empty result.
+    throw Object.assign(
+      new Error(`LLM gap extraction failed [${category}]: ${error?.message || 'Unknown error'}`),
+      { 
+        code: 'EXTRACTION_FAILED',
+        category,
+        sourceTag,
+        textLength: text.length,
+      }
+    );
   }
 }

@@ -49,8 +49,9 @@ Respond with exactly one word: low, medium, or high.`;
     if (responseText.includes('medium')) return 'medium';
     return 'low';
   } catch (error) {
-    console.error('Failed to assess ban risk with AI. Falling back to default "low".', error);
-    return 'low';
+    console.error('Failed to assess ban risk with AI. Failing safe with "medium".', error);
+// DO NOT default to "low" on failure — that would hide potential risks.
+    return 'medium';
   }
 }
 

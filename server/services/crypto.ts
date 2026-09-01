@@ -31,7 +31,7 @@ const PROVIDER_TYPE = 'crypto';
 function buildWebhookUrl(): string | undefined {
   const explicit = process.env.CRYPTO_WEBHOOK_URL;
   if (explicit) return explicit;
-  const base = process.env.FRONTEND_URL || process.env.CORS_ORIGIN;
+  const base = process.env.FRONTEND_URL || process.env.PUBLIC_URL || process.env.CORS_ORIGIN;
   if (base) return `${base.replace(/\/+$/, '')}/api/crypto/webhook`;
   return undefined;
 }

@@ -689,11 +689,27 @@ const coreLoopRouter = router({
   status: protectedProcedure
     .query(async () => {
       const state = await db.getCoreLoopState();
-      const { getDiscoveryStatus } = await import('./services/search');
+      const { getDiscoveryStatus, getExtractionMetrics } = await import('./services/search');
       const discoveryStatus = getDiscoveryStatus();
+      const extractionMetrics = getExtractionMetrics();
       return {
         ...state,
         discovery: discoveryStatus,
+        extraction: {
+          totalAttempts: extractionMetrics.totalAttempts,
+          llmSuccesses: extractionMetrics.llmSuccesses,
+          llmNoValidGaps: extractionMetrics.llmNoValidGaps,
+          llmSchemaFailures: extractionMetrics.llmSchemaFailures,
+          totalGapsExtracted: extractionMetrics.totalGapsExtracted,
+          failures: extractionMetrics.failures,
+          lastFailureReason: extractionMetrics.lastFailureReason,
+          lastFailureTime: extractionMetrics.lastFailureTime
+            ? new Date(extractionMetrics.lastFailureTime).toISOString()
+            : null,
+          lastSuccessTime: extractionMetrics.lastSuccessTime
+            ? new Date(extractionMetrics.lastSuccessTime).toISOString()
+            : null,
+        },
       };
     }),
 });
@@ -855,8 +871,9 @@ const discoveryRouter = router({
   // ==========================================
   pipelineDiagnostic: adminProcedure
     .query(async () => {
-      const { getDiscoveryStatus } = await import('./services/search');
+      const { getDiscoveryStatus, getExtractionMetrics } = await import('./services/search');
       const discoveryStatus = getDiscoveryStatus();
+      const extractionMetrics = getExtractionMetrics();
 
       const coreLoopState = await db.getCoreLoopState();
       
@@ -871,6 +888,21 @@ const discoveryRouter = router({
           configured: discoveryStatus.tavilyConfigured,
           lastSearchStatus: discoveryStatus.lastSearchStatus,
           lastSearchStatusTime: discoveryStatus.lastSearchStatusTime,
+        },
+        extraction: {
+          totalAttempts: extractionMetrics.totalAttempts,
+          llmSuccesses: extractionMetrics.llmSuccesses,
+          llmNoValidGaps: extractionMetrics.llmNoValidGaps,
+          llmSchemaFailures: extractionMetrics.llmSchemaFailures,
+          totalGapsExtracted: extractionMetrics.totalGapsExtracted,
+          failures: extractionMetrics.failures,
+          lastFailureReason: extractionMetrics.lastFailureReason,
+          lastFailureTime: extractionMetrics.lastFailureTime
+            ? new Date(extractionMetrics.lastFailureTime).toISOString()
+            : null,
+          lastSuccessTime: extractionMetrics.lastSuccessTime
+            ? new Date(extractionMetrics.lastSuccessTime).toISOString()
+            : null,
         },
         coreLoop: {
           isRunning: coreLoopState?.isRunning ?? false,
@@ -892,6 +924,12 @@ const discoveryRouter = router({
           if (discoveryStatus.lastSearchStatus === 'api_error') issues.push('Last Tavily API call failed');
           if (discoveryStatus.lastSearchStatus === 'not_configured') issues.push('Tavily is not configured');
           if (Number(gapCount) === 0) issues.push('Zero gaps in database');
+          if (extractionMetrics.lastFailureReason) {
+            issues.push(`Last extraction failure: ${extractionMetrics.lastFailureReason}`);
+          }
+          if (extractionMetrics.totalAttempts > 0 && extractionMetrics.llmSuccesses === 0) {
+            issues.push('All extraction attempts have failed — LLM pipeline is non-functional');
+          }
           return {
             healthy: issues.length === 0,
             issues,

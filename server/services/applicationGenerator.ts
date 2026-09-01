@@ -193,6 +193,224 @@ export function validateGeneratedApplication(
 
   return { valid: errors.length === 0, errors, warnings };
 }
+// ============================================================
+// APPLICATION SMOKE TESTER — Pre-Deployment Validation
+// ============================================================
+// Validates generated applications before they are deployed.
+// Catches: broken references, empty files, placeholder content,
+// missing entry points, and basic structural issues.
+// ============================================================
+
+export interface SmokeTestResult {
+  passed: boolean;
+  errors: string[];
+  warnings: string[];
+  entryPointFound: boolean;
+  allReferencesResolved: boolean;
+  stats: {
+    totalFiles: number;
+    totalChars: number;
+    htmlFiles: number;
+    cssFiles: number;
+    jsFiles: number;
+    otherFiles: number;
+  };
+}
+
+const PLACEHOLDER_PATTERNS = [
+  /TODO/i,
+  /FIXME/i,
+  /lorem ipsum/i,
+  /placeholder/i,
+  /your content here/i,
+  /add your/i,
+  /insert here/i,
+  /coming soon/i,
+  /under construction/i,
+];
+
+function classifyFilePath(path: string): 'html' | 'css' | 'js' | 'other' {
+  const lower = path.toLowerCase();
+  if (lower.endsWith('.html') || lower.endsWith('.htm')) return 'html';
+  if (lower.endsWith('.css')) return 'css';
+  if (lower.endsWith('.js')) return 'js';
+  return 'other';
+}
+
+function extractHtmlReferences(html: string): string[] {
+  const refs: string[] = [];
+  const linkRegex = /<link\s[^>]*href=["']([^"']+)["']/gi;
+  let match;
+  while ((match = linkRegex.exec(html)) !== null) {
+    refs.push(match[1]);
+  }
+  const scriptRegex = /<script\s[^>]*src=["']([^"']+)["']/gi;
+  while ((match = scriptRegex.exec(html)) !== null) {
+    refs.push(match[1]);
+  }
+  const imgRegex = /<img\s[^>]*src=["']([^"']+)["']/gi;
+  while ((match = imgRegex.exec(html)) !== null) {
+    refs.push(match[1]);
+  }
+  const urlRegex = /url\(["']?([^)"']+)["']?\)/gi;
+  while ((match = urlRegex.exec(html)) !== null) {
+    refs.push(match[1]);
+  }
+  return refs;
+}
+
+/**
+ * Run a smoke test on a generated application before deployment.
+ * Checks: entry point exists, no placeholders, all HTML references
+ * resolve to generated files, minimum file/content requirements,
+ * HTML structure, JS syntax, CSS syntax, and more.
+ */
+export function smokeTestApplication(app: GeneratedApplication): SmokeTestResult {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+
+  const filePaths = new Set(app.files.map((f) => f.path));
+  const stats = {
+    totalFiles: app.files.length,
+    totalChars: app.files.reduce((s, f) => s + f.content.length, 0),
+    htmlFiles: 0,
+    cssFiles: 0,
+    jsFiles: 0,
+    otherFiles: 0,
+  };
+
+  for (const file of app.files) {
+    const type = classifyFilePath(file.path);
+    if (type === 'html') stats.htmlFiles++;
+    else if (type === 'css') stats.cssFiles++;
+    else if (type === 'js') stats.jsFiles++;
+    else stats.otherFiles++;
+  }
+
+  // --- Entry point check ---
+  if (!filePaths.has(app.entryPoint)) {
+    errors.push(`Entry point "${app.entryPoint}" not found in generated files.`);
+  }
+
+  if (stats.htmlFiles === 0) {
+    errors.push('Generated application contains no HTML files.');
+  }
+
+  // --- Placeholder content check ---
+  for (const file of app.files) {
+    for (const pattern of PLACEHOLDER_PATTERNS) {
+      if (pattern.test(file.content)) {
+        warnings.push(`File "${file.path}" contains placeholder content matching "${pattern}".`);
+        break;
+      }
+    }
+  }
+
+  // --- HTML structural checks ---
+  for (const file of app.files) {
+    if (classifyFilePath(file.path) !== 'html') continue;
+    const html = file.content;
+    // Check for basic HTML skeleton
+    if (!/<html/i.test(html) && !/<body/i.test(html) && !/<div/i.test(html) && !/<main/i.test(html) && !/<section/i.test(html)) {
+      warnings.push(`HTML file "${file.path}" does not contain recognizable HTML elements.`);
+    }
+    if (!/<title/i.test(html) && file.path === app.entryPoint) {
+      warnings.push(`Entry point "${file.path}" is missing a <title> tag.`);
+    }
+    // Check for broken/unclosed tags (heuristic)
+    const openDivs = (html.match(/<div[ >]/gi) || []).length;
+    const closeDivs = (html.match(/<\/div>/gi) || []).length;
+    if (Math.abs(openDivs - closeDivs) > 3) {
+      warnings.push(`HTML file "${file.path}" may have unbalanced <div> tags (${openDivs} open, ${closeDivs} close).`);
+    }
+  }
+
+  // --- CSS structural checks ---
+  for (const file of app.files) {
+    if (classifyFilePath(file.path) !== 'css') continue;
+    const css = file.content;
+    // Check for broken braces
+    const openBraces = (css.match(/\{/g) || []).length;
+    const closeBraces = (css.match(/\}/g) || []).length;
+    if (openBraces !== closeBraces) {
+      errors.push(`CSS file "${file.path}" has unbalanced braces (${openBraces} open, ${closeBraces} close).`);
+    }
+    // Check for common CSS syntax errors
+    if (/:\s*;/.test(css)) {
+      warnings.push(`CSS file "${file.path}" contains empty property values (e.g. "color: ;").`);
+    }
+  }
+
+  // --- JS structural checks ---
+  for (const file of app.files) {
+    if (classifyFilePath(file.path) !== 'js') continue;
+    const js = file.content;
+    // Basic brace/paren balance
+    const openCurly = (js.match(/\{/g) || []).length;
+    const closeCurly = (js.match(/\}/g) || []).length;
+    const openParen = (js.match(/\(/g) || []).length;
+    const closeParen = (js.match(/\)/g) || []).length;
+    if (openCurly !== closeCurly) {
+      errors.push(`JS file "${file.path}" has unbalanced curly braces (${openCurly} open, ${closeCurly} close).`);
+    }
+    if (openParen !== closeParen) {
+      errors.push(`JS file "${file.path}" has unbalanced parentheses (${openParen} open, ${closeParen} close).`);
+    }
+  }
+
+  // --- Reference resolution ---
+  let allRefsResolved = true;
+  for (const file of app.files) {
+    if (classifyFilePath(file.path) !== 'html') continue;
+    
+    const refs = extractHtmlReferences(file.content);
+    for (const ref of refs) {
+      if (ref.startsWith('http://') || ref.startsWith('https://') ||
+          ref.startsWith('data:') || ref.startsWith('//') ||
+          ref.startsWith('#')) {
+        continue;
+      }
+      
+      const normalized = ref.replace(/^\.\//, '');
+      if (!filePaths.has(normalized)) {
+        const baseDir = file.path.split('/').slice(0, -1).join('/');
+        const resolved = baseDir ? `${baseDir}/${normalized}` : normalized;
+        if (!filePaths.has(resolved)) {
+          errors.push(
+            `Referenced file "${ref}" in "${file.path}" was not found in generated files.`
+          );
+          allRefsResolved = false;
+        }
+      }
+    }
+  }
+
+  // --- Size and count checks ---
+  if (stats.totalChars < 500) {
+    warnings.push(`Application is very small (${stats.totalChars} total characters). May be incomplete.`);
+  }
+
+  if (stats.totalFiles < 2) {
+    warnings.push('Application has very few files (<2). May be incomplete.');
+  }
+
+  // --- Self-sufficiency check (critical for static apps) ---
+  if (stats.htmlFiles === 0) {
+    errors.push('No HTML files — cannot serve as a standalone static application.');
+  }
+  if (stats.htmlFiles > 0 && (stats.cssFiles === 0 && stats.jsFiles === 0)) {
+    warnings.push('Application has no CSS or JS files — all styling/behavior may be inline.');
+  }
+
+  return {
+    passed: errors.length === 0,
+    errors,
+    warnings,
+    entryPointFound: filePaths.has(app.entryPoint),
+    allReferencesResolved: allRefsResolved,
+    stats,
+  };
+}
 
 export function validateApplicationStructure(raw: unknown): string | null {
   if (!raw || typeof raw !== 'object') {

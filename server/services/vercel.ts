@@ -173,9 +173,14 @@ export async function createVercelProject(
     );
   }
 
-  // Create a new project
+  // Create a new project: only include framework if Vercel recognises it.
   const body: Record<string, unknown> = { name: params.name };
-  if (params.framework) { body.framework = params.framework; }
+  const mappedFramework = params.framework
+    ? mapFrameworkForVercel(params.framework)
+    : null;
+  if (mappedFramework) {
+    body.framework = mappedFramework;
+  }
   if (params.environmentVariables?.length) {
     body.environmentVariables = params.environmentVariables;
   }
@@ -217,15 +222,24 @@ export async function deployToVercel(
   const headers = getVercelHeaders();
   const teamParam = getTeamParam();
 
+  // Build query: skip auto-detection for new projects (static sites)
+  const skipConfirmation = teamParam
+    ? `${teamParam}&skipAutoDetectionConfirmation=1`
+    : '?skipAutoDetectionConfirmation=1';
+
   const body: Record<string, unknown> = {
     name: params.name || 'sao-deployment',
     target: params.target || 'production',
+    // Provide explicit project settings to prevent framework auto-detection errors.
+    projectSettings: {
+      framework: null,
+    },
   };
   if (params.files?.length) { body.files = params.files; }
   if (params.source) { body.source = params.source; }
 
   const response = await fetch(
-    `${VERCEL_API_BASE}/v13/deployments${teamParam}`,
+    `${VERCEL_API_BASE}/v13/deployments${skipConfirmation}`,
     { method: 'POST', headers, body: JSON.stringify(body) }
   );
 
@@ -292,4 +306,19 @@ export function makeVercelProjectName(deploymentId: string): string {
     .replace(/-+/g, '-')
     .replace(/^-|-$/g, '');
   return name.slice(0, 100);
+}
+
+/**
+ * Map SAO framework names to Vercel-recognised framework identifiers.
+ * SAO generates static HTML/JS/CSS apps — "static" is not a valid
+ * Vercel framework, so we map it to null (no framework) which tells
+ * Vercel to serve the files as-is via their static hosting.
+ */
+export function mapFrameworkForVercel(framework: string): string | null {
+  const map: Record<string, string | null> = {
+    static: null,
+    react: 'nextjs',
+    other: null,
+  };
+  return map[framework] ?? null;
 }

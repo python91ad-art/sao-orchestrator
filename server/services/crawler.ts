@@ -99,7 +99,10 @@ Respond with valid JSON containing a list of gaps under a "gaps" property, match
       systemPrompt: 'You are a market intelligence analyst specializing in situational arbitrage.',
     });
 
-    if (!parsed.gaps || !Array.isArray(parsed.gaps)) return [];
+    if (!parsed.gaps || !Array.isArray(parsed.gaps)) {
+      console.warn('[Crawler] ⚠️ LLM returned no valid gaps array — no gaps extracted.');
+      return [];
+    }
 
     return parsed.gaps.map((g: any) => ({
       knows: g.knows || '',
@@ -108,9 +111,21 @@ Respond with valid JSON containing a list of gaps under a "gaps" property, match
       underestimatesValue: g.underestimatesValue || '',
       source: sourceUrl,
     }));
-  } catch (error) {
-    console.error('[Crawler] Failed to extract gaps:', error);
-    return [];
+  } catch (error: any) {
+    const msg = String(error?.message || error || 'unknown error').toLowerCase();
+    let category = 'unknown';
+    if (/rate.?limit|too many requests|quota|429/i.test(msg)) category = 'rate_limit';
+    else if (/unauthorized|forbidden|auth|401|403/i.test(msg)) category = 'auth_failure';
+    else if (/timed? ?out|abort|etimedout/i.test(msg)) category = 'llm_timeout';
+    else if (/network|fetch failed|econn/i.test(msg)) category = 'network_error';
+    else if (/json|parse|unexpected token/i.test(msg)) category = 'malformed_json';
+
+    console.error(`[Crawler] ❌ LLM extraction FAILED (category: ${category}): ${error?.message || error}`);
+    
+    throw Object.assign(
+      new Error(`LLM gap extraction failed [${category}]: ${error?.message || 'Unknown error'}`),
+      { code: 'EXTRACTION_FAILED', category, sourceUrl }
+    );
   }
 }
 
@@ -123,5 +138,13 @@ export async function crawlAndExtract(url: string): Promise<ExtractedGap[]> {
     console.error(`[Crawler] Crawl failed for ${url}:`, crawlResult.error);
     return [];
   }
-  return extractGapsFromContent(crawlResult.content, url);
+  try {
+    return await extractGapsFromContent(crawlResult.content, url);
+  } catch (error: any) {
+    console.error(
+      `[Crawler] ❌ Extraction failed for ${url} ` +
+      `(category: ${error?.category || 'unknown'}): ${error?.message || error}`
+    );
+    return [];
+  }
 }
