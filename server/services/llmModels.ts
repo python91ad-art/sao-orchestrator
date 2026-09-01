@@ -118,7 +118,7 @@ export function getModelRegistry(): ModelConfig[] {
     },
     {
       provider: 'cerebras',
-      model: env('CEREBRAS_MODEL_SECONDARY', 'gemma-4-31b'),
+      model: env('CEREBRAS_MODEL_SECONDARY', 'llama-3.1-8b'),
       capabilities: FAST_CAPABILITIES,
       priority: 55,
       maxInputTokens: envNum('CEREBRAS_SECONDARY_MAX_INPUT', 131072) ?? 131072,

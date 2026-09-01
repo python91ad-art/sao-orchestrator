@@ -31,7 +31,10 @@ const resendFromName = process.env.RESEND_FROM_NAME || 'SAO';
 const resendFrom = `${resendFromName} <${resendFromEmail}>`;
 const resend = resendApiKey ? new Resend(resendApiKey) : null;
 
-// In-memory rate limiting for password reset (per email)
+// In-memory rate limiting for password reset CODE VERIFICATION (per email)
+const resetCodeRateLimit = new Map<string, { count: number; windowStart: number }>();
+const RESET_CODE_RATE_LIMIT_MAX = 5;        // max failed code attempts per window
+const RESET_CODE_RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes (same as code expiry)
 const resetRateLimit = new Map<string, { count: number; windowStart: number }>();
 const RESET_RATE_LIMIT_MAX = 3;       // max attempts per window
 const RESET_RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
@@ -231,14 +234,41 @@ const authRouter = router({
       newPassword: z.string().min(6),
     }))
     .mutation(async ({ input }) => {
+      // Rate-limit failed code verification attempts
+      const normalizedEmail = input.email.trim().toLowerCase();
+      const now = Date.now();
+      const entry = resetCodeRateLimit.get(normalizedEmail);
+
+      if (entry && (now - entry.windowStart) < RESET_CODE_RATE_LIMIT_WINDOW_MS && entry.count >= RESET_CODE_RATE_LIMIT_MAX) {
+        throw new TRPCError({
+          code: 'TOO_MANY_REQUESTS',
+          message: 'Too many invalid reset code attempts. Please request a new code.',
+        });
+      }
+
       const user = await db.getUserByEmail(input.email);
       if (!user || !user.resetCode || !user.resetCodeExpiry) {
+        // Track failed attempt
+        if (!entry || (now - entry.windowStart) >= RESET_CODE_RATE_LIMIT_WINDOW_MS) {
+          resetCodeRateLimit.set(normalizedEmail, { count: 1, windowStart: now });
+        } else {
+          entry.count++;
+        }
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'Invalid request or reset code expired.' });
       }
 
       if (user.resetCode !== input.code || new Date() > user.resetCodeExpiry) {
+        // Track failed attempt
+        if (!entry || (now - entry.windowStart) >= RESET_CODE_RATE_LIMIT_WINDOW_MS) {
+          resetCodeRateLimit.set(normalizedEmail, { count: 1, windowStart: now });
+        } else {
+          entry.count++;
+        }
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'Invalid reset code or code has expired.' });
       }
+
+      // Successful verification — clear rate limit
+      resetCodeRateLimit.delete(normalizedEmail);
 
       const salt = await bcrypt.genSalt(10);
       const passwordHash = await bcrypt.hash(input.newPassword, salt);
@@ -1025,6 +1055,11 @@ const settingsRouter = router({
 
       if (Object.keys(updates).length > 0) {
         await db.updateCoreLoopState(updates as any);
+        
+        // If the interval changed, reschedule the running core loop
+        if (input.intervalMs !== undefined) {
+          await updateCoreLoopInterval(input.intervalMs);
+        }
       }
 
       return { success: true };
@@ -1120,6 +1155,46 @@ const settingsRouter = router({
     .query(async () => {
       const state = await db.getCoreLoopState();
       return { concurrency: state?.concurrency || 1 };
+    }),
+
+  // Notification Settings
+  saveNotificationSettings: adminProcedure
+    .input(z.object({
+      emailNotifications: z.boolean(),
+      slackNotifications: z.boolean(),
+    }))
+    .mutation(async ({ input }) => {
+      await db.updateCoreLoopState({
+        emailNotifications: input.emailNotifications,
+        slackNotifications: input.slackNotifications,
+      } as any);
+      return { success: true };
+    }),
+
+  // Operational Limits
+  saveOperationalLimits: adminProcedure
+    .input(z.object({
+      maxCostPerDay: z.number().min(0),
+      maxDeployments: z.number().min(0),
+      autoPauseOnHighBanRisk: z.boolean(),
+    }))
+    .mutation(async ({ input }) => {
+      await db.updateCoreLoopState({
+        maxCostPerDay: input.maxCostPerDay.toString(),
+        maxDeployments: input.maxDeployments,
+        autoPauseOnHighBanRisk: input.autoPauseOnHighBanRisk,
+      } as any);
+      return { success: true };
+    }),
+
+  // Core Loop Interval
+  setInterval: adminProcedure
+    .input(z.object({
+      intervalMs: z.number().min(5000).max(86400000),
+    }))
+    .mutation(async ({ input }) => {
+      await updateCoreLoopInterval(input.intervalMs);
+      return { success: true, intervalMs: input.intervalMs };
     }),
 });
 
@@ -1364,7 +1439,7 @@ const advertisingRouter = router({
         return { success: false, notConfigured: result.notConfigured, error: result.error };
       }
       await db.updateAdCampaign(campaign.id, { status: 'ACTIVE', providerCampaignId: result.providerCampaignId || null, providerStatus: result.providerStatus || null, startedAt: new Date() } as any);
-      return { success: true };
+      return { success: true, notConfigured: false };
     }),
 });
 

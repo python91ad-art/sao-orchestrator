@@ -20,7 +20,7 @@ export default defineConfig({
     password,
     database,
     ssl: {
-      rejectUnauthorized: false,
+      rejectUnauthorized: process.env.TLS_REJECT_UNAUTHORIZED !== 'false',
     },
   },
 });

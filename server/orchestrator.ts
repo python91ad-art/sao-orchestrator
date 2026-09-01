@@ -365,20 +365,21 @@ async function processDeploymentQueueItem(queueItem: any, _worker: Worker): Prom
     throw new Error(errMsg);
   }
 
-  broadcastEvent({ type: 'application:generation_completed', data: { deploymentId: existingDeployment.id, fileCount: genResult.application.files.length } });
+  const app = genResult.application;
+  broadcastEvent({ type: 'application:generation_completed', data: { deploymentId: existingDeployment.id, fileCount: app.files.length } });
 
-  console.log(`[Deployment] Generated ${genResult.application.files.length} files for deployment ${existingDeployment.id}.`);
+  console.log(`[Deployment] Generated ${app.files.length} files for deployment ${existingDeployment.id}.`);
 
   // ---- Step 2: Create/reuse Vercel project ----
   const projectName = makeVercelProjectName(existingDeployment.id);
   const { projectId } = await retryWithExponentialBackoff(
-    () => createVercelProject({ name: projectName, framework: genResult.application.framework }),
+    () => createVercelProject({ name: projectName, framework: app.framework }),
     3,
     2000
   );
 
   // ---- Step 3: Deploy to Vercel ----
-  const vercelFiles = genResult.application.files.map((f) => ({
+  const vercelFiles = app.files.map((f) => ({
     file: f.path,
     data: f.content,
   }));
@@ -405,9 +406,9 @@ async function processDeploymentQueueItem(queueItem: any, _worker: Worker): Prom
     {
       vercelProjectId: projectId,
       vercelDeploymentId: deployResult.deploymentId,
-      framework: genResult.application.framework,
+      framework: app.framework,
     },
-    deployResult.deploymentUrl || null
+    deployResult.deploymentUrl
   );
 
   await db.updateProviderStatus(provider.id, 'active');
@@ -664,15 +665,17 @@ export async function processOneGap(): Promise<boolean> {
         health: 'healthy',
       });
 
+      // Fetch the deployment to get its ID for the broadcast
+      const deployment = await db.getDeploymentByGapId(gap.id);
+
       await db.updateGapStatus(gap.id, 'deployed');
       await db.updateQueueItem(queueItem.id, { status: 'completed', nextRetryAt: null });
 
-      broadcastEvent({ type: 'deployment:created', data: { deploymentId: '', gapId: gap.id } });
+      broadcastEvent({ type: 'deployment:created', data: { deploymentId: deployment?.id || gap.id, gapId: gap.id } });
       broadcastEvent({ type: 'queue:updated', data: { queueItemId: queueItem.id, status: 'completed' } });
 
       const currentState = await getStatus();
       await db.updateCoreLoopState({
-        totalGapsProcessed: currentState.totalGapsProcessed + 1,
         totalDeploymentsCreated: currentState.totalDeploymentsCreated + 1,
       });
 

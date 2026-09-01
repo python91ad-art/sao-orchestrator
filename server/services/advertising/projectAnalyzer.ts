@@ -6,7 +6,7 @@
 // Uses existing SAO data — does NOT scrape arbitrary websites.
 // ============================================================
 
-import { callLLM, callLLMJson } from '../llm';
+import { callLLMJson } from '../llm';
 
 export interface ProjectAnalysis {
   deploymentId: string;
@@ -143,7 +143,7 @@ function deriveAppName(input: AnalysisInput): string {
 
 function determineCompleteness(
   result: Record<string, unknown>,
-  input: AnalysisInput
+  _input: AnalysisInput
 ): 'complete' | 'partial' | 'insufficient' {
   const hasKeyFields =
     result.category &&

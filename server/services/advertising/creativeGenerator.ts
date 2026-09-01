@@ -131,9 +131,9 @@ export async function generateCreatives(
       validated.push({
         format: creative.format || 'primary_text',
         content: creative.content,
-        headline: creative.headline || null,
-        callToAction: creative.callToAction || null,
-        targetAudience: creative.targetAudience || null,
+        headline: creative.headline || undefined,
+        callToAction: creative.callToAction || undefined,
+        targetAudience: creative.targetAudience || undefined,
         variation: creative.variation || 1,
       });
     }
@@ -167,24 +167,24 @@ export function generateBasicCreatives(input: CreativeGenerationInput): Generate
       format: 'headline',
       content: `${name} — ${strategy.valueProposition.slice(0, 100) || desc.slice(0, 100)}`,
       headline: name,
-      callToAction: null,
-      targetAudience: projectAnalysis.targetUsers.join(', ') || null,
+      callToAction: undefined,
+      targetAudience: projectAnalysis.targetUsers.join(', ') || undefined,
       variation: 1,
     },
     {
       format: 'primary_text',
       content: desc,
-      headline: null,
+      headline: undefined,
       callToAction: projectAnalysis.callsToAction[0] || 'Learn More',
-      targetAudience: null,
+      targetAudience: undefined,
       variation: 1,
     },
     {
       format: 'cta',
       content: projectAnalysis.callsToAction[0] || 'Get Started',
-      headline: null,
+      headline: undefined,
       callToAction: projectAnalysis.callsToAction[0] || 'Get Started',
-      targetAudience: null,
+      targetAudience: undefined,
       variation: 1,
     },
   ];

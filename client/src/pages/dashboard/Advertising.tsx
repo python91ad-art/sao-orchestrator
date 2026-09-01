@@ -1,18 +1,25 @@
-import React, { useState, useEffect } from 'react';
-import { Megaphone, TrendingUp, AlertTriangle, CheckCircle, XCircle, RefreshCw, Play, Eye } from 'lucide-react';
+import React, { useState } from 'react';
+import { Megaphone, RefreshCw, Play, Eye } from 'lucide-react';
 import { trpc } from '../../lib/trpc';
 
 interface Channel {
   id: string; name: string; status: string;
-  capabilities: Record<string, boolean>;
+  capabilities: {
+    canCreateCampaign: boolean;
+    canPublishCreatives: boolean;
+    canRetrieveMetrics: boolean;
+    canPauseResume: boolean;
+    requiresPayment: boolean;
+    supportedContentFormats: string[];
+  };
   missingCredentials: string[];
 }
 
 interface Campaign {
   id: string; deploymentId: string; name: string; channel: string;
   status: string; campaignType: string; budget: string; spent: string;
-  providerStatus?: string; errorMessage?: string;
-  startedAt?: string; createdAt: string;
+  providerStatus?: string | null; errorMessage?: string | null;
+  startedAt?: string | null; createdAt: string;
 }
 
 const Advertising: React.FC = () => {
@@ -62,7 +69,7 @@ const Advertising: React.FC = () => {
   const handlePublish = async (campaignId: string) => {
     try {
       const result = await publishMutation.mutateAsync({ campaignId });
-      if (!result.success) alert(`Not published: ${result.error || 'Unknown'}`);
+      if (!result.success) alert(`Not published: ${(result as any).error || 'Unknown'}`);
       overviewQuery.refetch();
     } catch (e: any) { alert(e.message); }
   };
@@ -72,7 +79,7 @@ const Advertising: React.FC = () => {
       ACTIVE: 'badge-success', DRAFT: 'badge-gray', READY: 'badge-primary',
       FAILED: 'badge-danger', PAUSED: 'badge-warning', COMPLETED: 'badge-success',
       WAITING_FOR_BUDGET: 'badge-warning', WAITING_FOR_CREDENTIALS: 'badge-warning',
-      NOT_CONFIGURED: 'badge-danger', CONFIGURED: 'badge-primary', READY: 'badge-success',
+      NOT_CONFIGURED: 'badge-danger', CONFIGURED: 'badge-primary',
     };
     return colors[status] || 'badge-gray';
   };

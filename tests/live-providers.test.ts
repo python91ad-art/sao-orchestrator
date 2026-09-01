@@ -53,8 +53,8 @@ async function main() {
   console.log('No actual keys are printed below.\n');
   
   await testProvider('Groq', 'GROQ_API_KEY', 'https://api.groq.com/openai/v1', ['openai/gpt-oss-120b', 'openai/gpt-oss-20b']);
-  await testProvider('Cerebras', 'CEREBRAS_API_KEY', 'https://api.cerebras.ai/v1', ['llama-3.3-70b']);
-  await testProvider('Gemini', 'GEMINI_API_KEY', 'https://generativelanguage.googleapis.com/v1beta/openai', ['gemini-2.0-flash']);
+  await testProvider('Cerebras', 'CEREBRAS_API_KEY', 'https://api.cerebras.ai/v1', ['llama-3.3-70b', 'llama-4-maverick-17b-128e-instruct']);
+  await testProvider('Gemini', 'GEMINI_API_KEY', 'https://generativelanguage.googleapis.com/v1beta/openai', ['gemini-2.5-flash', 'gemini-2.0-flash']);
   await testProvider('OpenRouter', 'OPENROUTER_API_KEY', 'https://openrouter.ai/api/v1', ['openai/gpt-oss-120b']);
   
   console.log('\n=== LIVE TESTS COMPLETE ===');

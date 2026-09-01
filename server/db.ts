@@ -2,7 +2,7 @@ import 'dotenv/config';
 import { drizzle } from 'drizzle-orm/mysql2';
 import mysql from 'mysql2/promise';
 import * as schema from '../drizzle/schema';
-import { eq, and, or, isNull, desc, asc, sql, inArray, ne } from 'drizzle-orm';
+import { eq, and, or, isNull, desc, asc, sql, inArray } from 'drizzle-orm';
 import crypto from 'crypto';
 
 // ==========================================
@@ -98,8 +98,10 @@ const poolConfig: mysql.PoolOptions = {
   connectTimeout: 20000,
 
   // Northflank MySQL requires TLS.
+  // production defaults to secure certificate verification.
+  // Set TLS_REJECT_UNAUTHORIZED=false only if your provider uses self-signed certs.
   ssl: {
-    rejectUnauthorized: false,
+    rejectUnauthorized: process.env.TLS_REJECT_UNAUTHORIZED !== 'false',
   },
 };
 

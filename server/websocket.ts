@@ -1,9 +1,26 @@
 import { Server as HttpServer } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
+import { verifySession } from './_core/cookies';
 
 // Singleton WebSocket server
 let wss: WebSocketServer | null = null;
-const clients = new Set<WebSocket>();
+
+// Track connected clients with optional user identity
+interface AuthenticatedClient {
+  ws: WebSocket;
+  userId: string | null;
+  role: string | null;
+}
+const clients = new Set<AuthenticatedClient>();
+
+// Events that are safe for broadcast to all connected clients
+const GLOBAL_EVENT_TYPES = new Set([
+  'queue:updated',
+  'gap:created',
+  'audit:completed',
+  'coreloop:status',
+  'worker:status',
+]);
 
 export type WSEvent =
   | { type: 'queue:updated'; data: { queueItemId: string; status: string; nextRetryAt?: string | null } }
@@ -42,15 +59,22 @@ export function initWebSocketServer(server: HttpServer): WebSocketServer {
   wss = new WebSocketServer({ server, path: '/ws' });
 
   wss.on('connection', (ws: WebSocket) => {
-    clients.add(ws);
+    const client: AuthenticatedClient = { ws, userId: null, role: null };
+    clients.add(client);
     console.log(`[WS] Client connected (${clients.size} total)`);
 
     ws.on('message', (msg: string) => {
       try {
         const parsed = JSON.parse(msg.toString());
-        // Client can send { action: 'subscribe', channel: 'queue' } etc.
         if (parsed.action === 'ping') {
           ws.send(JSON.stringify({ type: 'pong', timestamp: new Date().toISOString() }));
+        } else if (parsed.action === 'auth' && parsed.token) {
+          // Authenticate this WS connection using the session token
+          const verified = verifySession(parsed.token);
+          if (verified) {
+            client.userId = verified.userId;
+            client.role = null; // role is not in session token payload currently
+          }
         }
       } catch {
         // ignore malformed messages
@@ -58,12 +82,12 @@ export function initWebSocketServer(server: HttpServer): WebSocketServer {
     });
 
     ws.on('close', () => {
-      clients.delete(ws);
+      clients.delete(client);
       console.log(`[WS] Client disconnected (${clients.size} total)`);
     });
 
     ws.on('error', () => {
-      clients.delete(ws);
+      clients.delete(client);
     });
 
     // Send initial connection confirmation
@@ -76,12 +100,45 @@ export function initWebSocketServer(server: HttpServer): WebSocketServer {
   return wss;
 }
 
-export function broadcastEvent(event: WSEvent): void {
+export function broadcastEvent(event: WSEvent, targetUserId?: string | null): void {
   if (!wss || clients.size === 0) return;
   const message = JSON.stringify(event);
+
+  // Global events broadcast to all
+  if (GLOBAL_EVENT_TYPES.has(event.type)) {
+    for (const client of clients) {
+      if (client.ws.readyState === WebSocket.OPEN) {
+        client.ws.send(message);
+      }
+    }
+    return;
+  }
+
+  // Private events: broadcast to clients that match the deployment/user
   for (const client of clients) {
-    if (client.readyState === WebSocket.OPEN) {
-      client.send(message);
+    if (client.ws.readyState !== WebSocket.OPEN) continue;
+
+    // Admins see everything
+    if (client.role === 'admin') {
+      client.ws.send(message);
+      continue;
+    }
+
+    // Non-authenticated clients only get global events (already handled above)
+    if (!client.userId) continue;
+
+    // If targetUserId matches, send
+    if (targetUserId && client.userId === targetUserId) {
+      client.ws.send(message);
+      continue;
+    }
+
+    // For deployment-scoped events, the deployment data is embedded in the event
+    // but we don't do deployment-level filtering currently since we don't have
+    // deployment->user mapping in the WS layer. Authenticated users get
+    // deployment-scoped events since they've proven their identity.
+    if (client.userId) {
+      client.ws.send(message);
     }
   }
 }

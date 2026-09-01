@@ -54,12 +54,19 @@
     {
       "idx": 7,
       "version": "5",
+      "when": 1756715000000,
+      "tag": "0007_crypto_payments",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "5",
       "when": 1756720000000,
       "tag": "0008_advertising",
       "breakpoints": true
     },
     {
-      "idx": 8,
+      "idx": 9,
       "version": "5",
       "when": 1756725000000,
       "tag": "0009_add_missing_indexes",
