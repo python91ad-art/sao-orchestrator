@@ -10,7 +10,7 @@ import {
   Settings,
   LogOut,
   User as UserIcon,
-
+  Megaphone,
   Menu,
   X,
   BarChart3,
@@ -32,6 +32,7 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, currentPage
     { id: 'gaps', label: 'Gaps', icon: Search },
     { id: 'queue', label: 'Queue', icon: List },
     { id: 'deployments', label: 'Deployments', icon: Rocket },
+    { id: 'advertising', label: 'Advertising', icon: Megaphone },
     { id: 'audit-log', label: 'Audit Log', icon: FileText },
     { id: 'analytics', label: 'Analytics', icon: BarChart3 },
     { id: 'policies', label: 'Policies', icon: Shield },

@@ -61,14 +61,50 @@ export interface Payment {
   id: string;
   deploymentId: string;
   providerType: string;
-  providerPaymentId: string;
   amount: string;
   currency: string;
-  status: 'pending' | 'paid' | 'failed' | 'canceled' | 'expired' | 'authorized' | 'unknown';
+  status: 'pending' | 'confirming' | 'confirmed' | 'paid' | 'failed' | 'canceled' | 'expired' | 'authorized' | 'unknown';
   checkoutUrl: string | null;
+  cryptoAmount: string | null;
+  cryptoCurrency: string | null;
+  cryptoNetwork: string | null;
+  paymentAddress: string | null;
+  transactionHash: string | null;
+  providerStatus: string | null;
   paidAt: string | null;
+  expiresAt: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+
+export interface AdCampaign {
+  id: string;
+  deploymentId: string;
+  name: string;
+  channel: string;
+  status: string;
+  campaignType: 'PAID' | 'FREE_ORGANIC';
+  budget: string;
+  spent: string;
+  strategy: string | null;
+  providerCampaignId: string | null;
+  providerStatus: string | null;
+  errorMessage: string | null;
+  startedAt: string | null;
+  createdAt: string;
+}
+
+export interface AdCreative {
+  id: string;
+  campaignId: string;
+  format: string;
+  content: string;
+  headline: string | null;
+  callToAction: string | null;
+  targetAudience: string | null;
+  variation: number;
+  createdAt: string;
 }
 
 export interface AuditLog {
@@ -201,10 +237,14 @@ export type AppRouter = {
     testSlack: { query: () => Promise<IntegrationTestResult> };
     testGoogleSearch: { query: () => Promise<IntegrationTestResult> };
     testVercel: { query: () => Promise<IntegrationTestResult> };
+    testNowPayments: { query: () => Promise<IntegrationTestResult> };
+    testLLMRouter: { query: () => Promise<IntegrationTestResult> };
   };
   payments: {
     get: { query: (input: string) => Promise<Payment> };
     listForDeployment: { query: (input: string) => Promise<Payment[]> };
+    list: { query: () => Promise<Payment[]> };
+    createCryptoPayment: { mutate: (input: { deploymentId: string; payCurrency?: string }) => Promise<Payment> };
   };
 };
 

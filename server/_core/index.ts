@@ -96,6 +96,45 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
   res.json({ received: true });
 });
 
+// ==========================================
+// 1b. CRYPTO (NOWPayments) IPN WEBHOOK (BEFORE JSON MIDDLEWARE)
+// ==========================================
+app.post('/api/crypto/webhook', express.raw({ type: () => true }), async (req, res) => {
+  const signature = req.headers['x-nowpayments-sig'] as string | undefined;
+  const rawBody = Buffer.isBuffer(req.body)
+    ? req.body.toString('utf8')
+    : String(req.body || '');
+
+  try {
+    const { processNowPaymentsIpn } = await import('../services/crypto');
+    const result = await processNowPaymentsIpn(rawBody, signature);
+
+    switch (result.status) {
+      case 'invalid_signature':
+      case 'invalid_payload':
+      case 'missing_payment_id':
+        return res.status(400).send(result.status);
+      case 'unknown_payment':
+        // Do not create a payment automatically. Acknowledge so the
+        // provider does not retry an orphan notification indefinitely.
+        return res.status(200).send('unknown payment');
+      case 'currency_mismatch':
+        return res.status(200).send('currency mismatch');
+      case 'already_paid':
+      case 'recorded':
+      case 'updated':
+      case 'noop':
+        return res.json({ received: true });
+      default:
+        return res.json({ received: true });
+    }
+  } catch (err: any) {
+    // Never expose stack traces or secrets. Log a safe diagnostic.
+    console.error('[crypto-webhook] Error processing IPN:', err?.message || 'unknown error');
+    return res.status(500).send('webhook error');
+  }
+});
+
 
 // ==========================================
 // 2. STANDARD EXPRESS MIDDLEWARES

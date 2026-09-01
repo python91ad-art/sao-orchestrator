@@ -245,6 +245,8 @@ const Settings: React.FC = () => {
         'Resend': 'integrations.testResend',
         'Stripe': 'integrations.testStripe',
         'Vercel': 'integrations.testVercel',
+        'NOWPayments': 'integrations.testNowPayments',
+        'LLM Router': 'integrations.testLLMRouter',
       };
 
       const procedure = procedureMap[name];
@@ -555,6 +557,14 @@ const Settings: React.FC = () => {
                 <p className="text-[11px] text-neutral-500 mt-1">Get free key at console.groq.com/keys</p>
               </div>
               <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">LLM Router (multi-provider)</label>
+                <div className="flex gap-2">
+                  <input type="text" value="" readOnly placeholder="Configured via GROQ/CEREBRAS/GEMINI/OPENROUTER env vars" className="flex-1 bg-[#0c0a12] text-neutral-500 text-sm" />
+                  <TestButton name="LLM Router" />
+                </div>
+                <TestResult name="LLM Router" />
+              </div>
+              <div>
                 <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">Google Search API Key</label>
                 <input type="password" value={googleSearchKey} onChange={(e) => setGoogleSearchKey(e.target.value)} placeholder="AIza..." />
               </div>
@@ -616,6 +626,14 @@ const Settings: React.FC = () => {
                   <TestButton name="Vercel" />
                 </div>
                 <TestResult name="Vercel" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">NOWPayments (Crypto)</label>
+                <div className="flex gap-2">
+                  <input type="text" value="" readOnly placeholder="Configured via NOWPAYMENTS_API_KEY / NOWPAYMENTS_IPN_SECRET env vars" className="flex-1 bg-[#0c0a12] text-neutral-500 text-sm" />
+                  <TestButton name="NOWPayments" />
+                </div>
+                <TestResult name="NOWPayments" />
               </div>
             </div>
           </div>

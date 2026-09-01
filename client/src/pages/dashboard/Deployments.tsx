@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Play, Pause, Square, ShieldCheck, Eye, RefreshCw, ExternalLink } from 'lucide-react';
 import { Deployment, trpc } from '../../lib/trpc';
+import CryptoPayments from './CryptoPayments';
 
 const Deployments: React.FC = () => {
   const [loading, setLoading] = useState(true);
@@ -291,6 +292,9 @@ const Deployments: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Crypto Payments */}
+      <CryptoPayments />
 
       {/* Business Plan Modal */}
       {isPlanModalOpen && (

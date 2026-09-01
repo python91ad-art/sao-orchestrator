@@ -154,18 +154,69 @@ export const deploymentProviders = mysqlTable('deployment_providers', {
 ]);
 
 // ==========================================
-// Payments (provider-agnostic payment ledger)
+// Advertising Campaigns (Phase 13)
 // ==========================================
+export const adCampaigns = mysqlTable('ad_campaigns', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  deploymentId: varchar('deployment_id', { length: 255 }).notNull(),
+  name: varchar('name', { length: 255 }).notNull(),
+  channel: varchar('channel', { length: 50 }).notNull(), // provider type: google_ads, meta_ads, tiktok_ads, organic_social, etc.
+  status: mysqlEnum('status', [
+    'DRAFT', 'ANALYSING', 'READY', 'WAITING_FOR_BUDGET',
+    'WAITING_FOR_CREDENTIALS', 'READY_TO_PUBLISH', 'ACTIVE',
+    'PAUSED', 'COMPLETED', 'FAILED'
+  ]).default('DRAFT').notNull(),
+  campaignType: mysqlEnum('campaign_type', ['PAID', 'FREE_ORGANIC']).default('PAID').notNull(),
+  budget: decimal('budget', { precision: 12, scale: 2 }).default('0.00').notNull(),
+  spent: decimal('spent', { precision: 12, scale: 2 }).default('0.00').notNull(),
+  revenueAttributed: decimal('revenue_attributed', { precision: 12, scale: 2 }).default('0.00'),
+  strategy: text('strategy'), // JSON: the strategy analysis
+  providerCampaignId: varchar('provider_campaign_id', { length: 255 }),
+  providerStatus: varchar('provider_status', { length: 100 }),
+  errorMessage: text('error_message'),
+  startedAt: datetime('started_at'),
+  endedAt: datetime('ended_at'),
+  createdAt: datetime('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: datetime('updated_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('idx_ad_campaigns_deployment').on(table.deploymentId),
+  index('idx_ad_campaigns_status').on(table.status),
+]);
+
+// ==========================================
+// Advertising Creatives (Phase 13)
+// ==========================================
+export const adCreatives = mysqlTable('ad_creatives', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  campaignId: varchar('campaign_id', { length: 255 }).notNull(),
+  format: varchar('format', { length: 50 }).notNull(), // headline, primary_text, description, social_post, cta, etc.
+  content: text('content').notNull(),
+  headline: varchar('headline', { length: 255 }),
+  callToAction: varchar('call_to_action', { length: 100 }),
+  targetAudience: varchar('target_audience', { length: 512 }),
+  variation: int('variation').default(1), // A/B testing variation number
+  providerCreativeId: varchar('provider_creative_id', { length: 255 }),
+  createdAt: datetime('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('idx_ad_creatives_campaign').on(table.campaignId),
+]);
 export const payments = mysqlTable('payments', {
   id: varchar('id', { length: 255 }).primaryKey(),
   deploymentId: varchar('deployment_id', { length: 255 }).notNull(),
   providerType: varchar('provider_type', { length: 50 }).notNull(),
-  providerPaymentId: varchar('provider_payment_id', { length: 255 }).notNull(),
+  providerPaymentId: varchar('provider_payment_id', { length: 255 }),
   amount: decimal('amount', { precision: 10, scale: 2 }).notNull(),
   currency: varchar('currency', { length: 10 }).notNull().default('EUR'),
-  status: mysqlEnum('status', ['pending', 'paid', 'failed', 'canceled', 'expired', 'authorized', 'unknown']).default('pending').notNull(),
+  status: mysqlEnum('status', ['pending', 'confirming', 'confirmed', 'paid', 'failed', 'canceled', 'expired', 'authorized', 'unknown']).default('pending').notNull(),
   checkoutUrl: varchar('checkout_url', { length: 1024 }),
+  cryptoAmount: decimal('crypto_amount', { precision: 38, scale: 18 }),
+  cryptoCurrency: varchar('crypto_currency', { length: 20 }),
+  cryptoNetwork: varchar('crypto_network', { length: 50 }),
+  paymentAddress: varchar('payment_address', { length: 255 }),
+  transactionHash: varchar('transaction_hash', { length: 255 }),
+  providerStatus: varchar('provider_status', { length: 50 }),
   paidAt: datetime('paid_at'),
+  expiresAt: datetime('expires_at'),
   createdAt: datetime('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
   updatedAt: datetime('updated_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [

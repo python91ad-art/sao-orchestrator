@@ -5,7 +5,7 @@
 // deployable web application artifact via Groq LLM.
 // ==========================================
 
-import { callLLMJson, MODEL_BUSINESS_PLAN } from './llm';
+import { callLLMJsonWithMeta } from './llm';
 
 // ==========================================
 // TYPES
@@ -229,16 +229,19 @@ export async function generateApplication(
     `[AppGen] Generating for gap ${input.gapId}, deployment ${input.deploymentId}.`
   );
 
+  let modelUsed = 'router';
+
   try {
-    const raw = await callLLMJson<Record<string, unknown>>(
+    const { data: raw, model, provider } = await callLLMJsonWithMeta<Record<string, unknown>>(
       buildUserPrompt(input),
       {
-        model: MODEL_BUSINESS_PLAN,
+        task: 'APPLICATION_GENERATION',
         systemPrompt: buildSystemPrompt(),
         maxTokens: 16384,
         temperature: 0.5,
       }
     );
+    modelUsed = `${provider}/${model}`;
 
     const structError = validateApplicationStructure(raw);
     if (structError) {
@@ -246,7 +249,7 @@ export async function generateApplication(
       return {
         success: false,
         error: `Structure error: ${structError}`,
-        modelUsed: MODEL_BUSINESS_PLAN,
+        modelUsed,
       };
     }
 
@@ -275,7 +278,7 @@ export async function generateApplication(
       return {
         success: false,
         error: `Validation failed: ${validation.errors.join('; ')}`,
-        modelUsed: MODEL_BUSINESS_PLAN,
+        modelUsed,
       };
     }
 
@@ -294,7 +297,7 @@ export async function generateApplication(
     return {
       success: true,
       application: app,
-      modelUsed: MODEL_BUSINESS_PLAN,
+      modelUsed,
     };
   } catch (error: any) {
     const duration = Date.now() - startTime;
@@ -305,7 +308,7 @@ export async function generateApplication(
     return {
       success: false,
       error: `Generation failed: ${error?.message || 'Unknown error'}`,
-      modelUsed: MODEL_BUSINESS_PLAN,
+      modelUsed,
     };
   }
 }

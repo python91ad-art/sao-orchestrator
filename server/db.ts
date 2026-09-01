@@ -2,7 +2,7 @@ import 'dotenv/config';
 import { drizzle } from 'drizzle-orm/mysql2';
 import mysql from 'mysql2/promise';
 import * as schema from '../drizzle/schema';
-import { eq, and, or, isNull, desc, asc, sql } from 'drizzle-orm';
+import { eq, and, or, isNull, desc, asc, sql, inArray, ne } from 'drizzle-orm';
 import crypto from 'crypto';
 
 // ==========================================
@@ -806,20 +806,34 @@ export async function supersedeActiveProviders(
 export async function createPayment(paymentData: {
   deploymentId: string;
   providerType: string;
-  providerPaymentId: string;
+  providerPaymentId?: string | null;
   amount: string;
   currency: string;
-  checkoutUrl?: string;
+  checkoutUrl?: string | null;
+  cryptoAmount?: string | null;
+  cryptoCurrency?: string | null;
+  cryptoNetwork?: string | null;
+  paymentAddress?: string | null;
+  transactionHash?: string | null;
+  providerStatus?: string | null;
+  expiresAt?: Date | null;
 }) {
   const id = generateId();
   await db.insert(schema.payments).values({
     id,
     deploymentId: paymentData.deploymentId,
     providerType: paymentData.providerType,
-    providerPaymentId: paymentData.providerPaymentId,
+    providerPaymentId: paymentData.providerPaymentId || null,
     amount: paymentData.amount,
     currency: paymentData.currency,
     checkoutUrl: paymentData.checkoutUrl || null,
+    cryptoAmount: paymentData.cryptoAmount || null,
+    cryptoCurrency: paymentData.cryptoCurrency || null,
+    cryptoNetwork: paymentData.cryptoNetwork || null,
+    paymentAddress: paymentData.paymentAddress || null,
+    transactionHash: paymentData.transactionHash || null,
+    providerStatus: paymentData.providerStatus || null,
+    expiresAt: paymentData.expiresAt || null,
     status: 'pending',
   });
   const results = await db
@@ -870,25 +884,213 @@ export async function updatePayment(
     status?: string;
     paidAt?: Date | null;
     checkoutUrl?: string | null;
+    providerPaymentId?: string | null;
+    providerStatus?: string | null;
+    cryptoAmount?: string | null;
+    cryptoCurrency?: string | null;
+    cryptoNetwork?: string | null;
+    paymentAddress?: string | null;
+    transactionHash?: string | null;
+    expiresAt?: Date | null;
   }
 ) {
   const setData: Record<string, unknown> = {
     updatedAt: new Date(),
   };
-  if (updates.status !== undefined) {
-    setData.status = updates.status;
-  }
-  if (updates.paidAt !== undefined) {
-    setData.paidAt = updates.paidAt;
-  }
-  if (updates.checkoutUrl !== undefined) {
-    setData.checkoutUrl = updates.checkoutUrl;
+  const keys: Array<keyof typeof updates> = [
+    'status',
+    'paidAt',
+    'checkoutUrl',
+    'providerPaymentId',
+    'providerStatus',
+    'cryptoAmount',
+    'cryptoCurrency',
+    'cryptoNetwork',
+    'paymentAddress',
+    'transactionHash',
+    'expiresAt',
+  ];
+  for (const key of keys) {
+    if (updates[key] !== undefined) {
+      setData[key as string] = updates[key];
+    }
   }
   await db
     .update(schema.payments)
     .set(setData as any)
     .where(eq(schema.payments.id, id));
   return getPaymentById(id);
+}
+
+/**
+ * List payments for a specific user, derived through the
+ * payment → deployment → userId relationship. Never trusts a
+ * client-supplied userId.
+ */
+export async function listPaymentsForUser(userId: string) {
+  const deployments = await db
+    .select({ id: schema.deployments.id })
+    .from(schema.deployments)
+    .where(eq(schema.deployments.userId, userId));
+
+  const deploymentIds = deployments.map((d) => d.id);
+
+  if (deploymentIds.length === 0) {
+    return [];
+  }
+
+  return db
+    .select()
+    .from(schema.payments)
+    .where(inArray(schema.payments.deploymentId, deploymentIds))
+    .orderBy(desc(schema.payments.createdAt));
+}
+
+/** List all payments (admin visibility). */
+export async function listPayments() {
+  return db
+    .select()
+    .from(schema.payments)
+    .orderBy(desc(schema.payments.createdAt));
+}
+
+export interface PaymentProviderSnapshot {
+  providerStatus?: string | null;
+  transactionHash?: string | null;
+  cryptoAmount?: string | null;
+  cryptoCurrency?: string | null;
+  cryptoNetwork?: string | null;
+  paymentAddress?: string | null;
+}
+
+/**
+ * Atomically transition a payment to `paid` and record revenue exactly
+ * once. Uses a transaction with row-level locks so concurrent or
+ * repeated webhook deliveries cannot double-count revenue.
+ *
+ * Returns:
+ *   - { outcome: 'not_found' }            payment does not exist
+ *   - { outcome: 'already_paid', payment }  was already paid (no revenue)
+ *   - { outcome: 'recorded', payment, deployment }  first successful paid transition
+ */
+export async function recordPaymentPaid(
+  id: string,
+  provider: PaymentProviderSnapshot
+): Promise<
+  | { outcome: 'not_found' }
+  | { outcome: 'already_paid'; payment: any }
+  | { outcome: 'recorded'; payment: any; deployment: any }
+> {
+  return db.transaction(async (tx) => {
+    const rows = await tx
+      .select()
+      .from(schema.payments)
+      .where(eq(schema.payments.id, id))
+      .for('update');
+
+    const payment = rows[0];
+    if (!payment) {
+      return { outcome: 'not_found' as const };
+    }
+
+    if (payment.status === 'paid') {
+      return { outcome: 'already_paid' as const, payment };
+    }
+
+    const now = new Date();
+    await tx
+      .update(schema.payments)
+      .set({
+        status: 'paid',
+        paidAt: now,
+        updatedAt: now,
+        providerStatus: provider.providerStatus ?? payment.providerStatus,
+        transactionHash: provider.transactionHash ?? payment.transactionHash,
+        cryptoAmount: provider.cryptoAmount ?? payment.cryptoAmount,
+        cryptoCurrency: provider.cryptoCurrency ?? payment.cryptoCurrency,
+        cryptoNetwork: provider.cryptoNetwork ?? payment.cryptoNetwork,
+        paymentAddress: provider.paymentAddress ?? payment.paymentAddress,
+      } as any)
+      .where(eq(schema.payments.id, id));
+
+    // Lock the deployment row before incrementing revenue to avoid a
+    // race between two different payments crediting the same deployment.
+    const depRows = await tx
+      .select()
+      .from(schema.deployments)
+      .where(eq(schema.deployments.id, payment.deploymentId))
+      .for('update');
+
+    const deployment = depRows[0];
+
+    if (deployment) {
+      const current = parseFloat(deployment.revenue || '0.00');
+      const amount = parseFloat(payment.amount || '0.00');
+      const newRevenue = (current + amount).toFixed(2);
+      await tx
+        .update(schema.deployments)
+        .set({ revenue: newRevenue, updatedAt: now })
+        .where(eq(schema.deployments.id, payment.deploymentId));
+    }
+
+    const paidPayment = await tx
+      .select()
+      .from(schema.payments)
+      .where(eq(schema.payments.id, id))
+      .limit(1);
+
+    return {
+      outcome: 'recorded' as const,
+      payment: paidPayment[0],
+      deployment,
+    };
+  });
+}
+
+/**
+ * Enqueue an existing deployment for processing through the existing
+ * queue/orchestrator pipeline. Idempotent: does not create a duplicate
+ * pending/processing deployment queue item for the same gap.
+ */
+export async function enqueueDeploymentQueueItem(gapId: string) {
+  const existing = await db
+    .select()
+    .from(schema.queueItems)
+    .where(
+      and(
+        eq(schema.queueItems.gapId, gapId),
+        eq(schema.queueItems.queueType, 'deployment'),
+        inArray(schema.queueItems.status, ['pending', 'processing'])
+      )
+    )
+    .limit(1);
+
+  if (existing[0]) {
+    return existing[0];
+  }
+
+  const id = generateId();
+  await db.insert(schema.queueItems).values({
+    id,
+    gapId,
+    status: 'pending',
+    queueType: 'deployment',
+    workerId: null,
+    attempts: 0,
+    maxAttempts: 3,
+    lastError: null,
+    nextRetryAt: null,
+    dedupHash: `deployment:${gapId}`,
+    priority: 5,
+    sortOrder: 0,
+  });
+
+  const rows = await db
+    .select()
+    .from(schema.queueItems)
+    .where(eq(schema.queueItems.id, id))
+    .limit(1);
+  return rows[0] || null;
 }
 
 // ==========================================
@@ -1289,6 +1491,92 @@ export async function listRegistrationInvites(limit = 100, offset = 0) {
     .orderBy(desc(schema.registrationInvites.createdAt))
     .limit(limit)
     .offset(offset);
+}
+
+/**
+ * Delete an invite by ID (soft-delete or hard-delete? We'll just delete it).
+ */
+// ==========================================
+// Advertising Campaign Helpers (Phase 13)
+// ==========================================
+
+export async function createAdCampaign(data: {
+  deploymentId: string;
+  name: string;
+  channel: string;
+  campaignType: 'PAID' | 'FREE_ORGANIC';
+  budget?: string;
+  strategy?: string;
+}) {
+  const id = generateId();
+  await db.insert(schema.adCampaigns).values({
+    id,
+    deploymentId: data.deploymentId,
+    name: data.name,
+    channel: data.channel,
+    campaignType: data.campaignType,
+    budget: data.budget || '0.00',
+    strategy: data.strategy || null,
+  });
+  return getAdCampaignById(id);
+}
+
+export async function getAdCampaignById(id: string) {
+  const results = await db.select().from(schema.adCampaigns).where(eq(schema.adCampaigns.id, id)).limit(1);
+  return results[0] || null;
+}
+
+export async function listCampaignsForDeployment(deploymentId: string) {
+  return db.select().from(schema.adCampaigns)
+    .where(eq(schema.adCampaigns.deploymentId, deploymentId))
+    .orderBy(desc(schema.adCampaigns.createdAt));
+}
+
+export async function listAllCampaigns() {
+  return db.select().from(schema.adCampaigns).orderBy(desc(schema.adCampaigns.createdAt));
+}
+
+export async function updateAdCampaign(id: string, updates: Partial<typeof schema.adCampaigns.$inferInsert>) {
+  await db.update(schema.adCampaigns).set({ ...updates, updatedAt: new Date() } as any)
+    .where(eq(schema.adCampaigns.id, id));
+  return getAdCampaignById(id);
+}
+
+export async function createAdCreative(data: {
+  campaignId: string;
+  format: string;
+  content: string;
+  headline?: string;
+  callToAction?: string;
+  targetAudience?: string;
+  variation?: number;
+}) {
+  const id = generateId();
+  await db.insert(schema.adCreatives).values({
+    id,
+    campaignId: data.campaignId,
+    format: data.format,
+    content: data.content,
+    headline: data.headline || null,
+    callToAction: data.callToAction || null,
+    targetAudience: data.targetAudience || null,
+    variation: data.variation || 1,
+  });
+  return id;
+}
+
+export async function listCreativesForCampaign(campaignId: string) {
+  return db.select().from(schema.adCreatives)
+    .where(eq(schema.adCreatives.campaignId, campaignId))
+    .orderBy(asc(schema.adCreatives.createdAt));
+}
+
+export async function getAdvertisingStats(deploymentId: string) {
+  const campaigns = await listCampaignsForDeployment(deploymentId);
+  const totalBudget = campaigns.reduce((s, c) => s + parseFloat(String(c.budget || '0')), 0);
+  const totalSpent = campaigns.reduce((s, c) => s + parseFloat(String(c.spent || '0')), 0);
+  const activeCount = campaigns.filter(c => c.status === 'ACTIVE').length;
+  return { campaignCount: campaigns.length, activeCount, totalBudget, totalSpent };
 }
 
 /**

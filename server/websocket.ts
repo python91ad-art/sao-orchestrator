@@ -30,7 +30,11 @@ export type WSEvent =
       };
     }
   | { type: 'application:generation_started'; data: { deploymentId: string; gapId: string } }
-  | { type: 'application:generation_completed'; data: { deploymentId: string; fileCount: number } };
+  | { type: 'application:generation_completed'; data: { deploymentId: string; fileCount: number } }
+  | {
+      type: 'payment:updated';
+      data: { paymentId: string; deploymentId: string; status: string };
+    };
 
 export function initWebSocketServer(server: HttpServer): WebSocketServer {
   if (wss) return wss;

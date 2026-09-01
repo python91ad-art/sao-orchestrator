@@ -10,6 +10,8 @@ import Settings from './dashboard/Settings';
 import Analytics from './dashboard/Analytics';
 import RegistrationAccess from './dashboard/RegistrationAccess';
 
+import Advertising from './dashboard/Advertising';
+
 const Dashboard: React.FC = () => {
   const [currentPage, setCurrentPage] = useState<string>('overview');
 
@@ -34,6 +36,8 @@ const Dashboard: React.FC = () => {
         return <AuditLog />;
       case 'analytics':
         return <Analytics />;
+      case 'advertising':
+        return <Advertising />;
       case 'policies':
         return <Policies />;
       case 'settings':

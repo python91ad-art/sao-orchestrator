@@ -14,14 +14,101 @@ import {
   updateCoreLoopInterval,
 } from './orchestrator';
 import { auditAllActiveDeployments, auditDeployment } from './auditScheduler';
-import { testGroqConnection } from './services/llm';
+import { testGroqConnection, testLLMRouter } from './services/llm';
 import { crawlAndExtract } from './services/crawler';
 import { search as googleSearch, searchForGaps, trendingProblems } from './services/search';
 import { users, gaps, queueItems } from '../drizzle/schema';
 import { eq, asc } from 'drizzle-orm';
+import { createCryptoPayment, toSafePaymentView } from './services/crypto';
+import { hasNowPaymentsApiKey, getNowPaymentsConfig } from './services/nowpayments';
 
-const resendApiKey = process.env.RESEND_API_KEY || 're_dummy_key';
-const resend = new Resend(resendApiKey);
+// ==========================================
+// RESEND EMAIL CONFIGURATION
+// ==========================================
+const resendApiKey = process.env.RESEND_API_KEY || '';
+const resendFromEmail = process.env.RESEND_FROM_EMAIL || 'noreply@sao-system.com';
+const resendFromName = process.env.RESEND_FROM_NAME || 'SAO';
+const resendFrom = `${resendFromName} <${resendFromEmail}>`;
+const resend = resendApiKey ? new Resend(resendApiKey) : null;
+
+// In-memory rate limiting for password reset (per email)
+const resetRateLimit = new Map<string, { count: number; windowStart: number }>();
+const RESET_RATE_LIMIT_MAX = 3;       // max attempts per window
+const RESET_RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+
+function checkResetRateLimit(email: string): void {
+  const normalized = email.trim().toLowerCase();
+  const now = Date.now();
+  const entry = resetRateLimit.get(normalized);
+  
+  if (!entry || now - entry.windowStart > RESET_RATE_LIMIT_WINDOW_MS) {
+    resetRateLimit.set(normalized, { count: 1, windowStart: now });
+    return;
+  }
+  
+  if (entry.count >= RESET_RATE_LIMIT_MAX) {
+    const remainingMs = RESET_RATE_LIMIT_WINDOW_MS - (now - entry.windowStart);
+    const remainingMin = Math.ceil(remainingMs / 60000);
+    throw new TRPCError({
+      code: 'TOO_MANY_REQUESTS',
+      message: `Too many password reset requests. Please try again in ${remainingMin} minute(s).`,
+    });
+  }
+  
+  entry.count++;
+}
+
+/**
+ * Send an email via Resend. Returns true if sent, false if Resend is not configured.
+ * Throws on actual send failures so callers can decide how to handle.
+ */
+async function sendEmail(params: {
+  to: string;
+  subject: string;
+  text: string;
+  html?: string;
+}): Promise<boolean> {
+  if (!resend) {
+    console.warn('[Email] Resend not configured — RESEND_API_KEY is missing. Email NOT sent.');
+    return false;
+  }
+
+  if (!resendFromEmail || resendFromEmail === 'noreply@sao-system.com') {
+    console.warn(
+      '[Email] Using default from address. For production, set RESEND_FROM_EMAIL to a domain verified in Resend.'
+    );
+  }
+
+  try {
+    const result = await resend.emails.send({
+      from: resendFrom,
+      to: [params.to],
+      subject: params.subject,
+      text: params.text,
+      html: params.html,
+    });
+
+    if (result.error) {
+      console.error('[Email] Resend returned an error:', result.error);
+      throw new Error(String(result.error));
+    }
+
+    console.log(`[Email] Sent "${params.subject}" to ${params.to} (Resend ID: ${result.data?.id || 'unknown'})`);
+    return true;
+  } catch (error: any) {
+    const msg = error?.message || String(error);
+    console.error(`[Email] Failed to send "${params.subject}" to ${params.to}: ${msg}`);
+    // Check for domain verification issues
+    if (msg.includes('domain') || msg.includes('verify') || msg.includes('verified')) {
+      console.error(
+        '[Email] HINT: The from-address domain must be verified in Resend. ' +
+        `Current from: ${resendFromEmail}. ` +
+        'Set RESEND_FROM_EMAIL to a domain you own and verify it at https://resend.com/domains'
+      );
+    }
+    throw error;
+  }
+}
 
 // ==========================================
 // AUTH ROUTER
@@ -105,7 +192,11 @@ const authRouter = router({
   forgotPassword: publicProcedure
     .input(z.object({ email: z.string().email() }))
     .mutation(async ({ input }) => {
+      // Rate limit
+      checkResetRateLimit(input.email);
+
       const user = await db.getUserByEmail(input.email);
+      // Always return success to prevent email enumeration
       if (!user) return { success: true };
 
       const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
@@ -114,14 +205,20 @@ const authRouter = router({
       await db.updateUserResetCode(input.email, resetCode, expiry);
 
       try {
-        await resend.emails.send({
-          from: 'SAO Password Reset <noreply@situationalarbitrage.com>',
-          to: [input.email],
+        await sendEmail({
+          to: input.email,
           subject: 'Password Reset Code - SAO',
-          text: `Your password reset code is ${resetCode}. It is valid for 15 minutes.`,
+          text: `Your password reset code is: ${resetCode}\n\nThis code is valid for 15 minutes.\n\nIf you did not request this password reset, please ignore this email.`,
+          html: `<p>Your password reset code is: <strong>${resetCode}</strong></p><p>This code is valid for 15 minutes.</p><p>If you did not request this password reset, please ignore this email.</p>`,
         });
       } catch (error) {
-        console.error('Failed to send password reset email:', error);
+        console.error('Failed to send password reset email — Resend delivery issue:', error);
+        // Clear the reset code since we couldn't deliver it
+        await db.clearResetCode(input.email);
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Failed to send password reset email. Please try again later or contact support.',
+        });
       }
 
       return { success: true };
@@ -726,6 +823,21 @@ const integrationsRouter = router({
       return testGroqConnection();
     }),
 
+  testLLMRouter: adminProcedure
+    .query(async () => {
+      const status = testLLMRouter();
+      return {
+        success: status.success,
+        message: status.message,
+        providers: status.providers.map((p) => ({
+          provider: p.provider,
+          model: p.model,
+          credentials: p.credentials,
+          state: p.state,
+        })),
+      };
+    }),
+
   testGitHub: adminProcedure
     .query(async () => {
       const token = process.env.GITHUB_TOKEN;
@@ -777,12 +889,32 @@ const integrationsRouter = router({
       const { testVercelConnection } = await import('./services/vercel');
       return testVercelConnection();
     }),
+
+  testNowPayments: adminProcedure
+    .query(async () => {
+      // Report configuration presence only — never the secret values.
+      const hasKey = hasNowPaymentsApiKey();
+      const hasSecret = Boolean(process.env.NOWPAYMENTS_IPN_SECRET);
+      if (!hasKey || !hasSecret) {
+        return {
+          success: false,
+          message: hasKey
+            ? 'NOWPayments IPN secret is missing'
+            : 'NOWPayments API key is missing',
+        };
+      }
+      try {
+        getNowPaymentsConfig();
+        return { success: true, message: 'NOWPayments API key and IPN secret are configured' };
+      } catch (err: any) {
+        return { success: false, message: err.message || 'NOWPayments configuration error' };
+      }
+    }),
 });
 
 // ==========================================
-// PAYMENTS ROUTER — provider-agnostic payment ledger.
-// (Mollie was retired as the payment provider; payment creation will
-//  be supplied by a future payment provider. Read-only ledger queries remain.)
+// PAYMENTS ROUTER — crypto-only payment ledger (NOWPayments).
+// Ownership is always derived through payment → deployment → userId.
 // ==========================================
 const paymentsRouter = router({
 
@@ -797,7 +929,7 @@ const paymentsRouter = router({
       if (ctx.user.role !== 'admin' && deployment.userId !== ctx.user.id) {
         throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this payment.' });
       }
-      return payment;
+      return toSafePaymentView(payment);
     }),
 
   listForDeployment: protectedProcedure
@@ -809,7 +941,45 @@ const paymentsRouter = router({
       if (ctx.user.role !== 'admin' && deployment.userId !== ctx.user.id) {
         throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this deployment.' });
       }
-      return db.listPaymentsForDeployment(input);
+      const payments = await db.listPaymentsForDeployment(input);
+      return payments.map(toSafePaymentView);
+    }),
+
+  list: protectedProcedure
+    .query(async ({ ctx }) => {
+      if (ctx.user.role === 'admin') {
+        const payments = await db.listPayments();
+        return payments.map(toSafePaymentView);
+      }
+      const payments = await db.listPaymentsForUser(ctx.user.id);
+      return payments.map(toSafePaymentView);
+    }),
+
+  createCryptoPayment: protectedProcedure
+    .input(z.object({
+      deploymentId: z.string().min(1),
+      payCurrency: z.string().min(1).max(20).optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      // 1. Verify the deployment exists.
+      const deployment = await db.getDeploymentById(input.deploymentId);
+      if (!deployment) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Deployment not found.' });
+      }
+
+      // 2. Verify ownership — never trust a client-supplied userId.
+      if (ctx.user.role !== 'admin' && deployment.userId !== ctx.user.id) {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'You do not have access to this deployment.',
+        });
+      }
+
+      // 3. Create the crypto payment (server determines price, calls provider).
+      return createCryptoPayment({
+        deploymentId: input.deploymentId,
+        payCurrency: input.payCurrency,
+      });
     }),
 });
 
@@ -979,6 +1149,22 @@ const invitesRouter = router({
         ctx.user.id, // createdBy from authenticated admin
         input.expiresAt
       );
+
+      // Send invitation notification email
+      const frontendUrl = process.env.FRONTEND_URL || process.env.CORS_ORIGIN || 'http://localhost:5173';
+      try {
+        await sendEmail({
+          to: input.email,
+          subject: 'You are invited to SAO',
+          text: `You have been invited to join SAO as a ${input.role}.\n\nVisit ${frontendUrl} to complete your registration.\n\nThis invitation is single-use.`,
+          html: `<p>You have been invited to join SAO as a <strong>${input.role}</strong>.</p><p>Visit <a href="${frontendUrl}">${frontendUrl}</a> to complete your registration.</p><p>This invitation is single-use.</p>`,
+        });
+      } catch (error) {
+        console.error('Failed to send invitation email — Resend delivery issue:', error);
+        // Don't fail the invite creation — the invite is still valid;
+        // the admin can communicate the link directly.
+      }
+
       return invite;
     }),
 
@@ -1002,6 +1188,187 @@ const invitesRouter = router({
 });
 
 // ==========================================
+// ADVERTISING ROUTER (Phase 13)
+// ==========================================
+const advertisingRouter = router({
+  overview: protectedProcedure
+    .query(async ({ ctx }) => {
+      const campaigns = ctx.user.role === 'admin'
+        ? await db.listAllCampaigns()
+        : (await Promise.all(
+            (await db.listDeployments(ctx.user.id)).map(d => db.listCampaignsForDeployment(d.id))
+          )).flat();
+      const totalBudget = campaigns.reduce((s, c) => s + parseFloat(String(c.budget || '0')), 0);
+      const totalSpent = campaigns.reduce((s, c) => s + parseFloat(String(c.spent || '0')), 0);
+      const activeCount = campaigns.filter(c => c.status === 'ACTIVE').length;
+      return { campaigns, totalBudget, totalSpent, activeCount };
+    }),
+
+  listForDeployment: protectedProcedure
+    .input(z.string())
+    .query(async ({ input, ctx }) => {
+      const deployment = await db.getDeploymentById(input);
+      if (!deployment) throw new TRPCError({ code: 'NOT_FOUND', message: 'Deployment not found.' });
+      if (ctx.user.role !== 'admin' && deployment.userId !== ctx.user.id) {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this deployment.' });
+      }
+      return db.listCampaignsForDeployment(input);
+    }),
+
+  get: protectedProcedure
+    .input(z.string())
+    .query(async ({ input, ctx }) => {
+      const campaign = await db.getAdCampaignById(input);
+      if (!campaign) throw new TRPCError({ code: 'NOT_FOUND', message: 'Campaign not found.' });
+      const deployment = await db.getDeploymentById(campaign.deploymentId);
+      if (!deployment) throw new TRPCError({ code: 'NOT_FOUND', message: 'Deployment not found.' });
+      if (ctx.user.role !== 'admin' && deployment.userId !== ctx.user.id) {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this campaign.' });
+      }
+      return campaign;
+    }),
+
+  getCreatives: protectedProcedure
+    .input(z.string())
+    .query(async ({ input, ctx }) => {
+      const campaign = await db.getAdCampaignById(input);
+      if (!campaign) throw new TRPCError({ code: 'NOT_FOUND', message: 'Campaign not found.' });
+      const deployment = await db.getDeploymentById(campaign.deploymentId);
+      if (!deployment) throw new TRPCError({ code: 'NOT_FOUND', message: 'Deployment not found.' });
+      if (ctx.user.role !== 'admin' && deployment.userId !== ctx.user.id) {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this campaign.' });
+      }
+      return db.listCreativesForCampaign(input);
+    }),
+
+  getStats: protectedProcedure
+    .input(z.string())
+    .query(async ({ input, ctx }) => {
+      const deployment = await db.getDeploymentById(input);
+      if (!deployment) throw new TRPCError({ code: 'NOT_FOUND', message: 'Deployment not found.' });
+      if (ctx.user.role !== 'admin' && deployment.userId !== ctx.user.id) {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this deployment.' });
+      }
+      return db.getAdvertisingStats(input);
+    }),
+
+  analyze: protectedProcedure
+    .input(z.string())
+    .mutation(async ({ input, ctx }) => {
+      const deployment = await db.getDeploymentById(input);
+      if (!deployment) throw new TRPCError({ code: 'NOT_FOUND', message: 'Deployment not found.' });
+      if (ctx.user.role !== 'admin' && deployment.userId !== ctx.user.id) {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this deployment.' });
+      }
+      const gap = await db.getGapById(deployment.gapId);
+      const { analyzeProject } = await import('./services/advertising/projectAnalyzer');
+      const { calculateAdvertisingBudget } = await import('./services/advertising/budgetEngine');
+      const revenue = parseFloat(String(deployment.revenue || '0'));
+      const { budget, percentageUsed } = calculateAdvertisingBudget(revenue);
+      const analysis = await analyzeProject({
+        deploymentId: deployment.id, knows: gap?.knows || '', needs: gap?.needs || '',
+        controlsAccess: gap?.controlsAccess || '', underestimatesValue: gap?.underestimatesValue || '',
+        businessPlan: deployment.businessPlan || '',
+      });
+      return { analysis, budget: { deploymentRevenue: revenue, advertisingRevenuePercentage: percentageUsed, calculatedBudget: budget } };
+    }),
+
+  generateStrategy: protectedProcedure
+    .input(z.object({ deploymentId: z.string(), channel: z.string().optional() }))
+    .mutation(async ({ input, ctx }) => {
+      const deployment = await db.getDeploymentById(input.deploymentId);
+      if (!deployment) throw new TRPCError({ code: 'NOT_FOUND', message: 'Deployment not found.' });
+      if (ctx.user.role !== 'admin' && deployment.userId !== ctx.user.id) {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this deployment.' });
+      }
+      const gap = await db.getGapById(deployment.gapId);
+      const { analyzeProject } = await import('./services/advertising/projectAnalyzer');
+      const { buildAdvertisingStrategy } = await import('./services/advertising/strategyEngine');
+      const { calculateAdvertisingBudget, determineCampaignType } = await import('./services/advertising/budgetEngine');
+      const revenue = parseFloat(String(deployment.revenue || '0'));
+      const { budget, percentageUsed } = calculateAdvertisingBudget(revenue);
+      const analysis = await analyzeProject({
+        deploymentId: deployment.id, knows: gap?.knows || '', needs: gap?.needs || '',
+        controlsAccess: gap?.controlsAccess || '', underestimatesValue: gap?.underestimatesValue || '',
+        businessPlan: deployment.businessPlan || '',
+      });
+      const strategy = buildAdvertisingStrategy({ projectAnalysis: analysis, advertisingBudget: budget, percentageUsed });
+      const campaignType = determineCampaignType(budget);
+      const channel = input.channel || (campaignType === 'PAID' ? 'google_ads' : 'organic_social');
+      const campaign = await db.createAdCampaign({
+        deploymentId: deployment.id, name: `${analysis.appName.slice(0, 50)} - ${channel}`,
+        channel, campaignType, budget: budget.toFixed(2), strategy: JSON.stringify(strategy),
+      });
+      return { campaign, strategy, analysis };
+    }),
+
+  generateCreatives: protectedProcedure
+    .input(z.object({ campaignId: z.string() }))
+    .mutation(async ({ input, ctx }) => {
+      const campaign = await db.getAdCampaignById(input.campaignId);
+      if (!campaign) throw new TRPCError({ code: 'NOT_FOUND', message: 'Campaign not found.' });
+      const deployment = await db.getDeploymentById(campaign.deploymentId);
+      if (!deployment) throw new TRPCError({ code: 'NOT_FOUND', message: 'Deployment not found.' });
+      if (ctx.user.role !== 'admin' && deployment.userId !== ctx.user.id) {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this campaign.' });
+      }
+      const gap = await db.getGapById(deployment.gapId);
+      const { analyzeProject } = await import('./services/advertising/projectAnalyzer');
+      const { generateCreatives, generateBasicCreatives } = await import('./services/advertising/creativeGenerator');
+      const { buildAdvertisingStrategy } = await import('./services/advertising/strategyEngine');
+      const { calculateAdvertisingBudget } = await import('./services/advertising/budgetEngine');
+      const revenue = parseFloat(String(deployment.revenue || '0'));
+      const { budget, percentageUsed } = calculateAdvertisingBudget(revenue);
+      const analysis = await analyzeProject({
+        deploymentId: deployment.id, knows: gap?.knows || '', needs: gap?.needs || '',
+        controlsAccess: gap?.controlsAccess || '', underestimatesValue: gap?.underestimatesValue || '',
+        businessPlan: deployment.businessPlan || '',
+      });
+      const strategy = buildAdvertisingStrategy({ projectAnalysis: analysis, advertisingBudget: budget, percentageUsed });
+      let result = await generateCreatives({ projectAnalysis: analysis, strategy, campaignId: campaign.id, deploymentId: deployment.id });
+      if (!result.success) {
+        const fallback = generateBasicCreatives({ projectAnalysis: analysis, strategy, campaignId: campaign.id, deploymentId: deployment.id });
+        result = { success: true, creatives: fallback, error: 'Used basic generation fallback' };
+      }
+      for (const c of result.creatives) {
+        await db.createAdCreative({ campaignId: campaign.id, format: c.format, content: c.content, headline: c.headline || undefined, callToAction: c.callToAction || undefined, targetAudience: c.targetAudience || undefined, variation: c.variation });
+      }
+      await db.updateAdCampaign(campaign.id, { status: 'READY' } as any);
+      return { campaign, creatives: result.creatives, usedLLM: !result.error };
+    }),
+
+  channels: protectedProcedure
+    .query(async () => {
+      const { listChannels } = await import('./services/advertising/channelAdapter');
+      return listChannels();
+    }),
+
+  publish: protectedProcedure
+    .input(z.object({ campaignId: z.string() }))
+    .mutation(async ({ input, ctx }) => {
+      const campaign = await db.getAdCampaignById(input.campaignId);
+      if (!campaign) throw new TRPCError({ code: 'NOT_FOUND', message: 'Campaign not found.' });
+      const deployment = await db.getDeploymentById(campaign.deploymentId);
+      if (!deployment) throw new TRPCError({ code: 'NOT_FOUND', message: 'Deployment not found.' });
+      if (ctx.user.role !== 'admin' && deployment.userId !== ctx.user.id) {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this campaign.' });
+      }
+      const { publishCampaign } = await import('./services/advertising/channelAdapter');
+      const channelBudget = parseFloat(String(campaign.budget || '0'));
+      if (campaign.campaignType === 'PAID' && channelBudget <= 0) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Cannot publish PAID campaign with zero budget.' });
+      }
+      const result = await publishCampaign({ name: campaign.name, deploymentId: campaign.deploymentId, budget: channelBudget, channel: campaign.channel as any });
+      if (!result.success) {
+        await db.updateAdCampaign(campaign.id, { status: result.notConfigured ? 'WAITING_FOR_CREDENTIALS' : 'FAILED', errorMessage: result.error } as any);
+        return { success: false, notConfigured: result.notConfigured, error: result.error };
+      }
+      await db.updateAdCampaign(campaign.id, { status: 'ACTIVE', providerCampaignId: result.providerCampaignId || null, providerStatus: result.providerStatus || null, startedAt: new Date() } as any);
+      return { success: true };
+    }),
+});
+
+// ==========================================
 // ROOT ROUTER
 // ==========================================
 export const appRouter = router({
@@ -1018,6 +1385,7 @@ export const appRouter = router({
   settings: settingsRouter,
   invites: invitesRouter,
   payments: paymentsRouter,
+  advertising: advertisingRouter,
 });
 
 export type AppRouter = typeof appRouter;

@@ -10,7 +10,8 @@
     "build:client": "cd client && vite build",
     "start": "node run-migration.js && tsx server/_core/index.ts",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate"
+    "db:migrate": "drizzle-kit migrate",
+    "test:crypto": "tsx tests/crypto-payments.test.ts"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.0.0",

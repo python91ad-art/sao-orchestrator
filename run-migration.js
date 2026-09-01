@@ -163,12 +163,19 @@ CREATE TABLE IF NOT EXISTS payments (
   id varchar(255) NOT NULL,
   deployment_id varchar(255) NOT NULL,
   provider_type varchar(50) NOT NULL,
-  provider_payment_id varchar(255) NOT NULL,
+  provider_payment_id varchar(255),
   amount decimal(10,2) NOT NULL,
   currency varchar(10) NOT NULL DEFAULT 'EUR',
-  status enum('pending','paid','failed','canceled','expired','authorized','unknown') NOT NULL DEFAULT 'pending',
+  status enum('pending','confirming','confirmed','paid','failed','canceled','expired','authorized','unknown') NOT NULL DEFAULT 'pending',
   checkout_url varchar(1024),
+  crypto_amount decimal(38,18),
+  crypto_currency varchar(20),
+  crypto_network varchar(50),
+  payment_address varchar(255),
+  transaction_hash varchar(255),
+  provider_status varchar(50),
   paid_at datetime,
+  expires_at datetime,
   created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT payments_id PRIMARY KEY(id)
@@ -191,6 +198,21 @@ const ALTER_COLUMNS = [
   { table: 'queue_items', column: 'worker_id', definition: 'varchar(255)' },
   { table: 'queue_items', column: 'next_retry_at', definition: 'datetime' },
   { table: 'deployments', column: 'user_id', definition: 'varchar(255)' },
+  // Crypto payments (Phase 11 — NOWPayments). Additive only.
+  { table: 'payments', column: 'crypto_amount', definition: 'decimal(38,18)' },
+  { table: 'payments', column: 'crypto_currency', definition: 'varchar(20)' },
+  { table: 'payments', column: 'crypto_network', definition: 'varchar(50)' },
+  { table: 'payments', column: 'payment_address', definition: 'varchar(255)' },
+  { table: 'payments', column: 'transaction_hash', definition: 'varchar(255)' },
+  { table: 'payments', column: 'provider_status', definition: 'varchar(50)' },
+  { table: 'payments', column: 'expires_at', definition: 'datetime' },
+];
+
+// Columns whose definition must be modified in place (MySQL MODIFY).
+// Re-applying the same definition is idempotent and non-destructive.
+const ALTER_MODIFY_COLUMNS = [
+  { table: 'payments', column: 'status', definition: "enum('pending','confirming','confirmed','paid','failed','canceled','expired','authorized','unknown') NOT NULL DEFAULT 'pending'" },
+  { table: 'payments', column: 'provider_payment_id', definition: 'varchar(255) NULL' },
 ];
 
 async function main() {
@@ -285,20 +307,40 @@ async function main() {
     }
   }
 
+  // Modify column definitions in place (idempotent re-application).
+  console.log('\n=== Modifying column definitions ===');
+  for (const { table, column, definition } of ALTER_MODIFY_COLUMNS) {
+    try {
+      await conn.execute(`ALTER TABLE ${table} MODIFY COLUMN ${column} ${definition}`);
+      console.log(`✅ Modified column: ${table}.${column}`);
+    } catch (err) {
+      console.error(`❌ Failed to modify ${table}.${column}:`, err.message);
+    }
+  }
+
   // Verify all tables
   const [tables] = await conn.execute('SHOW TABLES');
   console.log('\n=== All tables in database ===');
   tables.forEach(t => console.log('  -', Object.values(t)[0]));
 
-  // Ensure ownership index exists
-  try {
-    await conn.execute('CREATE INDEX idx_deployments_user ON deployments(user_id)');
-    console.log('✅ Added index: deployments.user_id');
-  } catch (err) {
-    if (err.code === 'ER_DUP_KEYNAME') {
-      console.log('⏭️  deployments.user_id index already exists');
-    } else {
-      console.error('❌ Failed to add deployments.user_id index:', err.message);
+  // Ensure required indexes exist (idempotent).
+  const INDEXES = [
+    { name: 'idx_deployments_user', sql: 'CREATE INDEX idx_deployments_user ON deployments(user_id)' },
+    { name: 'idx_deployments_gap', sql: 'CREATE INDEX idx_deployments_gap ON deployments(gap_id)' },
+    { name: 'idx_dp_deployment_provider_status', sql: 'CREATE INDEX idx_dp_deployment_provider_status ON deployment_providers(deployment_id, provider_type, status)' },
+    { name: 'idx_payments_deployment', sql: 'CREATE INDEX idx_payments_deployment ON payments(deployment_id)' },
+    { name: 'idx_payments_provider_payment', sql: 'CREATE INDEX idx_payments_provider_payment ON payments(provider_type, provider_payment_id)' },
+  ];
+  for (const idx of INDEXES) {
+    try {
+      await conn.execute(idx.sql);
+      console.log(`✅ Added index: ${idx.name}`);
+    } catch (err) {
+      if (err.code === 'ER_DUP_KEYNAME') {
+        console.log(`⏭️  ${idx.name} index already exists`);
+      } else {
+        console.error(`❌ Failed to add ${idx.name} index:`, err.message);
+      }
     }
   }
 
