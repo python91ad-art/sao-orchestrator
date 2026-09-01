@@ -688,7 +688,13 @@ const coreLoopRouter = router({
 
   status: protectedProcedure
     .query(async () => {
-      return db.getCoreLoopState();
+      const state = await db.getCoreLoopState();
+      const { getDiscoveryStatus } = await import('./services/search');
+      const discoveryStatus = getDiscoveryStatus();
+      return {
+        ...state,
+        discovery: discoveryStatus,
+      };
     }),
 });
 
@@ -906,11 +912,14 @@ const integrationsRouter = router({
 
   testGoogleSearch: adminProcedure
     .query(async () => {
-      const key = process.env.GOOGLE_SEARCH_API_KEY;
-      const cx = process.env.GOOGLE_SEARCH_CX;
+      // Tavily is the current search provider (replaced Google Custom Search).
+      const { getDiscoveryStatus } = await import('./services/search');
+      const status = getDiscoveryStatus();
       return {
-        success: !!key && !!cx,
-        message: (key && cx) ? 'Google Search API key and CX are configured' : 'Google Search API key or CX is missing',
+        success: status.tavilyConfigured,
+        message: status.tavilyConfigured
+          ? `Tavily search is configured. Last status: ${status.lastSearchStatus || 'not yet called'}`
+          : 'Tavily search is NOT configured (TAVILY_API_KEY missing). Set TAVILY_API_KEY in environment.',
       };
     }),
 

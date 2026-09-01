@@ -8,6 +8,20 @@ export interface SearchResult {
   displayLink?: string;
 }
 
+// ==========================================
+// Discovery configuration — used by dashboard diagnostics
+// ==========================================
+let _lastSearchStatus: 'not_configured' | 'configured_no_results' | 'configured_results_ok' | 'api_error' | null = null;
+let _lastSearchStatusTime: number = 0;
+
+export function getDiscoveryStatus() {
+  return {
+    tavilyConfigured: !!process.env.TAVILY_API_KEY,
+    lastSearchStatus: _lastSearchStatus,
+    lastSearchStatusTime: _lastSearchStatusTime ? new Date(_lastSearchStatusTime).toISOString() : null,
+  };
+}
+
 /**
  * Tavily web search API.
  * Uses an AI-oriented web search provider while preserving SAO's
@@ -17,7 +31,9 @@ export async function search(query: string, options: { maxResults?: number } = {
   const apiKey = process.env.TAVILY_API_KEY;
 
   if (!apiKey) {
-    console.warn('[Search] Tavily API key not configured. Returning empty results.');
+    console.warn('[Search] Tavily API key not configured (TAVILY_API_KEY missing from environment). Returning empty results.');
+    _lastSearchStatus = 'not_configured';
+    _lastSearchStatusTime = Date.now();
     return [];
   }
 
@@ -44,11 +60,20 @@ export async function search(query: string, options: { maxResults?: number } = {
     if (!response.ok) {
       const errorText = await response.text();
       console.error(`[Search] Tavily returned ${response.status}: ${errorText}`);
+      _lastSearchStatus = 'api_error';
+      _lastSearchStatusTime = Date.now();
       return [];
     }
 
     const data = await response.json();
     const results = data.results || [];
+
+    _lastSearchStatus = results.length > 0 ? 'configured_results_ok' : 'configured_no_results';
+    _lastSearchStatusTime = Date.now();
+
+    if (results.length === 0) {
+      console.log(`[Search] Tavily returned 0 results for query: ${query.slice(0, 60)}`);
+    }
 
     return results.map((item: any) => ({
       title: item.title || '',
@@ -57,7 +82,9 @@ export async function search(query: string, options: { maxResults?: number } = {
       displayLink: item.url ? new URL(item.url).hostname : '',
     }));
   } catch (error: any) {
-    console.error('[Search] Tavily search failed:', error);
+    console.error('[Search] Tavily search failed:', error?.message || error);
+    _lastSearchStatus = 'api_error';
+    _lastSearchStatusTime = Date.now();
     return [];
   }
 }
