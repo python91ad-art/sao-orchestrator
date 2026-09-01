@@ -644,7 +644,7 @@ const policiesRouter = router({
 const coreLoopRouter = router({
   resetOperationalData: adminProcedure
     .mutation(async () => {
-      stopCoreLoop();
+      await stopCoreLoop();
       await db.resetOperationalData();
 
       return {

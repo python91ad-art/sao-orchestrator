@@ -432,12 +432,17 @@ const Settings: React.FC = () => {
                   });
 
                   if (!res.ok) {
-                    throw new Error(`Retry configuration save failed (${res.status})`);
+                    const body = await res.json().catch(() => null);
+                    const msg = body?.error?.json?.message || body?.error?.message || `Server error (${res.status})`;
+                    throw new Error(msg);
                   }
 
                   setRetrySaved(true);
                   setTimeout(() => setRetrySaved(false), 2000);
-                } catch (e) { console.error(e); }
+                } catch (e: any) {
+                  console.error('[Settings] Retry config save failed:', e);
+                  alert(`Failed to save retry configuration: ${e?.message || 'Unknown error'}`);
+                }
               }}
               className="btn-bold-primary"
             >
@@ -478,12 +483,17 @@ const Settings: React.FC = () => {
                   });
 
                   if (!res.ok) {
-                    throw new Error(`Queue configuration save failed (${res.status})`);
+                    const body = await res.json().catch(() => null);
+                    const msg = body?.error?.json?.message || body?.error?.message || `Server error (${res.status})`;
+                    throw new Error(msg);
                   }
 
                   setQueueSaved(true);
                   setTimeout(() => setQueueSaved(false), 2000);
-                } catch (e) { console.error(e); }
+                } catch (e: any) {
+                  console.error('[Settings] Queue limits save failed:', e);
+                  alert(`Failed to save queue limits: ${e?.message || 'Unknown error'}`);
+                }
               }}
               className="btn-bold-primary"
             >
@@ -526,8 +536,19 @@ const Settings: React.FC = () => {
                           headers: { 'Content-Type': 'application/json' },
                           body: JSON.stringify({ json: { level: concurrencyLevel } }),
                         });
-                        if (res.ok) setConcurrencySaved(true);
-                      } catch (e) { console.error(e); }
+                        if (res.ok) {
+                          setConcurrencySaved(true);
+                          setTimeout(() => setConcurrencySaved(false), 2000);
+                        } else {
+                          const body = await res.json().catch(() => null);
+                          const msg = body?.error?.json?.message || body?.error?.message || `Server error (${res.status})`;
+                          console.error('[Settings] Concurrency save failed:', msg);
+                          alert(`Failed to save concurrency: ${msg}`);
+                        }
+                      } catch (e: any) {
+                        console.error('[Settings] Concurrency save failed:', e);
+                        alert(`Failed to save concurrency: ${e?.message || 'Network error'}`);
+                      }
                     }}
                     className="btn-bold-primary"
                   >

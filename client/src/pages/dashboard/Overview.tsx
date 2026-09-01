@@ -88,23 +88,43 @@ const Overview: React.FC = () => {
 
 
 
-  // 👇 Real action handlers using mutations
+  // 👇 Real action handlers using mutations WITH error handling
   const handleStartLoop = async () => {
-    await startLoop.mutateAsync();
-    await coreLoopStatusQuery.refetch();
+    try {
+      await startLoop.mutateAsync();
+      await coreLoopStatusQuery.refetch();
+    } catch (error: any) {
+      console.error('[Overview] Failed to start core loop:', error);
+      alert(`Failed to start core loop: ${error?.message || 'Unknown error'}`);
+    }
   };
 
   const handleStopLoop = async () => {
-    await stopLoop.mutateAsync();
-    await coreLoopStatusQuery.refetch();
+    try {
+      await stopLoop.mutateAsync();
+      await coreLoopStatusQuery.refetch();
+    } catch (error: any) {
+      console.error('[Overview] Failed to stop core loop:', error);
+      alert(`Failed to stop core loop: ${error?.message || 'Unknown error'}`);
+    }
   };
 
   const handleRunOnce = async () => {
-    await runOnce.mutateAsync();
+    try {
+      await runOnce.mutateAsync();
+    } catch (error: any) {
+      console.error('[Overview] Failed to run once:', error);
+      alert(`Failed to run once: ${error?.message || 'Unknown error'}`);
+    }
   };
 
   const handleRunAudit = async () => {
-    await runAudit.mutateAsync();
+    try {
+      await runAudit.mutateAsync();
+    } catch (error: any) {
+      console.error('[Overview] Failed to run audit:', error);
+      alert(`Failed to run audit: ${error?.message || 'Unknown error'}`);
+    }
   };
 
 
