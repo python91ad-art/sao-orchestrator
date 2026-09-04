@@ -184,6 +184,37 @@ CREATE TABLE IF NOT EXISTS payments (
 INSERT INTO core_loop_state (id, is_running, interval_ms, total_gaps_processed, total_deployments_created)
 VALUES ('singleton', false, 10800000, 0, 0)
 ON DUPLICATE KEY UPDATE id = id;
+
+CREATE TABLE IF NOT EXISTS integration_credentials (
+  id varchar(255) NOT NULL,
+  service varchar(128) NOT NULL,
+  name varchar(255) NOT NULL DEFAULT 'Legacy Integration',
+  provider_id varchar(128) NOT NULL DEFAULT 'custom',
+  credential_type varchar(64) NOT NULL DEFAULT 'api_key',
+  encrypted_value text NOT NULL,
+  encryption_version int NOT NULL DEFAULT 1,
+  base_url varchar(1024),
+  config text,
+  enabled boolean NOT NULL DEFAULT true,
+  priority varchar(16),
+  compatibility_status varchar(32) NOT NULL DEFAULT 'unknown',
+  connection_status varchar(32) NOT NULL DEFAULT 'untested',
+  last_tested_at datetime,
+  created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT integration_credentials_id PRIMARY KEY(id)
+);
+
+CREATE TABLE IF NOT EXISTS credential_audit_logs (
+  id varchar(255) NOT NULL,
+  user_id varchar(255),
+  service varchar(64) NOT NULL,
+  operation varchar(64) NOT NULL,
+  success boolean NOT NULL DEFAULT true,
+  message varchar(255),
+  created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT credential_audit_logs_id PRIMARY KEY(id)
+);
 `;
 
 // Columns to add individually (MySQL doesn't support ADD COLUMN IF NOT EXISTS)
@@ -211,6 +242,22 @@ const ALTER_COLUMNS = [
   { table: 'payments', column: 'transaction_hash', definition: 'varchar(255)' },
   { table: 'payments', column: 'provider_status', definition: 'varchar(50)' },
   { table: 'payments', column: 'expires_at', definition: 'datetime' },
+  // Autonomous business-management runtime columns on deployments.
+  { table: 'deployments', column: 'last_seen_healthy_at', definition: 'datetime NULL' },
+  { table: 'deployments', column: 'consecutive_failures', definition: 'INT NOT NULL DEFAULT 0' },
+  { table: 'deployments', column: 'total_failures', definition: 'INT NOT NULL DEFAULT 0' },
+  { table: 'deployments', column: 'last_failure_reason', definition: 'varchar(512) NULL' },
+  { table: 'deployments', column: 'last_checked_at', definition: 'datetime NULL' },
+  { table: 'deployments', column: 'recovery_count', definition: 'INT NOT NULL DEFAULT 0' },
+  { table: 'deployments', column: 'auto_stopped_at', definition: 'datetime NULL' },
+  { table: 'deployments', column: 'auto_stop_reason', definition: 'varchar(512) NULL' },
+  { table: 'deployments', column: 'last_good_files', definition: 'text NULL' },
+  // Generic provider registry columns on integration_credentials.
+  { table: 'integration_credentials', column: 'provider_id', definition: "varchar(128) NOT NULL DEFAULT 'custom'" },
+  { table: 'integration_credentials', column: 'priority', definition: 'varchar(16) NULL' },
+  { table: 'integration_credentials', column: 'compatibility_status', definition: "varchar(32) NOT NULL DEFAULT 'unknown'" },
+  { table: 'integration_credentials', column: 'connection_status', definition: "varchar(32) NOT NULL DEFAULT 'untested'" },
+  { table: 'integration_credentials', column: 'last_tested_at', definition: 'datetime NULL' },
 ];
 
 // Columns whose definition must be modified in place (MySQL MODIFY).

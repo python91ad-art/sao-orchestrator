@@ -13,6 +13,7 @@ import * as db from '../db';
 import { withRetry, databaseUrlResolved } from '../db';
 import { scheduleAudits } from '../auditScheduler';
 import { startCoreLoop } from '../orchestrator';
+import { scheduleAutonomousManager } from '../autonomousManager';
 import { initWebSocketServer } from '../websocket';
 import { createServer } from 'http';
 
@@ -235,6 +236,7 @@ async function bootstrap() {
     }
 
     scheduleAudits();
+    scheduleAutonomousManager();
 
     const httpServer = createServer(app);
     initWebSocketServer(httpServer);

@@ -44,6 +44,7 @@ export type WSEvent =
         providerId: string;
         status: string;
         note?: string;
+        deploymentUrl?: string;
       };
     }
   | { type: 'application:generation_started'; data: { deploymentId: string; gapId: string } }

@@ -21,6 +21,7 @@ import { users, gaps, queueItems } from '../drizzle/schema';
 import { eq, asc, sql } from 'drizzle-orm';
 import { createCryptoPayment, toSafePaymentView } from './services/crypto';
 import { hasNowPaymentsApiKey, getNowPaymentsConfig } from './services/nowpayments';
+import * as providerRegistry from './services/providerRegistry';
 
 // ==========================================
 // RESEND EMAIL CONFIGURATION
@@ -692,8 +693,44 @@ const coreLoopRouter = router({
       const { getDiscoveryStatus, getExtractionMetrics } = await import('./services/search');
       const discoveryStatus = getDiscoveryStatus();
       const extractionMetrics = getExtractionMetrics();
+
+      // Normalize DB snake_case fields to the camelCase contract the
+      // dashboard consumes (historically mismatched, causing the UI to
+      // always show the loop as stopped and settings to load defaults).
       return {
-        ...state,
+        // snake_case aliases (backward compatible)
+        is_running: Boolean(state?.isRunning),
+        interval_ms: Number(state?.intervalMs || 0),
+        last_executed_at: state?.lastExecutedAt ? new Date(state.lastExecutedAt).toISOString() : null,
+        next_execution_at: state?.nextExecutionAt ? new Date(state.nextExecutionAt).toISOString() : null,
+        max_attempts: Number(state?.maxAttempts || 0),
+        backoff_multiplier: state?.backoffMultiplier || '1.5',
+        base_delay_ms: Number(state?.baseDelayMs || 0),
+        queue_max_size: Number(state?.queueMaxSize || 0),
+        queue_expiration_hours: Number(state?.queueExpirationHours || 0),
+        concurrency: Number(state?.concurrency || 1),
+        max_cost_per_day: state?.maxCostPerDay || '50.00',
+        max_deployments: Number(state?.maxDeployments || 0),
+        auto_pause_on_high_ban_risk: Boolean(state?.autoPauseOnHighBanRisk),
+        email_notifications: Boolean(state?.emailNotifications),
+        slack_notifications: Boolean(state?.slackNotifications),
+
+        // camelCase contract (primary)
+        isRunning: Boolean(state?.isRunning),
+        intervalMs: Number(state?.intervalMs || 0),
+        lastExecutedAt: state?.lastExecutedAt ? new Date(state.lastExecutedAt).toISOString() : null,
+        nextExecutionAt: state?.nextExecutionAt ? new Date(state.nextExecutionAt).toISOString() : null,
+        maxAttempts: Number(state?.maxAttempts || 0),
+        backoffMultiplier: state?.backoffMultiplier || '1.5',
+        baseDelayMs: Number(state?.baseDelayMs || 0),
+        queueMaxSize: Number(state?.queueMaxSize || 0),
+        queueExpirationHours: Number(state?.queueExpirationHours || 0),
+        maxCostPerDay: state?.maxCostPerDay || '50.00',
+        maxDeployments: Number(state?.maxDeployments || 0),
+        autoPauseOnHighBanRisk: Boolean(state?.autoPauseOnHighBanRisk),
+        emailNotifications: Boolean(state?.emailNotifications),
+        slackNotifications: Boolean(state?.slackNotifications),
+
         discovery: discoveryStatus,
         extraction: {
           totalAttempts: extractionMetrics.totalAttempts,
@@ -1542,6 +1579,103 @@ const advertisingRouter = router({
 });
 
 // ==========================================
+// PROVIDER REGISTRY ROUTER
+// ==========================================
+const providersRouter = router({
+  serviceTypes: protectedProcedure
+    .query(async () => {
+      return providerRegistry.SERVICE_TYPES;
+    }),
+
+  knownProviders: protectedProcedure
+    .query(async () => {
+      return providerRegistry.getKnownProviders().map((p) => ({
+        id: p.id,
+        name: p.name,
+        serviceType: p.serviceType,
+        credentialType: p.credentialType,
+        envConfigured: p.envConfigured(),
+      }));
+    }),
+
+  list: protectedProcedure
+    .input(z.object({ service: z.string().optional() }).optional())
+    .query(async ({ input }) => {
+      const service = input?.service as providerRegistry.ServiceType | undefined;
+      return providerRegistry.listProviders(service);
+    }),
+
+  create: adminProcedure
+    .input(z.object({
+      service: z.string().min(1),
+      name: z.string().min(1),
+      providerId: z.string().optional(),
+      credentialType: z.string().optional(),
+      credential: z.string().min(1),
+      baseUrl: z.string().optional(),
+      config: z.any().optional(),
+      priority: z.enum(['primary', 'fallback']).nullable().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      return providerRegistry.saveProvider({
+        service: input.service as providerRegistry.ServiceType,
+        name: input.name,
+        providerId: input.providerId,
+        credentialType: input.credentialType,
+        credential: input.credential,
+        baseUrl: input.baseUrl,
+        config: input.config,
+        priority: input.priority ?? null,
+      });
+    }),
+
+  update: adminProcedure
+    .input(z.object({
+      id: z.string(),
+      credential: z.string().optional(),
+      baseUrl: z.string().nullable().optional(),
+      config: z.any().optional(),
+      name: z.string().optional(),
+      enabled: z.boolean().optional(),
+      priority: z.enum(['primary', 'fallback']).nullable().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      return providerRegistry.updateProvider(input.id, {
+        credential: input.credential,
+        baseUrl: input.baseUrl ?? undefined,
+        config: input.config,
+        name: input.name,
+        enabled: input.enabled,
+        priority: input.priority,
+      });
+    }),
+
+  remove: adminProcedure
+    .input(z.string())
+    .mutation(async ({ input }) => {
+      return providerRegistry.deleteProvider(input);
+    }),
+
+  test: adminProcedure
+    .input(z.string())
+    .mutation(async ({ input }) => {
+      return providerRegistry.testProvider(input);
+    }),
+
+  setPriority: adminProcedure
+    .input(z.object({ id: z.string(), priority: z.enum(['primary', 'fallback']).nullable() }))
+    .mutation(async ({ input }) => {
+      return providerRegistry.setProviderPriority(input.id, input.priority);
+    }),
+
+  setEnabled: adminProcedure
+    .input(z.object({ id: z.string(), enabled: z.boolean() }))
+    .mutation(async ({ input }) => {
+      return providerRegistry.toggleProviderEnabled(input.id, input.enabled);
+    }),
+});
+
+// ==========================================
 // ROOT ROUTER
 // ==========================================
 export const appRouter = router({
@@ -1559,6 +1693,7 @@ export const appRouter = router({
   invites: invitesRouter,
   payments: paymentsRouter,
   advertising: advertisingRouter,
+  providers: providersRouter,
 });
 
 export type AppRouter = typeof appRouter;

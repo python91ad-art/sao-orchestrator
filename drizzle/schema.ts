@@ -55,6 +55,16 @@ export const deployments = mysqlTable('deployments', {
   health: mysqlEnum('health', ['healthy', 'warning', 'critical']).default('healthy').notNull(),
   stripeProductId: varchar('stripe_product_id', { length: 255 }),
   stripePriceId: varchar('stripe_price_id', { length: 255 }),
+  // --- Autonomous management runtime state ---
+  lastSeenHealthyAt: datetime('last_seen_healthy_at'),
+  consecutiveFailures: int('consecutive_failures').default(0).notNull(),
+  totalFailures: int('total_failures').default(0).notNull(),
+  lastFailureReason: varchar('last_failure_reason', { length: 512 }),
+  lastCheckedAt: datetime('last_checked_at'),
+  recoveryCount: int('recovery_count').default(0).notNull(),
+  autoStoppedAt: datetime('auto_stopped_at'),
+  autoStopReason: varchar('auto_stop_reason', { length: 512 }),
+  lastGoodFiles: text('last_good_files'),
   createdAt: datetime('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
   updatedAt: datetime('updated_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
@@ -223,3 +233,41 @@ export const payments = mysqlTable('payments', {
   index('idx_payments_deployment').on(table.deploymentId),
   index('idx_payments_provider_payment').on(table.providerType, table.providerPaymentId),
 ]);
+
+// ==========================================
+// Generic provider / API-key registry
+// ==========================================
+// One row per registered credential. `service` is the extensible service
+// type (search, llm, deployment, advertising, payments, ...). `name` is a
+// display name and `providerId` is the canonical provider key used to
+// resolve an adapter (or 'custom' when no adapter exists yet).
+export const integrationCredentials = mysqlTable('integration_credentials', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  service: varchar('service', { length: 128 }).notNull(),
+  name: varchar('name', { length: 255 }).notNull(),
+  providerId: varchar('provider_id', { length: 128 }).notNull().default('custom'),
+  credentialType: varchar('credential_type', { length: 64 }).notNull().default('api_key'),
+  encryptedValue: text('encrypted_value').notNull(),
+  encryptionVersion: int('encryption_version').default(1).notNull(),
+  baseUrl: varchar('base_url', { length: 1024 }),
+  config: text('config'),
+  enabled: boolean('enabled').default(true).notNull(),
+  priority: varchar('priority', { length: 16 }),
+  compatibilityStatus: varchar('compatibility_status', { length: 32 }).notNull().default('unknown'),
+  connectionStatus: varchar('connection_status', { length: 32 }).notNull().default('untested'),
+  lastTestedAt: datetime('last_tested_at'),
+  createdAt: datetime('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: datetime('updated_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('idx_integration_credentials_service').on(table.service, table.providerId),
+]);
+
+export const credentialAuditLogs = mysqlTable('credential_audit_logs', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  userId: varchar('user_id', { length: 255 }),
+  service: varchar('service', { length: 64 }).notNull(),
+  operation: varchar('operation', { length: 64 }).notNull(),
+  success: boolean('success').default(true).notNull(),
+  message: varchar('message', { length: 255 }),
+  createdAt: datetime('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+});

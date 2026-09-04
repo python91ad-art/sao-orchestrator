@@ -122,7 +122,10 @@ function categorizeLLMError(error: any): ExtractionFailureReason {
  * existing SearchResult interface and all downstream gap detection.
  */
 export async function search(query: string, options: { maxResults?: number } = {}): Promise<SearchResult[]> {
-  const apiKey = process.env.TAVILY_API_KEY;
+  // Credential precedence: dashboard registry → environment variable.
+  const { resolveCredential } = await import('./providerRegistry');
+  const resolved = await resolveCredential('tavily', ['TAVILY_API_KEY']);
+  const apiKey = resolved.value;
 
   if (!apiKey) {
     console.warn('[Search] Tavily API key not configured (TAVILY_API_KEY missing from environment). Returning empty results.');
@@ -474,7 +477,7 @@ If no real gaps are found, return { "gaps": [] }`;
         const parsed = await callLLMJson<{ gaps: any[] }>(prompt, {
           systemPrompt: 'You are a market intelligence analyst specializing in situational arbitrage gap detection.',
           maxTokens: 2000,
-          temperature: 0.4,
+          temperature: 0.0,
         });
 
         if (!parsed.gaps || !Array.isArray(parsed.gaps)) {

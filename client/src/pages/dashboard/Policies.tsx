@@ -1,76 +1,57 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Check, Trash2, ShieldCheck, AlertCircle } from 'lucide-react';
-import { Policy } from '../../lib/trpc';
+import { trpc } from '../../lib/trpc';
 
 const Policies: React.FC = () => {
-  const [loading, setLoading] = useState(true);
-  const [policies, setPolicies] = useState<Policy[]>([]);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [ruleText, setRuleText] = useState('');
 
-  const loadData = async () => {
-    setLoading(true);
-    setTimeout(() => {
-      setPolicies([
-        {
-          id: 'p-1',
-          ruleText: 'The bot must never perform high-frequency scraping on systems with explicit robot.txt bans or standard API limitations.',
-          createdAt: new Date(Date.now() - 3600000 * 24 * 30).toISOString(),
-          acknowledgedAt: new Date(Date.now() - 3600000 * 24 * 29).toISOString()
-        },
-        {
-          id: 'p-2',
-          ruleText: 'No synthesized microservices may perform payments, trade executions, or financial clearing without human manual override approval.',
-          createdAt: new Date(Date.now() - 3600000 * 24 * 10).toISOString(),
-          acknowledgedAt: new Date(Date.now() - 3600000 * 24 * 9).toISOString()
-        },
-        {
-          id: 'p-3',
-          ruleText: 'Scraper agents must identify themselves using designated user-agent strings conforming to ethical research guidelines.',
-          createdAt: new Date(Date.now() - 3600000 * 5).toISOString(),
-          acknowledgedAt: undefined // Pending Acknowledgment
-        }
-      ]);
-      setLoading(false);
-    }, 400);
-  };
+  const policiesQuery = trpc.policies.list.useQuery();
+  const createMutation = trpc.policies.create.useMutation();
+  const acknowledgeMutation = trpc.policies.acknowledge.useMutation();
+  const deleteMutation = trpc.policies.delete.useMutation();
+  const utils = trpc.useContext();
 
-  useEffect(() => {
-    loadData();
-  }, []);
+  const policies = policiesQuery.data ?? [];
+  const loading = policiesQuery.isLoading;
 
-  const handleAddPolicy = (e: React.FormEvent) => {
+  const handleAddPolicy = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!ruleText.trim()) return;
 
-    const newPolicy: Policy = {
-      id: `p-${Date.now()}`,
-      ruleText,
-      createdAt: new Date().toISOString()
-    };
-
-    setPolicies([newPolicy, ...policies]);
-    setIsAddModalOpen(false);
-    setRuleText('');
-  };
-
-  const handleAcknowledge = (id: string) => {
-    setPolicies(policies.map(p => {
-      if (p.id === id) {
-        return {
-          ...p,
-          acknowledgedAt: new Date().toISOString()
-        };
-      }
-      return p;
-    }));
-  };
-
-  const handleDelete = (id: string) => {
-    if (confirm('Are you sure you want to remove this policy restriction? Removing policy constraints can significantly increase system execution risks.')) {
-      setPolicies(policies.filter(p => p.id !== id));
+    try {
+      await createMutation.mutateAsync({ ruleText: ruleText.trim() });
+      await utils.policies.list.invalidate();
+      setIsAddModalOpen(false);
+      setRuleText('');
+    } catch (error: any) {
+      alert(`Failed to create policy: ${error?.message || 'Unknown error'}`);
     }
   };
+
+  const handleAcknowledge = async (id: string) => {
+    try {
+      await acknowledgeMutation.mutateAsync(id);
+      await utils.policies.list.invalidate();
+    } catch (error: any) {
+      alert(`Failed to acknowledge policy: ${error?.message || 'Unknown error'}`);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (confirm('Are you sure you want to remove this policy restriction? Removing policy constraints can significantly increase system execution risks.')) {
+      try {
+        await deleteMutation.mutateAsync(id);
+        await utils.policies.list.invalidate();
+      } catch (error: any) {
+        alert(`Failed to delete policy: ${error?.message || 'Unknown error'}`);
+      }
+    }
+  };
+
+  useEffect(() => {
+    // Data is fetched by policiesQuery; no manual load needed.
+  }, []);
 
   if (loading) {
     return (

@@ -9,6 +9,7 @@ import Policies from './dashboard/Policies';
 import Settings from './dashboard/Settings';
 import Analytics from './dashboard/Analytics';
 import RegistrationAccess from './dashboard/RegistrationAccess';
+import Providers from './dashboard/Providers';
 
 import Advertising from './dashboard/Advertising';
 
@@ -44,6 +45,8 @@ const Dashboard: React.FC = () => {
         return <Settings />;
       case 'registration-access':
         return <RegistrationAccess />;
+      case 'providers':
+        return <Providers />;
       default:
         return <Overview />;
     }

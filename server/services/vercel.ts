@@ -230,12 +230,25 @@ export async function deployToVercel(
   const body: Record<string, unknown> = {
     name: params.name || 'sao-deployment',
     target: params.target || 'production',
+    // Link this deployment to the project we created/reused.
+    // Without this, Vercel creates an anonymous project and the
+    // production alias (https://<project>.vercel.app) is never assigned.
+    project: params.projectId,
     // Provide explicit project settings to prevent framework auto-detection errors.
     projectSettings: {
       framework: null,
     },
   };
-  if (params.files?.length) { body.files = params.files; }
+  if (params.files?.length) {
+    // Vercel's inline-file deployment requires base64-encoded file
+    // contents with an explicit `encoding` field. Raw UTF-8 is not
+    // decoded correctly and yields broken/empty deployments.
+    body.files = params.files.map((f) => ({
+      file: f.file,
+      data: Buffer.from(f.data, 'utf8').toString('base64'),
+      encoding: 'base64',
+    }));
+  }
   if (params.source) { body.source = params.source; }
 
   const response = await fetch(
@@ -321,4 +334,110 @@ export function mapFrameworkForVercel(framework: string): string | null {
     other: null,
   };
   return map[framework] ?? null;
+}
+
+/**
+ * Resolve the publicly-accessible production URL for a freshly-created
+ * Vercel deployment.
+ *
+ * Vercel auto-assigns a clean production alias (served WITHOUT Vercel
+ * Authentication / Deployment Protection) plus a username-suffixed
+ * automatic alias and a per-deployment URL — the latter two are
+ * login-gated on the Hobby plan. The production alias is NOT always
+ * `${projectName}.vercel.app` because Vercel truncates long project
+ * names in the domain, so we cannot compute it from the project name.
+ * Instead we read the deployment's aliases and verify which one is
+ * actually reachable without the login gate.
+ */
+export async function resolveVercelPublicUrl(
+  aliases: string[] = [],
+  deploymentUrl?: string
+): Promise<string | null> {
+  const candidates: string[] = [];
+  for (const a of aliases) {
+    if (!a) continue;
+    const u = a.startsWith('http') ? a : `https://${a}`;
+    if (!candidates.includes(u)) candidates.push(u);
+  }
+  if (deploymentUrl) {
+    const u = deploymentUrl.startsWith('http')
+      ? deploymentUrl
+      : `https://${deploymentUrl}`;
+    if (!candidates.includes(u)) candidates.push(u);
+  }
+
+  for (const candidate of candidates) {
+    // DNS/alias propagation can lag a moment behind READY, so retry.
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const check = await verifyPublicUrl(candidate);
+      if (check.reachable) {
+        return candidate;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Poll a Vercel deployment until it reaches READY (or a terminal
+ * ERROR / CANCELED state). Returns the final state and, when ready,
+ * the deployment's URL and aliases.
+ */
+export async function waitForVercelDeploymentReady(
+  deploymentId: string,
+  timeoutMs = 180_000,
+  pollIntervalMs = 3_000
+): Promise<{ ready: boolean; state?: string; url?: string; alias?: string[] }> {
+  const start = Date.now();
+
+  while (Date.now() - start < timeoutMs) {
+    let dep: VercelDeployment | null = null;
+    try {
+      dep = await getVercelDeployment(deploymentId);
+    } catch (err) {
+      console.warn(
+        `[Vercel] Could not fetch deployment state (retrying): ${(err as Error)?.message}`
+      );
+    }
+
+    if (dep) {
+      const state = dep.readyState || dep.state;
+      if (state === 'READY') {
+        return { ready: true, state, url: dep.url, alias: dep.alias };
+      }
+      if (state === 'ERROR' || state === 'CANCELED') {
+        return { ready: false, state, url: dep.url, alias: dep.alias };
+      }
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+  }
+
+  return { ready: false, state: 'TIMEOUT' };
+}
+
+/**
+ * Verify a public URL is actually reachable and NOT sitting behind
+ * Vercel's Deployment Protection login gate.
+ */
+export async function verifyPublicUrl(
+  url: string,
+  timeoutMs = 20_000
+): Promise<{ reachable: boolean; status: number; gated: boolean }> {
+  try {
+    const res = await fetch(url, {
+      redirect: 'follow',
+      signal: AbortSignal.timeout(timeoutMs),
+      headers: { 'User-Agent': 'sao-orchestrator/2.0' },
+    });
+    const text = await res.text();
+    // Deployment Protection injects a login shell with data-dpl-id.
+    const gated = text.includes('data-dpl-id');
+    return { reachable: res.ok && !gated, status: res.status, gated };
+  } catch (err) {
+    console.warn(`[Vercel] Public URL verification failed for ${url}: ${(err as Error)?.message}`);
+    return { reachable: false, status: 0, gated: false };
+  }
 }

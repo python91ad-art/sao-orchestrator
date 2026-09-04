@@ -14,7 +14,8 @@ import {
   Menu,
   X,
   BarChart3,
-  UserPlus
+  UserPlus,
+  Key
 } from 'lucide-react';
 
 interface DashboardLayoutProps {
@@ -36,6 +37,7 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, currentPage
     { id: 'audit-log', label: 'Audit Log', icon: FileText },
     { id: 'analytics', label: 'Analytics', icon: BarChart3 },
     { id: 'policies', label: 'Policies', icon: Shield },
+    { id: 'providers', label: 'Providers', icon: Key },
     { id: 'settings', label: 'Settings', icon: Settings },
     ...(user?.role === 'admin'
       ? [{ id: 'registration-access', label: 'Registration Access', icon: UserPlus }]

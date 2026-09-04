@@ -289,6 +289,9 @@ export async function trpcQuery<T = any>(procedure: string): Promise<T> {
 
 /**
  * Call a tRPC mutation procedure via HTTP POST.
+ * NOTE: tRPC v11 accepts the raw JSON input as the request body for a
+ * single (non-batched) mutation. Wrapping it in `{ json: input }` causes
+ * a 400. (The React client uses httpBatchLink, which batches correctly.)
  */
 export async function trpcMutation<T = any>(procedure: string, input: any): Promise<T> {
   const response = await fetch(`/api/trpc/${procedure}`, {
@@ -297,9 +300,7 @@ export async function trpcMutation<T = any>(procedure: string, input: any): Prom
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({
-      json: input,
-    }),
+    body: JSON.stringify(input ?? {}),
   });
 
   const json = await response.json().catch(() => null);

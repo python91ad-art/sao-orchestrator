@@ -143,10 +143,16 @@ export function getModelRegistry(): ModelConfig[] {
         'BUSINESS_PLAN',
         'PROJECT_ANALYSIS',
         'ADVERTISING_ANALYSIS',
+        // Gemini is a reliable, uncapped free fallback for the two
+        // heaviest capabilities. Without this, APPLICATION_GENERATION
+        // only has Groq/Cerebras/OpenRouter `gpt-oss-120b` models, and
+        // when those rate-limit the whole app-generation stage stalls.
+        'APPLICATION_GENERATION',
+        'ADVERTISING_CREATIVE',
       ],
       priority: 40,
       maxInputTokens: envNum('GEMINI_PRIMARY_MAX_INPUT', 1048576) ?? 1048576,
-      maxOutputTokens: envNum('GEMINI_PRIMARY_MAX_OUTPUT', 8192) ?? 8192,
+      maxOutputTokens: envNum('GEMINI_PRIMARY_MAX_OUTPUT', 32768) ?? 32768,
       maxTokensPerMinute: envNum('GEMINI_TPM_LIMIT', undefined),
       estimatedCostPer1kTokens: 0.0,
       supportsJsonMode: true,

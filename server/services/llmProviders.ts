@@ -128,7 +128,15 @@ class GroqProvider implements LLMProvider {
   readonly id: ProviderId = 'groq';
 
   async complete(model: string, req: ProviderRequest): Promise<ProviderCompletion> {
-    const apiKey = process.env.GROQ_API_KEY;
+    // Credential precedence: dashboard registry → environment variable.
+    let apiKey = process.env.GROQ_API_KEY;
+    try {
+      const { resolveCredential } = await import('./providerRegistry');
+      const resolved = await resolveCredential('groq', ['GROQ_API_KEY']);
+      apiKey = resolved.value || undefined;
+    } catch {
+      /* keep env fallback */
+    }
     if (!apiKey) {
       throw new LLMProviderError({
         category: 'auth',

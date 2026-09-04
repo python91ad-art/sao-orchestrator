@@ -692,6 +692,63 @@ export async function getDeploymentForUser(
   return results[0] || null;
 }
 
+// ==========================================
+// Autonomous management helpers (risk / spending limits)
+// ==========================================
+export async function countDeploymentsByStatus(
+  status: 'active' | 'paused' | 'stopped'
+): Promise<number> {
+  const results = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(schema.deployments)
+    .where(eq(schema.deployments.status, status));
+  return Number(results[0]?.count || 0);
+}
+
+export async function getActiveDeploymentCostPerDay(): Promise<number> {
+  const rows = await db
+    .select({ costPerDay: schema.deployments.costPerDay })
+    .from(schema.deployments)
+    .where(eq(schema.deployments.status, 'active'));
+  return rows.reduce(
+    (sum, row) => sum + (parseFloat(String(row.costPerDay ?? '0')) || 0),
+    0
+  );
+}
+
+/**
+ * Enforce spending/risk limits before creating a NEW deployment.
+ * Returns a human-readable reason when creation should be blocked.
+ */
+export async function canCreateDeployment(): Promise<{
+  allowed: boolean;
+  reason?: string;
+}> {
+  const state = await getCoreLoopState();
+  const maxDeployments = Number(state?.maxDeployments) || 10;
+  const maxCostPerDay = parseFloat(String(state?.maxCostPerDay ?? '50.00')) || 0;
+
+  const active = await countDeploymentsByStatus('active');
+  if (active >= maxDeployments) {
+    return {
+      allowed: false,
+      reason: `Maximum deployments (${maxDeployments}) reached — ${active} active.`,
+    };
+  }
+
+  if (maxCostPerDay > 0) {
+    const cost = await getActiveDeploymentCostPerDay();
+    if (cost >= maxCostPerDay) {
+      return {
+        allowed: false,
+        reason: `Maximum daily cost ($${maxCostPerDay.toFixed(2)}) reached ($${cost.toFixed(2)}).`,
+      };
+    }
+  }
+
+  return { allowed: true };
+}
+
 export async function updateDeployment(
   id: string,
   updates: Partial<typeof schema.deployments.$inferSelect>

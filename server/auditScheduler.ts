@@ -9,10 +9,23 @@ import { retryWithExponentialBackoff } from './retryEngine';
 export function scheduleAudits() {
   const threeDaysMs = 3 * 24 * 60 * 60 * 1000;
   console.log('Auditor scheduled to check active deployments every 3 days.');
-  
+
+  let auditRunning = false;
+
   setInterval(async () => {
-    console.log('Starting scheduled 3-day active deployments audit...');
-    await auditAllActiveDeployments();
+    if (auditRunning) {
+      console.warn('[Audit] Previous audit still running — skipping overlap.');
+      return;
+    }
+    auditRunning = true;
+    try {
+      console.log('Starting scheduled 3-day active deployments audit...');
+      await auditAllActiveDeployments();
+    } catch (error) {
+      console.error('[Audit] Scheduled audit cycle crashed:', error);
+    } finally {
+      auditRunning = false;
+    }
   }, threeDaysMs);
 }
 

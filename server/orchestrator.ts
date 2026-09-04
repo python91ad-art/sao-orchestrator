@@ -260,6 +260,14 @@ async function processSynthesisQueueItem(queueItem: any, _worker: Worker): Promi
       backoffMultiplier
     );
 
+    const limitCheck = await db.canCreateDeployment();
+    if (!limitCheck.allowed) {
+      await db.updateGapStatus(gap.id, 'gray');
+      await db.updateQueueItem(queueItem.id, { status: 'paused', lastError: limitCheck.reason, workerId: null, nextRetryAt: null });
+      broadcastEvent({ type: 'queue:updated', data: { queueItemId: queueItem.id, status: 'paused' } });
+      return true;
+    }
+
     const adminUserId = await db.getAdminUserId();
     const deployment = await db.createDeployment({
       gapId: gap.id,
@@ -270,6 +278,11 @@ async function processSynthesisQueueItem(queueItem: any, _worker: Worker): Promi
     });
 
     broadcastEvent({ type: 'deployment:created', data: { deploymentId: deployment.id, gapId: gap.id } });
+
+    // Enqueue the deployment step so the application is generated,
+    // smoke-tested and deployed to Vercel automatically — closing the
+    // previously-broken gap between business-plan synthesis and live app.
+    await db.enqueueDeploymentQueueItem(gap.id);
 
     await db.updateGapStatus(gap.id, 'deployed');
     await db.updateQueueItem(queueItem.id, { status: 'completed', workerId: null, nextRetryAt: null });
@@ -311,6 +324,149 @@ async function processAuditQueueItem(queueItem: any, _worker: Worker): Promise<b
   return true;
 }
 
+// ============================================================
+// APPLICATION DEPLOYMENT CORE
+// Reused by the queue worker AND by the autonomous manager
+// (recovery, improvement and rollback). Commits a new app to
+// production only AFTER it is verified READY and publicly reachable,
+// preserving the previous provider on any failure (rollback protection).
+// ============================================================
+export async function deployApplication(
+  deploymentId: string,
+  opts: { reason?: string; files?: { path: string; content: string }[] } = {}
+): Promise<{ publicUrl: string; providerId: string; restored: boolean }> {
+  const deployment = await db.getDeploymentById(deploymentId);
+  if (!deployment) {
+    throw new Error(`Deployment ${deploymentId} not found.`);
+  }
+
+  const gap = await db.getGapById(deployment.gapId);
+  if (!gap) {
+    throw new Error(`Gap ${deployment.gapId} not found for deployment ${deploymentId}.`);
+  }
+
+  const { generateApplication, smokeTestApplication } = await import('./services/applicationGenerator');
+  const {
+    createVercelProject,
+    deployToVercel,
+    makeVercelProjectName,
+    mapFrameworkForVercel,
+    resolveVercelPublicUrl,
+    waitForVercelDeploymentReady,
+  } = await import('./services/vercel');
+
+  const restored = Boolean(opts.files && opts.files.length > 0);
+
+  let app: {
+    files: { path: string; content: string }[];
+    entryPoint: string;
+    framework: 'static' | 'react' | 'other';
+  };
+
+  if (restored) {
+    // Rollback path — redeploy the last-known-good files verbatim.
+    app = {
+      files: opts.files!,
+      entryPoint: opts.files![0]?.path || 'index.html',
+      framework: 'static',
+    };
+    console.log(`[Deployment] Restoring ${opts.files!.length} last-known-good files for ${deploymentId}.`);
+  } else {
+    broadcastEvent({ type: 'application:generation_started', data: { deploymentId, gapId: gap.id } });
+
+    const genResult = await retryWithExponentialBackoff(
+      () => generateApplication({
+        gapId: gap.id,
+        deploymentId,
+        knows: gap.knows,
+        needs: gap.needs,
+        controlsAccess: gap.controlsAccess,
+        underestimatesValue: gap.underestimatesValue,
+        businessPlan: deployment.businessPlan || '',
+      }),
+      2,
+      3000
+    );
+
+    if (!genResult.success || !genResult.application) {
+      throw new Error(genResult.error || 'Application generation produced no output.');
+    }
+    app = genResult.application;
+    broadcastEvent({ type: 'application:generation_completed', data: { deploymentId, fileCount: app.files.length } });
+    console.log(`[Deployment] Generated ${app.files.length} files for deployment ${deploymentId}.`);
+  }
+
+  // ---- Smoke test the application before deploying ----
+  const smokeResult = smokeTestApplication(app as any);
+  console.log(
+    `[Deployment] Smoke test for ${deploymentId}: ${smokeResult.passed ? 'PASSED' : 'FAILED'} ` +
+    `(${smokeResult.stats.totalFiles} files, ${smokeResult.stats.totalChars} chars, ` +
+    `${smokeResult.errors.length} errors, ${smokeResult.warnings.length} warnings)`
+  );
+  if (!smokeResult.passed) {
+    throw new Error(`Application smoke test failed: ${smokeResult.errors.join('; ')}`);
+  }
+  if (smokeResult.warnings.length > 0) {
+    console.warn(`[Deployment] ⚠️ Smoke test warnings for ${deploymentId}: ${smokeResult.warnings.join('; ')}`);
+  }
+
+  // ---- Create/reuse Vercel project ----
+  const projectName = makeVercelProjectName(deploymentId);
+  const { projectId } = await retryWithExponentialBackoff(
+    () => createVercelProject({ name: projectName, framework: mapFrameworkForVercel(app.framework) ?? undefined }),
+    3,
+    2000
+  );
+
+  // ---- Deploy to Vercel ----
+  const vercelFiles = app.files.map((f) => ({ file: f.path, data: f.content }));
+  const deployResult = await retryWithExponentialBackoff(
+    () => deployToVercel({ projectId, files: vercelFiles, name: `deploy-${Date.now()}`, target: 'production' }),
+    3,
+    3000
+  );
+
+  // ---- Wait for READY ----
+  const readyState = await waitForVercelDeploymentReady(deployResult.deploymentId, 180_000, 3_000);
+  if (!readyState.ready) {
+    throw new Error(`Vercel deployment ${deployResult.deploymentId} did not become READY (state: ${readyState.state}).`);
+  }
+
+  // ---- Resolve + verify the publicly reachable URL ----
+  const publicUrl = await resolveVercelPublicUrl(readyState.alias || [], readyState.url);
+  if (!publicUrl) {
+    throw new Error(`No publicly reachable URL found for deployment ${deploymentId}.`);
+  }
+  console.log(`[Deployment] ✅ Public URL verified for ${deploymentId}: ${publicUrl}`);
+
+  // ---- Commit: supersede prior provider, activate the new one ----
+  // Only reached after the new app is verified live, so a failed update
+  // leaves the previous provider untouched (rollback protection).
+  await db.supersedeActiveProviders(deploymentId, 'vercel');
+  const provider = await db.createDeploymentProvider(
+    deploymentId,
+    'vercel',
+    { vercelProjectId: projectId, vercelDeploymentId: deployResult.deploymentId, framework: app.framework },
+    publicUrl
+  );
+  await db.updateProviderStatus(provider.id, 'active');
+
+  // Persist a last-known-good snapshot for future rollback/restore.
+  if (!restored) {
+    await db.updateDeployment(deploymentId, {
+      lastGoodFiles: JSON.stringify({ files: app.files, entryPoint: app.entryPoint, framework: app.framework }),
+    });
+  }
+
+  console.log(
+    `[Deployment] ${restored ? 'Restored' : 'Deployed'} ${deploymentId} to ${publicUrl} ` +
+    `(provider ${provider.id})${opts.reason ? ` [${opts.reason}]` : ''}.`
+  );
+
+  return { publicUrl, providerId: provider.id, restored };
+}
+
+
 async function processDeploymentQueueItem(queueItem: any, _worker: Worker): Promise<boolean> {
   const gap = await db.getGapById(queueItem.gapId);
   if (!gap) {
@@ -339,108 +495,8 @@ async function processDeploymentQueueItem(queueItem: any, _worker: Worker): Prom
   // ============================================================
   // Full pipeline: generate application → deploy to Vercel
   // ============================================================
+  const result = await deployApplication(existingDeployment.id, { reason: 'scheduled-deployment' });
 
-  const { generateApplication } = await import('./services/applicationGenerator');
-  const { createVercelProject, deployToVercel, makeVercelProjectName, mapFrameworkForVercel } = await import('./services/vercel');
-
-  // ---- Step 1: Generate application artifact ----
-  broadcastEvent({ type: 'application:generation_started', data: { deploymentId: existingDeployment.id, gapId: gap.id } });
-
-  const genResult = await retryWithExponentialBackoff(
-    () => generateApplication({
-      gapId: gap.id,
-      deploymentId: existingDeployment.id,
-      knows: gap.knows,
-      needs: gap.needs,
-      controlsAccess: gap.controlsAccess,
-      underestimatesValue: gap.underestimatesValue,
-      businessPlan: existingDeployment.businessPlan || '',
-    }),
-    2,
-    3000
-  );
-
-  if (!genResult.success || !genResult.application) {
-    const errMsg = genResult.error || 'Application generation produced no output.';
-    throw new Error(errMsg);
-  }
-
-  const app = genResult.application;
-  broadcastEvent({ type: 'application:generation_completed', data: { deploymentId: existingDeployment.id, fileCount: app.files.length } });
-
-  console.log(`[Deployment] Generated ${app.files.length} files for deployment ${existingDeployment.id}.`);
-
-  // ---- Step 1.5: Smoke test the generated application ---- 
-  const { smokeTestApplication } = await import('./services/applicationGenerator');
-  const smokeResult = smokeTestApplication(app);
-  
-  console.log(
-    `[Deployment] Smoke test for ${existingDeployment.id}: ` +
-    `${smokeResult.passed ? 'PASSED' : 'FAILED'} ` +
-    `(${smokeResult.stats.totalFiles} files, ${smokeResult.stats.totalChars} chars, ` +
-    `${smokeResult.errors.length} errors, ${smokeResult.warnings.length} warnings)`
-  );
-
-  if (!smokeResult.passed) {
-    const errorDetail = smokeResult.errors.join('; ');
-    console.error(`[Deployment] ❌ Smoke test FAILED for ${existingDeployment.id}: ${errorDetail}`);
-    throw new Error(`Application smoke test failed: ${errorDetail}`);
-  }
-
-  if (smokeResult.warnings.length > 0) {
-    console.warn(
-      `[Deployment] ⚠️ Smoke test warnings for ${existingDeployment.id}: ` +
-      smokeResult.warnings.join('; ')
-    );
-  }
-
-  // ---- Step 2: Create/reuse Vercel project ----
-  const projectName = makeVercelProjectName(existingDeployment.id);
-  const { projectId } = await retryWithExponentialBackoff(
-    () => createVercelProject({
-      name: projectName,
-      framework: mapFrameworkForVercel(app.framework),
-    }),
-    3,
-    2000
-  );
-
-  // ---- Step 3: Deploy to Vercel ----
-  const vercelFiles = app.files.map((f) => ({
-    file: f.path,
-    data: f.content,
-  }));
-
-  const deployResult = await retryWithExponentialBackoff(
-    () => deployToVercel({
-      projectId,
-      files: vercelFiles,
-      name: `deploy-${Date.now()}`,
-      target: 'production',
-    }),
-    3,
-    3000
-  );
-
-  // ---- Step 4: Handle redeployment ----
-  // Supersede any prior active providers for this deployment
-  await db.supersedeActiveProviders(existingDeployment.id, 'vercel');
-
-  // ---- Step 5: Create provider record with real deployment data ----
-  const provider = await db.createDeploymentProvider(
-    existingDeployment.id,
-    'vercel',
-    {
-      vercelProjectId: projectId,
-      vercelDeploymentId: deployResult.deploymentId,
-      framework: app.framework,
-    },
-    deployResult.deploymentUrl
-  );
-
-  await db.updateProviderStatus(provider.id, 'active');
-
-  // ---- Step 6: Mark queue item complete ----
   await db.updateQueueItem(queueItem.id, { status: 'completed', workerId: null, nextRetryAt: null });
 
   broadcastEvent({
@@ -448,12 +504,11 @@ async function processDeploymentQueueItem(queueItem: any, _worker: Worker): Prom
     data: {
       deploymentId: existingDeployment.id,
       providerType: 'vercel',
-      providerId: provider.id,
+      providerId: result.providerId,
       status: 'active',
+      deploymentUrl: result.publicUrl,
     },
   });
-
-  console.log(`[Deployment] SAO deployment ${existingDeployment.id} deployed to ${deployResult.deploymentUrl || 'Vercel'} (provider ${provider.id}).`);
 
   const currentState = await getStatus();
   await db.updateCoreLoopState({ totalDeploymentsCreated: currentState.totalDeploymentsCreated + 1 });
@@ -705,6 +760,14 @@ export async function processOneGap(): Promise<boolean> {
     });
 
     if (classification.classification === 'safe') {
+      const limitCheck = await db.canCreateDeployment();
+      if (!limitCheck.allowed) {
+        await db.updateGapStatus(gap.id, 'gray');
+        await db.updateQueueItem(queueItem.id, { status: 'paused', lastError: limitCheck.reason, nextRetryAt: null });
+        broadcastEvent({ type: 'queue:updated', data: { queueItemId: queueItem.id, status: 'paused' } });
+        return true;
+      }
+
       const adminUserId = await db.getAdminUserId();
       const plan = await retryWithExponentialBackoff(
         () => generateBusinessPlan(gap),
@@ -723,6 +786,10 @@ export async function processOneGap(): Promise<boolean> {
 
       // Fetch the deployment to get its ID for the broadcast
       const deployment = await db.getDeploymentByGapId(gap.id);
+
+      // Enqueue the deployment step so the app is generated, tested and
+      // deployed automatically (same fix as the worker-pool path).
+      await db.enqueueDeploymentQueueItem(gap.id);
 
       await db.updateGapStatus(gap.id, 'deployed');
       await db.updateQueueItem(queueItem.id, { status: 'completed', nextRetryAt: null });
@@ -818,7 +885,9 @@ async function queueGaps(gaps: DetectedGap[]): Promise<number> {
   let failedInsert = 0;
   
   for (const g of gaps) {
-    const concatenated = g.knows + g.needs + g.controlsAccess + g.underestimatesValue + g.source;
+    const concatenated = [g.knows, g.needs, g.controlsAccess, g.underestimatesValue, g.source]
+      .map((part) => String(part || '').toLowerCase().replace(/\s+/g, ' ').trim())
+      .join('|');
     const dedupHash = crypto.createHash('sha256').update(concatenated).digest('hex');
 
     // Deduplicate — skip if gap already exists
