@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Save, RotateCcw, Key, ShieldCheck, DollarSign, Bell } from 'lucide-react';
-import { trpcQuery, trpcMutation, type IntegrationTestResult } from '../../lib/trpc';
+import { trpcQuery, trpcMutation } from '../../lib/trpc';
 import { trpc } from '../../lib/trpc';
 
 const Settings: React.FC = () => {
@@ -143,15 +143,6 @@ const Settings: React.FC = () => {
     };
   }, []);
 
-  // API Keys (Free APIs)
-  const [groqKey, setGroqKey] = useState<string>(() => localStorage.getItem('sao_key_groq') || '');
-  const [googleSearchKey, setGoogleSearchKey] = useState<string>(() => localStorage.getItem('sao_key_google_search') || '');
-  const [googleSearchCx, setGoogleSearchCx] = useState<string>(() => localStorage.getItem('sao_key_google_cx') || '');
-  const [githubKey, setGithubKey] = useState<string>(() => localStorage.getItem('sao_key_github') || '');
-  const [slackKey, setSlackKey] = useState<string>(() => localStorage.getItem('sao_key_slack') || '');
-  const [resendKey, setResendKey] = useState<string>(() => localStorage.getItem('sao_key_resend') || '');
-  const [stripeKey, setStripeKey] = useState<string>(() => localStorage.getItem('sao_key_stripe') || '');
-
   // Budgets
   const [maxCost, setMaxCost] = useState<number>(50.00);
   const [maxDeployments, setMaxDeployments] = useState<number>(10);
@@ -161,21 +152,8 @@ const Settings: React.FC = () => {
   const [emailNotify, setEmailNotify] = useState<boolean>(true);
   const [slackNotify, setSlackNotify] = useState<boolean>(false);
 
-  // Test connection states
-  const [testing, setTesting] = useState<string | null>(null);
-  const [testResults, setTestResults] = useState<Record<string, IntegrationTestResult | null>>({});
-
   const handleSave = async () => {
     try {
-      // Browser-local API keys remain local.
-      localStorage.setItem('sao_key_groq', groqKey);
-      localStorage.setItem('sao_key_google_search', googleSearchKey);
-      localStorage.setItem('sao_key_google_cx', googleSearchCx);
-      localStorage.setItem('sao_key_github', githubKey);
-      localStorage.setItem('sao_key_slack', slackKey);
-      localStorage.setItem('sao_key_resend', resendKey);
-      localStorage.setItem('sao_key_stripe', stripeKey);
-
       // Runtime configuration is persisted by the backend.
       await trpcMutation('settings.save', {
         intervalMs,
@@ -229,90 +207,13 @@ const Settings: React.FC = () => {
     }
   };
 
-  // ==========================================
-  // TEST CONNECTION HANDLER
-  // ==========================================
-  const handleTestConnection = async (name: string) => {
-    setTesting(name);
-    setTestResults(prev => ({ ...prev, [name]: null }));
-
-    try {
-      const procedureMap: Record<string, string> = {
-        'Groq': 'integrations.testGroq',
-        'Google Search': 'integrations.testGoogleSearch',
-        'GitHub': 'integrations.testGitHub',
-        'Slack': 'integrations.testSlack',
-        'Resend': 'integrations.testResend',
-        'Stripe': 'integrations.testStripe',
-        'Vercel': 'integrations.testVercel',
-        'NOWPayments': 'integrations.testNowPayments',
-        'LLM Router': 'integrations.testLLMRouter',
-      };
-
-      const procedure = procedureMap[name];
-      if (!procedure) {
-        setTestResults(prev => ({ ...prev, [name]: { success: false, message: 'Unknown service.' } }));
-        return;
-      }
-
-      const result = await trpcQuery<IntegrationTestResult>(procedure);
-      setTestResults(prev => ({
-        ...prev,
-        [name]: {
-          success: result.success,
-          message: result.message || (result.success ? 'Connected successfully.' : 'Connection failed.'),
-        }
-      }));
-    } catch (error: any) {
-      setTestResults(prev => ({
-        ...prev,
-        [name]: { success: false, message: error.message || 'Connection failed. Is the server running?' }
-      }));
-    } finally {
-      setTesting(null);
-    }
-  };
-
-  // ==========================================
-  // REUSABLE TEST UI COMPONENTS
-  // ==========================================
-
-  const TestButton = ({ name, fullWidth = false }: { name: string; fullWidth?: boolean }) => (
-    <button
-      type="button"
-      onClick={() => handleTestConnection(name)}
-      disabled={testing === name}
-      className="btn-secondary py-2.5 px-3.5"
-      style={fullWidth ? { width: '100%' } : {}}
-    >
-      {testing === name ? (
-        <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <span className="spinner" style={{ width: '14px', height: '14px' }} />
-          Testing...
-        </span>
-      ) : (
-        'Test'
-      )}
-    </button>
-  );
-
-  const TestResult = ({ name }: { name: string }) => {
-    const result = testResults[name];
-    if (!result) return null;
-    return (
-      <p className={`text-[11px] mt-1.5 ${result.success ? 'text-emerald-400' : 'text-red-400'}`}>
-        {result.success ? '✅ ' : '❌ '}{result.message}
-      </p>
-    );
-  };
-
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold tracking-tight text-white">System Settings</h2>
-          <p className="text-sm text-neutral-400">Configure free API keys, orchestrator intervals, budgets, and security</p>
+          <p className="text-sm text-neutral-400">Configure orchestrator intervals, budgets, retries, and security</p>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={handleReset} className="btn-secondary">
@@ -504,7 +405,7 @@ const Settings: React.FC = () => {
           </div>
         </div>
 
-        {/* API Keys & Concurrency */}
+        {/* Concurrency & Notifications */}
         <div className="space-y-6">
           {/* Concurrency */}
           <div className="card-bold space-y-4">
@@ -563,104 +464,6 @@ const Settings: React.FC = () => {
                 ⚠ Multiple workers will process gaps in parallel. Ensure this complies with the one-gap-at-a-time policy.
               </p>
             )}
-          </div>
-
-          {/* Free API Keys */}
-          <div className="card-bold space-y-4">
-            <div className="flex items-center gap-3 border-b border-[#221c32] pb-2">
-              <Key className="h-5 w-5 text-purple-400" />
-              <h3 className="text-base font-bold text-white">Free API Keys</h3>
-            </div>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">Groq API Key (Free LLM)</label>
-                <div className="flex gap-2">
-                  <input type="password" value={groqKey} onChange={(e) => setGroqKey(e.target.value)} placeholder="gsk_..." className="flex-1" />
-                  <TestButton name="Groq" />
-                </div>
-                <TestResult name="Groq" />
-                <p className="text-[11px] text-neutral-500 mt-1">Get free key at console.groq.com/keys</p>
-              </div>
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">LLM Router (multi-provider)</label>
-                <div className="flex gap-2">
-                  <input type="text" value="" readOnly placeholder="Configured via GROQ/CEREBRAS/GEMINI/OPENROUTER env vars" className="flex-1 bg-[#0c0a12] text-neutral-500 text-sm" />
-                  <TestButton name="LLM Router" />
-                </div>
-                <TestResult name="LLM Router" />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">Google Search API Key</label>
-                <input type="password" value={googleSearchKey} onChange={(e) => setGoogleSearchKey(e.target.value)} placeholder="AIza..." />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">Google Search CX (Engine ID)</label>
-                <div className="flex gap-2">
-                  <input type="text" value={googleSearchCx} onChange={(e) => setGoogleSearchCx(e.target.value)} placeholder="your_search_engine_id" className="flex-1" />
-                  <TestButton name="Google Search" />
-                </div>
-                <TestResult name="Google Search" />
-                <p className="text-[11px] text-neutral-500 mt-1">100 free queries/day via Google Custom Search API</p>
-              </div>
-            </div>
-          </div>
-
-          {/* Integration Keys */}
-          <div className="card-bold space-y-4">
-            <div className="flex items-center gap-3 border-b border-[#221c32] pb-2">
-              <Key className="h-5 w-5 text-purple-400" />
-              <h3 className="text-base font-bold text-white">Integrations (All Free)</h3>
-            </div>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">GitHub Token</label>
-                <div className="flex gap-2">
-                  <input type="password" value={githubKey} onChange={(e) => setGithubKey(e.target.value)} placeholder="ghp_..." className="flex-1" />
-                  <TestButton name="GitHub" />
-                </div>
-                <TestResult name="GitHub" />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">Slack Bot Token</label>
-                <div className="flex gap-2">
-                  <input type="password" value={slackKey} onChange={(e) => setSlackKey(e.target.value)} placeholder="xoxb-..." className="flex-1" />
-                  <TestButton name="Slack" />
-                </div>
-                <TestResult name="Slack" />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">Resend API Key</label>
-                <div className="flex gap-2">
-                  <input type="password" value={resendKey} onChange={(e) => setResendKey(e.target.value)} placeholder="re_..." className="flex-1" />
-                  <TestButton name="Resend" />
-                </div>
-                <TestResult name="Resend" />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">Stripe Secret Key</label>
-                <div className="flex gap-2">
-                  <input type="password" value={stripeKey} onChange={(e) => setStripeKey(e.target.value)} placeholder="sk_live_..." className="flex-1" />
-                  <TestButton name="Stripe" />
-                </div>
-                <TestResult name="Stripe" />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">Vercel Deployment</label>
-                <div className="flex gap-2">
-                  <input type="text" value="" readOnly placeholder="Configured via VERCEL_API_TOKEN env var" className="flex-1 bg-[#0c0a12] text-neutral-500 text-sm" />
-                  <TestButton name="Vercel" />
-                </div>
-                <TestResult name="Vercel" />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">NOWPayments (Crypto)</label>
-                <div className="flex gap-2">
-                  <input type="text" value="" readOnly placeholder="Configured via NOWPAYMENTS_API_KEY / NOWPAYMENTS_IPN_SECRET env vars" className="flex-1 bg-[#0c0a12] text-neutral-500 text-sm" />
-                  <TestButton name="NOWPayments" />
-                </div>
-                <TestResult name="NOWPayments" />
-              </div>
-            </div>
           </div>
 
           {/* Notifications */}
