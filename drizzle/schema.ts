@@ -142,6 +142,7 @@ export const registrationInvites = mysqlTable('registration_invites', {
   email: varchar('email', { length: 255 }).notNull(),
   role: mysqlEnum('role', ['admin', 'user']).default('user').notNull(),
   createdBy: varchar('created_by', { length: 255 }).notNull(), // admin user id
+  tokenHash: varchar('token_hash', { length: 64 }).unique(),
   expiresAt: datetime('expires_at'),
   usedAt: datetime('used_at'),
   createdAt: datetime('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),

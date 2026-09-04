@@ -29,7 +29,7 @@ const RegistrationAccess: React.FC = () => {
     createMutation.mutate({
       email,
       role,
-      expiresAt: expiresAt ? new Date(expiresAt) : undefined,
+      expiresAt: expiresAt ? new Date(expiresAt).toISOString() : undefined,
     });
   };
 

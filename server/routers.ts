@@ -118,45 +118,122 @@ async function sendEmail(params: {
 // AUTH ROUTER
 // ==========================================
 const authRouter = router({
-  register: publicProcedure
+  validateInvite: publicProcedure
     .input(z.object({
-      email: z.string().email(),
-      password: z.string().min(6),
+      token: z.string().regex(/^[a-f0-9]{64}$/i),
     }))
-    .mutation(async ({ input, ctx }) => {
-      // 1. Check if user already exists
-      const existingUser = await db.getUserByEmail(input.email);
-      if (existingUser) {
-        throw new TRPCError({ code: 'CONFLICT', message: 'A user with this email already exists.' });
-      }
+    .query(async ({ input }) => {
+      const tokenHash = crypto
+        .createHash('sha256')
+        .update(input.token)
+        .digest('hex');
 
-      // 2. Validate invitation
-      const invite = await db.getValidRegistrationInvite(input.email);
+      const invite = await db.getRegistrationInviteByTokenHash(tokenHash);
+
       if (!invite) {
         throw new TRPCError({
-          code: 'FORBIDDEN',
-          message: 'No valid invitation found for this email.',
+          code: 'NOT_FOUND',
+          message: 'Invalid or expired invitation.',
         });
       }
 
-      // 3. Create user with the role from the invitation
+      if (invite.usedAt) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'This invitation has already been used.',
+        });
+      }
+
+      if (invite.expiresAt && new Date() > new Date(invite.expiresAt)) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'This invitation has expired.',
+        });
+      }
+
+      return {
+        valid: true,
+        email: invite.email,
+        role: invite.role,
+      };
+    }),
+
+  register: publicProcedure
+    .input(z.object({
+      token: z.string().regex(/^[a-f0-9]{64}$/i),
+      password: z.string().min(6),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      // 1. Hash the raw invitation token and look up the invitation.
+      // The raw token is never stored in or compared directly against the database.
+      const tokenHash = crypto
+        .createHash('sha256')
+        .update(input.token)
+        .digest('hex');
+
+      const invite = await db.getRegistrationInviteByTokenHash(tokenHash);
+
+      if (!invite) {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'Invalid or expired invitation.',
+        });
+      }
+
+      // 2. Enforce single-use and expiry at registration time.
+      // Validation is repeated here because the invitation could become
+      // invalid after the initial page validation.
+      if (invite.usedAt) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'This invitation has already been used.',
+        });
+      }
+
+      if (invite.expiresAt && new Date() > new Date(invite.expiresAt)) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'This invitation has expired.',
+        });
+      }
+
+      // 3. Check whether the invitation email already has an account.
+      const existingUser = await db.getUserByEmail(invite.email);
+      if (existingUser) {
+        throw new TRPCError({
+          code: 'CONFLICT',
+          message: 'A user with this email already exists.',
+        });
+      }
+
+      // 4. Create the account using the email and role stored in the invitation.
       const salt = await bcrypt.genSalt(10);
       const passwordHash = await bcrypt.hash(input.password, salt);
       const role = invite.role as 'admin' | 'user';
 
-      const user = await db.createUser(input.email, passwordHash, role);
+      const user = await db.createUser(invite.email, passwordHash, role);
       if (!user) {
-        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Failed to create user.' });
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Failed to create user.',
+        });
       }
 
-      // 4. Mark invitation as used
+      // 5. Mark the invitation as used after successful account creation.
       await db.markInviteUsed(invite.id);
 
-      // 5. Create session and set cookie
+      // 6. Create the authenticated session.
       const session = signSession(user.id);
       ctx.res.cookie(COOKIE_NAME, session, cookieOptions);
 
-      return { success: true, user: { id: user.id, email: user.email, role: user.role } };
+      return {
+        success: true,
+        user: {
+          id: user.id,
+          email: user.email,
+          role: user.role,
+        },
+      };
     }),
 
   login: publicProcedure
@@ -1341,7 +1418,7 @@ const invitesRouter = router({
     .input(z.object({
       email: z.string().email(),
       role: z.enum(['admin', 'user']).default('user'),
-      expiresAt: z.date().optional(),
+      expiresAt: z.string().datetime().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
       // Ensure the email is not already invited (optional check)
@@ -1353,21 +1430,23 @@ const invitesRouter = router({
         });
       }
 
-      const invite = await db.createRegistrationInvite(
+      const { invite, token } = await db.createRegistrationInvite(
         input.email,
         input.role,
         ctx.user.id, // createdBy from authenticated admin
-        input.expiresAt
+        input.expiresAt ? new Date(input.expiresAt) : undefined
       );
 
-      // Send invitation notification email
+      // Send invitation notification email with the unique registration URL.
       const frontendUrl = process.env.FRONTEND_URL || process.env.CORS_ORIGIN || 'http://localhost:5173';
+      const registrationUrl = `${frontendUrl.replace(/\/$/, '')}/register?invite=${encodeURIComponent(token)}`;
+
       try {
         await sendEmail({
           to: input.email,
           subject: 'You are invited to SAO',
-          text: `You have been invited to join SAO as a ${input.role}.\n\nVisit ${frontendUrl} to complete your registration.\n\nThis invitation is single-use.`,
-          html: `<p>You have been invited to join SAO as a <strong>${input.role}</strong>.</p><p>Visit <a href="${frontendUrl}">${frontendUrl}</a> to complete your registration.</p><p>This invitation is single-use.</p>`,
+          text: `You have been invited to join SAO as a ${input.role}.\n\nComplete your registration here: ${registrationUrl}\n\nThis invitation is single-use.`,
+          html: `<p>You have been invited to join SAO as a <strong>${input.role}</strong>.</p><p><a href="${registrationUrl}">Complete your SAO registration</a></p><p>This invitation is single-use.</p>`,
         });
       } catch (error) {
         console.error('Failed to send invitation email — Resend delivery issue:', error);

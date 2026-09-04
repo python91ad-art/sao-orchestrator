@@ -4,6 +4,7 @@ import { httpBatchLink } from '@trpc/client';
 import { trpc } from './lib/trpc';
 import { AuthProvider, useAuth } from './hooks/useAuth';
 import Login from './pages/Login';
+import Registration from './pages/Registration';
 import Dashboard from './pages/Dashboard';
 
 // Set up standard react-query client
@@ -33,6 +34,10 @@ const trpcClient = trpc.createClient({
 
 const AppContent: React.FC = () => {
   const { user, loading } = useAuth();
+
+  if (window.location.pathname === '/register') {
+    return <Registration />;
+  }
 
   if (loading) {
     return (

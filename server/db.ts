@@ -1475,6 +1475,15 @@ export async function listHealthChecks(
 // ==========================================
 
 /**
+ * Generate a cryptographically secure, unique invitation token.
+ * The raw token is intended for the invitation URL; only its SHA-256
+ * hash is persisted in the database.
+ */
+export function generateRegistrationInviteToken(): string {
+  return crypto.randomBytes(32).toString('hex');
+}
+
+/**
  * Create a new registration invite.
  * @param email - email address authorized to register
  * @param role - role to assign upon registration ('admin' or 'user')
@@ -1490,14 +1499,28 @@ export async function createRegistrationInvite(
 ) {
   const normalizedEmail = email.trim().toLowerCase();
   const id = generateId();
+  const token = generateRegistrationInviteToken();
+  const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+
   await db.insert(schema.registrationInvites).values({
     id,
     email: normalizedEmail,
     role,
     createdBy,
+    tokenHash,
     expiresAt: expiresAt || null,
   });
-  return getRegistrationInviteById(id);
+
+  const invite = await getRegistrationInviteById(id);
+
+  if (!invite) {
+    throw new Error('Failed to create registration invitation.');
+  }
+
+  return {
+    invite,
+    token,
+  };
 }
 
 /**
@@ -1508,6 +1531,19 @@ export async function getRegistrationInviteById(id: string) {
     .select()
     .from(schema.registrationInvites)
     .where(eq(schema.registrationInvites.id, id))
+    .limit(1);
+  return results[0] || null;
+}
+
+/**
+ * Get a registration invite by its SHA-256 token hash.
+ * The raw invitation token is never stored in the database.
+ */
+export async function getRegistrationInviteByTokenHash(tokenHash: string) {
+  const results = await db
+    .select()
+    .from(schema.registrationInvites)
+    .where(eq(schema.registrationInvites.tokenHash, tokenHash))
     .limit(1);
   return results[0] || null;
 }
