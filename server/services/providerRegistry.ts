@@ -10,7 +10,7 @@
 
 import * as db from '../db';
 import { integrationCredentials, credentialAuditLogs } from '../../drizzle/schema';
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, sql } from 'drizzle-orm';
 import { encryptCredential, decryptCredential, redactCredential } from './credentialCrypto';
 
 export type ServiceType =
@@ -465,7 +465,12 @@ export async function resolveCredential(
         eq(integrationCredentials.enabled, true)
       )
     )
-    .orderBy(desc(integrationCredentials.updatedAt))
+    .orderBy(
+      sql`case ${integrationCredentials.priority} when 'primary' then 0 when 'fallback' then 1 else 2 end`,
+      desc(integrationCredentials.updatedAt),
+      desc(integrationCredentials.createdAt),
+      desc(integrationCredentials.id)
+    )
     .limit(1);
 
   if (rows[0]) {

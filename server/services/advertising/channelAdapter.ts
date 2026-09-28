@@ -10,7 +10,7 @@
 
 export type ChannelId = 'google_ads' | 'meta_ads' | 'tiktok_ads' | 'organic_social' | 'content_marketing' | 'community_engagement';
 
-export type ChannelStatus = 'NOT_CONFIGURED' | 'CONFIGURED' | 'READY' | 'ERROR' | 'RATE_LIMITED';
+export type ChannelStatus = 'NOT_CONFIGURED' | 'CONFIGURED' | 'READY' | 'STUBBED' | 'ERROR' | 'RATE_LIMITED';
 
 export interface ChannelCapabilities {
   canCreateCampaign: boolean;
@@ -73,6 +73,7 @@ export function getChannelStatus(channel: ChannelId): ChannelStatus {
   if (required.length === 0) return 'READY'; // Free channels always ready
   if (missing.length === required.length) return 'NOT_CONFIGURED';
   if (missing.length > 0) return 'NOT_CONFIGURED'; // Partial config = not configured
+  if (!isLiveAdvertisingEnabled()) return 'STUBBED';
   return 'CONFIGURED'; // All credentials present
 }
 
@@ -133,23 +134,26 @@ export async function publishCampaign(params: CampaignCreateParams): Promise<Cam
     };
   }
 
-  // For free channels, return success immediately (content is published through
-  // manual or scheduled distribution — no API call needed)
+  // Free/organic channels do not have a live external posting adapter in this
+  // build. Mark generated campaign material as ready inside SAO, but do not
+  // claim that anything was posted or verified on an external platform.
   if (['organic_social', 'content_marketing', 'community_engagement'].includes(params.channel)) {
     return {
       success: true,
       providerCampaignId: `organic-${Date.now()}`,
-      providerStatus: 'active',
+      providerStatus: 'GENERATED',
       notConfigured: false,
     };
   }
 
   // Paid channels with credentials: the actual API call would happen here.
-  // Currently no real API calls are made — this is architectural preparation.
+  // Currently no real API calls are made unless live mode is implemented and
+  // explicitly enabled, so report an explicit stubbed/non-active state.
   return {
     success: false,
-    notConfigured: true,
-    error: `Channel "${params.channel}" has credentials but live publishing is not yet active. Set ADVERTISING_LIVE_MODE=true to enable.`,
+    providerStatus: 'STUBBED',
+    notConfigured: false,
+    error: `Channel "${params.channel}" is STUBBED / NOT_ACTIVE. Paid ad network purchasing is not implemented in this build.`,
   };
 }
 

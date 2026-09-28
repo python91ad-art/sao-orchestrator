@@ -320,24 +320,11 @@ const Settings: React.FC = () => {
             <button
               onClick={async () => {
                 try {
-                  const res = await fetch('/api/trpc/settings.retryConfig', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      json: {
-                        maxAttempts,
-                        backoffMultiplier,
-                        baseDelayMs,
-                      },
-                    }),
+                  await trpcMutation('settings.retryConfig', {
+                    maxAttempts,
+                    backoffMultiplier,
+                    baseDelayMs,
                   });
-
-                  if (!res.ok) {
-                    const body = await res.json().catch(() => null);
-                    const msg = body?.error?.json?.message || body?.error?.message || `Server error (${res.status})`;
-                    throw new Error(msg);
-                  }
-
                   setRetrySaved(true);
                   setTimeout(() => setRetrySaved(false), 2000);
                 } catch (e: any) {
@@ -372,23 +359,10 @@ const Settings: React.FC = () => {
             <button
               onClick={async () => {
                 try {
-                  const res = await fetch('/api/trpc/settings.queueLimits', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      json: {
-                        maxSize: queueMaxSize,
-                        expirationHours: queueExpirationHours,
-                      },
-                    }),
+                  await trpcMutation('settings.queueLimits', {
+                    maxSize: queueMaxSize,
+                    expirationHours: queueExpirationHours,
                   });
-
-                  if (!res.ok) {
-                    const body = await res.json().catch(() => null);
-                    const msg = body?.error?.json?.message || body?.error?.message || `Server error (${res.status})`;
-                    throw new Error(msg);
-                  }
-
                   setQueueSaved(true);
                   setTimeout(() => setQueueSaved(false), 2000);
                 } catch (e: any) {
@@ -432,20 +406,11 @@ const Settings: React.FC = () => {
                   <button
                     onClick={async () => {
                       try {
-                        const res = await fetch('/api/trpc/settings.setConcurrency', {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ json: { level: concurrencyLevel } }),
+                        await trpcMutation('settings.setConcurrency', {
+                          level: concurrencyLevel,
                         });
-                        if (res.ok) {
-                          setConcurrencySaved(true);
-                          setTimeout(() => setConcurrencySaved(false), 2000);
-                        } else {
-                          const body = await res.json().catch(() => null);
-                          const msg = body?.error?.json?.message || body?.error?.message || `Server error (${res.status})`;
-                          console.error('[Settings] Concurrency save failed:', msg);
-                          alert(`Failed to save concurrency: ${msg}`);
-                        }
+                        setConcurrencySaved(true);
+                        setTimeout(() => setConcurrencySaved(false), 2000);
                       } catch (e: any) {
                         console.error('[Settings] Concurrency save failed:', e);
                         alert(`Failed to save concurrency: ${e?.message || 'Network error'}`);

@@ -1,12 +1,13 @@
 import * as db from '../db';
 import {
-  getNowPaymentsConfig,
+  getNowPaymentsConfigAsync,
   createNowPaymentsPayment,
   mapNowPaymentsStatusToSao,
   verifyIpnSignature,
   type NowPaymentsPayment,
 } from './nowpayments';
 import { broadcastEvent } from '../websocket';
+import { allocateRevenueForPayment } from './advertising/growthEngine';
 
 // Re-export the pure, DB-free helpers for callers and tests.
 import {
@@ -69,7 +70,7 @@ export async function createCryptoPayment(params: {
   deploymentId: string;
   payCurrency?: string;
 }) {
-  const config = getNowPaymentsConfig();
+  const config = await getNowPaymentsConfigAsync();
   const price = getSaoPrice();
 
   const payment = await db.createPayment({
@@ -131,7 +132,7 @@ export async function processNowPaymentsIpn(
   signature: string | undefined
 ): Promise<IpnResult> {
   // 1. Verify the IPN signature.
-  const config = getNowPaymentsConfig();
+  const config = await getNowPaymentsConfigAsync();
   if (!signature || !verifyIpnSignature(rawBody, signature, config.ipnSecret)) {
     return { status: 'invalid_signature' };
   }
@@ -189,6 +190,8 @@ export async function processNowPaymentsIpn(
     });
 
     if (result.outcome === 'recorded') {
+      await allocateRevenueForPayment(result.payment, result.deployment);
+
       broadcastEvent({
         type: 'payment:updated',
         data: { paymentId: payment.id, deploymentId: payment.deploymentId, status: 'paid' },

@@ -71,9 +71,48 @@ export function getNowPaymentsConfig(): NowPaymentsConfig {
   return { apiKey, ipnSecret, apiUrl };
 }
 
+/**
+ * Read the NOWPayments configuration with Provider Registry precedence and env fallback.
+ */
+export async function getNowPaymentsConfigAsync(): Promise<NowPaymentsConfig> {
+  let apiKey = process.env.NOWPAYMENTS_API_KEY || '';
+  const ipnSecret = process.env.NOWPAYMENTS_IPN_SECRET || '';
+  const apiUrl = process.env.NOWPAYMENTS_API_URL || DEFAULT_API_URL;
+
+  try {
+    const { resolveCredential } = await import('./providerRegistry');
+    const resolved = await resolveCredential('nowpayments', ['NOWPAYMENTS_API_KEY']);
+    if (resolved.value) {
+      apiKey = resolved.value;
+    }
+  } catch {
+    /* fallback to env */
+  }
+
+  if (!apiKey) {
+    throw new Error('NOWPayments API credentials are not configured. Set NOWPAYMENTS_API_KEY server-side or in Providers & API Keys.');
+  }
+  if (!ipnSecret) {
+    throw new Error('NOWPayments IPN credentials are not configured. Set NOWPAYMENTS_IPN_SECRET server-side.');
+  }
+
+  return { apiKey, ipnSecret, apiUrl };
+}
+
 /** True when the provider has at least an API key configured (for admin status checks). */
 export function hasNowPaymentsApiKey(): boolean {
   return Boolean(process.env.NOWPAYMENTS_API_KEY);
+}
+
+export async function hasNowPaymentsApiKeyAsync(): Promise<boolean> {
+  if (Boolean(process.env.NOWPAYMENTS_API_KEY)) return true;
+  try {
+    const { resolveCredential } = await import('./providerRegistry');
+    const resolved = await resolveCredential('nowpayments', ['NOWPAYMENTS_API_KEY']);
+    return Boolean(resolved.value);
+  } catch {
+    return false;
+  }
 }
 
 function nowPaymentsHeaders(apiKey: string): Record<string, string> {

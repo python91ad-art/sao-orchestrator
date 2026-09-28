@@ -43,6 +43,17 @@ export function hasProviderCredentials(provider: ProviderId): boolean {
   return Boolean(process.env[PROVIDER_ENV_KEYS[provider]]);
 }
 
+export async function hasProviderCredentialsAsync(provider: ProviderId): Promise<boolean> {
+  if (Boolean(process.env[PROVIDER_ENV_KEYS[provider]])) return true;
+  try {
+    const { resolveCredential } = await import('./providerRegistry');
+    const resolved = await resolveCredential(provider, [PROVIDER_ENV_KEYS[provider]]);
+    return Boolean(resolved.value);
+  } catch {
+    return false;
+  }
+}
+
 const HIGH_CAPABILITIES: Capability[] = [
   'BUSINESS_PLAN',
   'APPLICATION_GENERATION',

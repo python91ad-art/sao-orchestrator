@@ -16,7 +16,7 @@ import {
   ProviderId,
   AttemptedProvider,
 } from './llmTypes';
-import { getModelRegistry, hasProviderCredentials } from './llmModels';
+import { getModelRegistry, hasProviderCredentials, hasProviderCredentialsAsync } from './llmModels';
 import {
   classifyError,
   getProviders,
@@ -196,16 +196,24 @@ export interface RouterRequest {
   excludeModels?: string[];
 }
 
-function selectCandidates(
+async function selectCandidates(
   req: RouterRequest,
   providers: Map<ProviderId, LLMProvider>
-): ModelConfig[] {
+): Promise<ModelConfig[]> {
   const now = Date.now();
+  const allModels = getModelRegistry();
 
-  return getModelRegistry()
+  const providerConfigured = new Map<ProviderId, boolean>();
+  for (const mc of allModels) {
+    if (!providerConfigured.has(mc.provider)) {
+      providerConfigured.set(mc.provider, await hasProviderCredentialsAsync(mc.provider));
+    }
+  }
+
+  return allModels
     .filter((mc) => {
       if (!mc.enabled) return false;
-      if (!hasProviderCredentials(mc.provider)) return false;
+      if (!providerConfigured.get(mc.provider)) return false;
       if (!providers.has(mc.provider)) return false;
       if (!mc.capabilities.includes(req.task)) return false;
       if (req.jsonMode && !mc.supportsJsonMode) return false;
@@ -251,7 +259,7 @@ function selectCandidates(
  */
 export async function route(req: RouterRequest): Promise<LLMRouteResult> {
   const providers = new Map(getAvailableProviders().map((p) => [p.id, p]));
-  const candidates = selectCandidates(req, providers);
+  const candidates = await selectCandidates(req, providers);
 
   if (candidates.length === 0) {
     logLine({ task: req.task, result: 'no_candidates', action: 'exhausted' });
@@ -333,6 +341,33 @@ export function getRouterStatus() {
       provider: mc.provider,
       model: mc.model,
       credentials: hasProviderCredentials(mc.provider) ? ('SET' as const) : ('MISSING' as const),
+      state: h.state,
+      cooldownUntil: h.cooldownUntil && Number.isFinite(h.cooldownUntil) ? h.cooldownUntil : null,
+      consecutiveFailures: h.consecutiveFailures,
+      lastErrorCategory: h.lastErrorCategory ?? null,
+    };
+  });
+}
+
+/**
+ * Async runtime status checking both environment variables and the Provider Registry.
+ */
+export async function getRouterStatusAsync() {
+  const allModels = getModelRegistry();
+  const providerConfigured = new Map<ProviderId, boolean>();
+  for (const mc of allModels) {
+    if (!providerConfigured.has(mc.provider)) {
+      providerConfigured.set(mc.provider, await hasProviderCredentialsAsync(mc.provider));
+    }
+  }
+
+  return allModels.map((mc) => {
+    const h = getHealth(mc);
+    const configured = providerConfigured.get(mc.provider) || false;
+    return {
+      provider: mc.provider,
+      model: mc.model,
+      credentials: configured ? ('SET' as const) : ('MISSING' as const),
       state: h.state,
       cooldownUntil: h.cooldownUntil && Number.isFinite(h.cooldownUntil) ? h.cooldownUntil : null,
       consecutiveFailures: h.consecutiveFailures,

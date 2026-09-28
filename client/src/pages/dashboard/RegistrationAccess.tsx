@@ -8,13 +8,18 @@ const RegistrationAccess: React.FC = () => {
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<'admin' | 'user'>('user');
   const [expiresAt, setExpiresAt] = useState('');
+  const [createdInviteUrl, setCreatedInviteUrl] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   // Queries & mutations
   const utils = trpc.useContext();
   const listQuery = trpc.invites.list.useQuery({ limit: 100, offset: 0 });
   const createMutation = trpc.invites.create.useMutation({
-    onSuccess: () => {
+    onSuccess: (data: any) => {
       utils.invites.list.invalidate();
+      if (data?.registrationUrl) {
+        setCreatedInviteUrl(data.registrationUrl);
+      }
       setEmail('');
       setRole('user');
       setExpiresAt('');
@@ -26,11 +31,21 @@ const RegistrationAccess: React.FC = () => {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setCreatedInviteUrl(null);
+    setCopied(false);
     createMutation.mutate({
       email,
       role,
       expiresAt: expiresAt ? new Date(expiresAt).toISOString() : undefined,
     });
+  };
+
+  const handleCopy = () => {
+    if (createdInviteUrl) {
+      navigator.clipboard.writeText(createdInviteUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    }
   };
 
   const handleDelete = (id: string) => {
@@ -112,6 +127,32 @@ const RegistrationAccess: React.FC = () => {
             <p className="text-sm text-red-400">{createMutation.error.message}</p>
           )}
         </form>
+
+        {createdInviteUrl && (
+          <div className="mt-4 p-4 rounded-lg bg-purple-500/10 border border-purple-500/30 space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-wider text-purple-300">
+              Invitation Link Created (Single-Use)
+            </p>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                readOnly
+                value={createdInviteUrl}
+                className="flex-1 text-xs bg-black/40 border border-purple-500/30 text-white font-mono rounded px-3 py-2"
+              />
+              <button
+                type="button"
+                onClick={handleCopy}
+                className="btn-bold-primary text-xs px-3 py-2 whitespace-nowrap"
+              >
+                {copied ? '✓ Copied!' : 'Copy Link'}
+              </button>
+            </div>
+            <p className="text-[11px] text-neutral-400">
+              Share this link directly if email delivery is unavailable. The link expires once used.
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Existing Invitations Table */}

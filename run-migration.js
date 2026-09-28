@@ -141,10 +141,143 @@ CREATE TABLE IF NOT EXISTS registration_invites (
   email varchar(255) NOT NULL,
   role enum('admin','user') NOT NULL DEFAULT 'user',
   created_by varchar(255) NOT NULL,
+  token_hash varchar(64) NULL,
   expires_at datetime,
   used_at datetime,
   created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT registration_invites_id PRIMARY KEY(id)
+  CONSTRAINT registration_invites_id PRIMARY KEY(id),
+  CONSTRAINT registration_invites_token_hash_unique UNIQUE(token_hash)
+);
+
+CREATE TABLE IF NOT EXISTS ad_campaigns (
+  id varchar(255) NOT NULL,
+  deployment_id varchar(255) NOT NULL,
+  name varchar(255) NOT NULL,
+  channel varchar(50) NOT NULL,
+  status enum('PLANNED','DRAFT','ANALYSING','READY','WAITING_FOR_BUDGET','WAITING_FOR_CREDENTIALS','READY_TO_PUBLISH','ACTIVE','PAUSED','COMPLETED','FAILED','READY_FOR_APPROVAL','APPROVED','REJECTED','STOPPED') NOT NULL DEFAULT 'DRAFT',
+  campaign_type enum('PAID','FREE_ORGANIC') NOT NULL DEFAULT 'PAID',
+  objective varchar(255),
+  target_audience text,
+  offer varchar(512),
+  call_to_action varchar(255),
+  budget decimal(12,2) NOT NULL DEFAULT '0.00',
+  daily_limit decimal(12,2) NOT NULL DEFAULT '0.00',
+  approved_spend_limit decimal(12,2) NOT NULL DEFAULT '0.00',
+  spent decimal(12,2) NOT NULL DEFAULT '0.00',
+  revenue_attributed decimal(12,2) DEFAULT '0.00',
+  approval_status varchar(32) NOT NULL DEFAULT 'NOT_REQUIRED',
+  optimization_status varchar(32) NOT NULL DEFAULT 'MONITOR',
+  strategy text,
+  provider_campaign_id varchar(255),
+  provider_status varchar(100),
+  error_message text,
+  started_at datetime,
+  ended_at datetime,
+  created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT ad_campaigns_id PRIMARY KEY(id)
+);
+
+CREATE TABLE IF NOT EXISTS ad_creatives (
+  id varchar(255) NOT NULL,
+  campaign_id varchar(255) NOT NULL,
+  format varchar(50) NOT NULL,
+  content text NOT NULL,
+  headline varchar(255),
+  call_to_action varchar(100),
+  target_audience varchar(512),
+  variation int DEFAULT 1,
+  provider_creative_id varchar(255),
+  created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT ad_creatives_id PRIMARY KEY(id)
+);
+
+CREATE TABLE IF NOT EXISTS ad_audience_research (
+  id varchar(255) NOT NULL,
+  deployment_id varchar(255) NOT NULL,
+  research_json text NOT NULL,
+  evidence_json text,
+  source_hash varchar(64) NOT NULL,
+  created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT ad_audience_research_id PRIMARY KEY(id),
+  CONSTRAINT ad_audience_research_source_hash_unique UNIQUE(source_hash)
+);
+
+CREATE TABLE IF NOT EXISTS ad_budget_ledger (
+  id varchar(255) NOT NULL,
+  deployment_id varchar(255) NOT NULL,
+  campaign_id varchar(255),
+  payment_id varchar(255),
+  type varchar(32) NOT NULL,
+  amount decimal(12,2) NOT NULL,
+  status varchar(32) NOT NULL DEFAULT 'POSTED',
+  idempotency_key varchar(255) NOT NULL,
+  metadata text,
+  created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT ad_budget_ledger_id PRIMARY KEY(id),
+  CONSTRAINT ad_budget_ledger_idempotency_key_unique UNIQUE(idempotency_key)
+);
+
+CREATE TABLE IF NOT EXISTS ad_campaign_events (
+  id varchar(255) NOT NULL,
+  campaign_id varchar(255) NOT NULL,
+  creative_id varchar(255),
+  event_type varchar(32) NOT NULL,
+  quantity int NOT NULL DEFAULT 1,
+  amount decimal(12,2) NOT NULL DEFAULT '0.00',
+  source varchar(32) NOT NULL DEFAULT 'INTERNAL',
+  attribution varchar(32) NOT NULL DEFAULT 'UNKNOWN',
+  idempotency_key varchar(255) NOT NULL,
+  metadata text,
+  created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT ad_campaign_events_id PRIMARY KEY(id),
+  CONSTRAINT ad_campaign_events_idempotency_key_unique UNIQUE(idempotency_key)
+);
+
+CREATE TABLE IF NOT EXISTS ad_approvals (
+  id varchar(255) NOT NULL,
+  deployment_id varchar(255) NOT NULL,
+  campaign_id varchar(255) NOT NULL,
+  status varchar(32) NOT NULL DEFAULT 'PENDING',
+  requested_budget decimal(12,2) NOT NULL,
+  requested_channel varchar(50) NOT NULL,
+  strategy text,
+  approved_limit decimal(12,2) NOT NULL DEFAULT '0.00',
+  approved_by varchar(255),
+  decision_reason text,
+  decided_at datetime,
+  created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT ad_approvals_id PRIMARY KEY(id)
+);
+
+CREATE TABLE IF NOT EXISTS ad_experiments (
+  id varchar(255) NOT NULL,
+  campaign_id varchar(255) NOT NULL,
+  hypothesis text NOT NULL,
+  variable varchar(64) NOT NULL,
+  status varchar(32) NOT NULL DEFAULT 'DRAFT',
+  control_creative_id varchar(255),
+  variant_a_creative_id varchar(255),
+  variant_b_creative_id varchar(255),
+  metrics_json text,
+  selected_creative_id varchar(255),
+  decision_reason text,
+  started_at datetime,
+  ended_at datetime,
+  created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT ad_experiments_id PRIMARY KEY(id)
+);
+
+CREATE TABLE IF NOT EXISTS ad_optimization_decisions (
+  id varchar(255) NOT NULL,
+  campaign_id varchar(255) NOT NULL,
+  decision varchar(64) NOT NULL,
+  reason text NOT NULL,
+  metrics_json text,
+  created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT ad_optimization_decisions_id PRIMARY KEY(id)
 );
 
 CREATE TABLE IF NOT EXISTS deployment_providers (
@@ -252,6 +385,15 @@ const ALTER_COLUMNS = [
   { table: 'deployments', column: 'auto_stopped_at', definition: 'datetime NULL' },
   { table: 'deployments', column: 'auto_stop_reason', definition: 'varchar(512) NULL' },
   { table: 'deployments', column: 'last_good_files', definition: 'text NULL' },
+  { table: 'registration_invites', column: 'token_hash', definition: 'varchar(64) NULL' },
+  { table: 'ad_campaigns', column: 'objective', definition: 'varchar(255) NULL' },
+  { table: 'ad_campaigns', column: 'target_audience', definition: 'text NULL' },
+  { table: 'ad_campaigns', column: 'offer', definition: 'varchar(512) NULL' },
+  { table: 'ad_campaigns', column: 'call_to_action', definition: 'varchar(255) NULL' },
+  { table: 'ad_campaigns', column: 'daily_limit', definition: "decimal(12,2) NOT NULL DEFAULT '0.00'" },
+  { table: 'ad_campaigns', column: 'approved_spend_limit', definition: "decimal(12,2) NOT NULL DEFAULT '0.00'" },
+  { table: 'ad_campaigns', column: 'approval_status', definition: "varchar(32) NOT NULL DEFAULT 'NOT_REQUIRED'" },
+  { table: 'ad_campaigns', column: 'optimization_status', definition: "varchar(32) NOT NULL DEFAULT 'MONITOR'" },
   // Generic provider registry columns on integration_credentials.
   { table: 'integration_credentials', column: 'provider_id', definition: "varchar(128) NOT NULL DEFAULT 'custom'" },
   { table: 'integration_credentials', column: 'priority', definition: 'varchar(16) NULL' },
@@ -265,6 +407,7 @@ const ALTER_COLUMNS = [
 const ALTER_MODIFY_COLUMNS = [
   { table: 'payments', column: 'status', definition: "enum('pending','confirming','confirmed','paid','failed','canceled','expired','authorized','unknown') NOT NULL DEFAULT 'pending'" },
   { table: 'payments', column: 'provider_payment_id', definition: 'varchar(255) NULL' },
+  { table: 'ad_campaigns', column: 'status', definition: "enum('PLANNED','DRAFT','ANALYSING','READY','WAITING_FOR_BUDGET','WAITING_FOR_CREDENTIALS','READY_TO_PUBLISH','ACTIVE','PAUSED','COMPLETED','FAILED','READY_FOR_APPROVAL','APPROVED','REJECTED','STOPPED') NOT NULL DEFAULT 'DRAFT'" },
 ];
 
 async function main() {
@@ -334,6 +477,7 @@ async function main() {
         console.log('⏭️  Already exists, skipping');
       } else {
         console.error('❌ Error:', err.message);
+        throw err;
       }
     }
   }
@@ -356,6 +500,7 @@ async function main() {
       }
     } catch (err) {
       console.error(`❌ Failed to add ${table}.${column}:`, err.message);
+      throw err;
     }
   }
 
@@ -367,6 +512,7 @@ async function main() {
       console.log(`✅ Modified column: ${table}.${column}`);
     } catch (err) {
       console.error(`❌ Failed to modify ${table}.${column}:`, err.message);
+      throw err;
     }
   }
 
@@ -382,6 +528,24 @@ async function main() {
     { name: 'idx_dp_deployment_provider_status', sql: 'CREATE INDEX idx_dp_deployment_provider_status ON deployment_providers(deployment_id, provider_type, status)' },
     { name: 'idx_payments_deployment', sql: 'CREATE INDEX idx_payments_deployment ON payments(deployment_id)' },
     { name: 'idx_payments_provider_payment', sql: 'CREATE INDEX idx_payments_provider_payment ON payments(provider_type, provider_payment_id)' },
+    { name: 'idx_registration_invites_token_hash', sql: 'CREATE UNIQUE INDEX idx_registration_invites_token_hash ON registration_invites(token_hash)' },
+    { name: 'idx_integration_credentials_service', sql: 'CREATE INDEX idx_integration_credentials_service ON integration_credentials(service, provider_id)' },
+    { name: 'idx_ad_campaigns_deployment', sql: 'CREATE INDEX idx_ad_campaigns_deployment ON ad_campaigns(deployment_id)' },
+    { name: 'idx_ad_campaigns_status', sql: 'CREATE INDEX idx_ad_campaigns_status ON ad_campaigns(status)' },
+    { name: 'idx_ad_creatives_campaign', sql: 'CREATE INDEX idx_ad_creatives_campaign ON ad_creatives(campaign_id)' },
+    { name: 'idx_ad_audience_research_deployment', sql: 'CREATE INDEX idx_ad_audience_research_deployment ON ad_audience_research(deployment_id)' },
+    { name: 'idx_ad_budget_ledger_deployment', sql: 'CREATE INDEX idx_ad_budget_ledger_deployment ON ad_budget_ledger(deployment_id)' },
+    { name: 'idx_ad_budget_ledger_campaign', sql: 'CREATE INDEX idx_ad_budget_ledger_campaign ON ad_budget_ledger(campaign_id)' },
+    { name: 'idx_ad_campaign_events_campaign', sql: 'CREATE INDEX idx_ad_campaign_events_campaign ON ad_campaign_events(campaign_id)' },
+    { name: 'idx_ad_campaign_events_creative', sql: 'CREATE INDEX idx_ad_campaign_events_creative ON ad_campaign_events(creative_id)' },
+    { name: 'idx_ad_campaign_events_type', sql: 'CREATE INDEX idx_ad_campaign_events_type ON ad_campaign_events(event_type)' },
+    { name: 'idx_ad_approvals_deployment', sql: 'CREATE INDEX idx_ad_approvals_deployment ON ad_approvals(deployment_id)' },
+    { name: 'idx_ad_approvals_campaign', sql: 'CREATE INDEX idx_ad_approvals_campaign ON ad_approvals(campaign_id)' },
+    { name: 'idx_ad_approvals_status', sql: 'CREATE INDEX idx_ad_approvals_status ON ad_approvals(status)' },
+    { name: 'idx_ad_experiments_campaign', sql: 'CREATE INDEX idx_ad_experiments_campaign ON ad_experiments(campaign_id)' },
+    { name: 'idx_ad_experiments_status', sql: 'CREATE INDEX idx_ad_experiments_status ON ad_experiments(status)' },
+    { name: 'idx_ad_optimization_campaign', sql: 'CREATE INDEX idx_ad_optimization_campaign ON ad_optimization_decisions(campaign_id)' },
+    { name: 'idx_ad_optimization_decision', sql: 'CREATE INDEX idx_ad_optimization_decision ON ad_optimization_decisions(decision)' },
   ];
   for (const idx of INDEXES) {
     try {
@@ -392,6 +556,7 @@ async function main() {
         console.log(`⏭️  ${idx.name} index already exists`);
       } else {
         console.error(`❌ Failed to add ${idx.name} index:`, err.message);
+        throw err;
       }
     }
   }
@@ -408,6 +573,7 @@ async function main() {
     }
   } catch (err) {
     console.error('❌ Failed to backfill deployment ownership:', err.message);
+    throw err;
   }
 
   // Verify queue_items has the new columns

@@ -189,7 +189,20 @@ class OpenAICompatProvider implements LLMProvider {
   }
 
   async complete(model: string, req: ProviderRequest): Promise<ProviderCompletion> {
-    const apiKey = process.env[this.cfg.envKey];
+    // Credential precedence: dashboard registry → environment variable.
+    let apiKey = process.env[this.cfg.envKey];
+    const baseUrl = this.cfg.baseUrl;
+
+    try {
+      const { resolveCredential } = await import('./providerRegistry');
+      const resolved = await resolveCredential(this.id, [this.cfg.envKey]);
+      if (resolved.value) {
+        apiKey = resolved.value;
+      }
+    } catch {
+      /* keep env fallback */
+    }
+
     if (!apiKey) {
       throw new LLMProviderError({
         category: 'auth',
@@ -209,7 +222,7 @@ class OpenAICompatProvider implements LLMProvider {
       body.response_format = { type: 'json_object' };
     }
 
-    const response = await fetch(`${this.cfg.baseUrl}/chat/completions`, {
+    const response = await fetch(`${baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

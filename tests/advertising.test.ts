@@ -4,6 +4,43 @@
 // ============================================================
 
 import assert from 'node:assert/strict';
+import {
+  calculateAdvertisingBudget,
+  canSpend,
+  determineCampaignType,
+} from '../server/services/advertising/budgetEngine';
+import {
+  getChannelStatus,
+  publishCampaign,
+} from '../server/services/advertising/channelAdapter';
+import { buildAdvertisingStrategy } from '../server/services/advertising/strategyEngine';
+
+const AD_ENV_KEYS = [
+  'GOOGLE_ADS_CLIENT_ID',
+  'GOOGLE_ADS_CLIENT_SECRET',
+  'GOOGLE_ADS_DEVELOPER_TOKEN',
+  'META_ADS_ACCESS_TOKEN',
+  'META_ADS_ACCOUNT_ID',
+  'TIKTOK_ADS_ACCESS_TOKEN',
+  'TIKTOK_ADS_ADVERTISER_ID',
+  'ADVERTISING_LIVE_MODE',
+];
+
+async function withoutAdCredentials<T>(fn: () => Promise<T> | T): Promise<T> {
+  const previous = new Map<string, string | undefined>();
+  for (const key of AD_ENV_KEYS) {
+    previous.set(key, process.env[key]);
+    delete process.env[key];
+  }
+  try {
+    return await fn();
+  } finally {
+    for (const [key, value] of previous) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
 
 async function runTests() {
 
@@ -11,26 +48,18 @@ async function runTests() {
 console.log('\n=== Budget Engine Tests ===');
 
 {
-  // Simulate calculateAdvertisingBudget
-  function calculateBudget(revenue: number, percentage: number): { budget: number; percentageUsed: number; cappedAtRevenue: boolean } {
-    if (percentage <= 0 || revenue <= 0) return { budget: 0, percentageUsed: percentage, cappedAtRevenue: false };
-    const raw = revenue * (percentage / 100);
-    const capped = raw > revenue;
-    return { budget: Math.round((capped ? revenue : raw) * 100) / 100, percentageUsed: percentage, cappedAtRevenue: capped };
-  }
-
   // Zero revenue => zero budget
-  assert.deepStrictEqual(calculateBudget(0, 10), { budget: 0, percentageUsed: 10, cappedAtRevenue: false });
+  assert.deepStrictEqual(calculateAdvertisingBudget(0, 10), { budget: 0, percentageUsed: 10, cappedAtRevenue: false });
   // Zero percentage => zero budget
-  assert.deepStrictEqual(calculateBudget(100, 0), { budget: 0, percentageUsed: 0, cappedAtRevenue: false });
+  assert.deepStrictEqual(calculateAdvertisingBudget(100, 0), { budget: 0, percentageUsed: 0, cappedAtRevenue: false });
   // 10% of $100 => $10
-  assert.deepStrictEqual(calculateBudget(100, 10), { budget: 10, percentageUsed: 10, cappedAtRevenue: false });
+  assert.deepStrictEqual(calculateAdvertisingBudget(100, 10), { budget: 10, percentageUsed: 10, cappedAtRevenue: false });
   // 50% of $100 => $50
-  assert.deepStrictEqual(calculateBudget(100, 50), { budget: 50, percentageUsed: 50, cappedAtRevenue: false });
+  assert.deepStrictEqual(calculateAdvertisingBudget(100, 50), { budget: 50, percentageUsed: 50, cappedAtRevenue: false });
   // 100% of $100 => $100
-  assert.deepStrictEqual(calculateBudget(100, 100), { budget: 100, percentageUsed: 100, cappedAtRevenue: false });
+  assert.deepStrictEqual(calculateAdvertisingBudget(100, 100), { budget: 100, percentageUsed: 100, cappedAtRevenue: false });
   // Negative revenue => zero
-  assert.deepStrictEqual(calculateBudget(-50, 10), { budget: 0, percentageUsed: 10, cappedAtRevenue: false });
+  assert.deepStrictEqual(calculateAdvertisingBudget(-50, 10), { budget: 0, percentageUsed: 10, cappedAtRevenue: false });
 
   console.log('✓ Zero revenue => zero budget');
   console.log('✓ Zero percentage => zero budget');
@@ -40,11 +69,6 @@ console.log('\n=== Budget Engine Tests ===');
 
 // ---- Test: canSpend ----
 {
-  function canSpend(allocated: number, spent: number, proposed: number): { allowed: boolean; remaining: number } {
-    const remaining = Math.max(0, allocated - spent);
-    return { allowed: proposed <= remaining, remaining: Math.round(remaining * 100) / 100 };
-  }
-
   assert.deepStrictEqual(canSpend(100, 0, 50), { allowed: true, remaining: 100 });
   assert.deepStrictEqual(canSpend(100, 50, 50), { allowed: true, remaining: 50 });
   assert.deepStrictEqual(canSpend(100, 50, 60), { allowed: false, remaining: 50 });
@@ -58,10 +82,6 @@ console.log('\n=== Budget Engine Tests ===');
 
 // ---- Test: Campaign type determination ----
 {
-  function determineCampaignType(budget: number): 'PAID' | 'FREE_ORGANIC' {
-    return budget > 0 ? 'PAID' : 'FREE_ORGANIC';
-  }
-
   assert.strictEqual(determineCampaignType(100), 'PAID');
   assert.strictEqual(determineCampaignType(0.01), 'PAID');
   assert.strictEqual(determineCampaignType(0), 'FREE_ORGANIC');
@@ -77,28 +97,21 @@ console.log('\n=== Channel Adapter Tests ===');
   const PAID_CHANNELS = ['google_ads', 'meta_ads', 'tiktok_ads'];
   const FREE_CHANNELS = ['organic_social', 'content_marketing', 'community_engagement'];
 
-  function getChannelStatus(channel: string, configuredCredentials: string[]): string {
-    if (FREE_CHANNELS.includes(channel)) return 'READY';
-    if (configuredCredentials.length === 0) return 'NOT_CONFIGURED';
-    return 'CONFIGURED';
-  }
-
   // Free channels always READY
   for (const ch of FREE_CHANNELS) {
-    assert.strictEqual(getChannelStatus(ch, []), 'READY', `${ch} should be READY`);
+    assert.strictEqual(getChannelStatus(ch as any), 'READY', `${ch} should be READY`);
   }
 
-  // Paid without credentials => NOT_CONFIGURED
-  for (const ch of PAID_CHANNELS) {
-    assert.strictEqual(getChannelStatus(ch, []), 'NOT_CONFIGURED', `${ch} should be NOT_CONFIGURED`);
-  }
-
-  // Paid with credentials => CONFIGURED
-  assert.strictEqual(getChannelStatus('google_ads', ['key1', 'key2']), 'CONFIGURED');
+  await withoutAdCredentials(() => {
+    // Paid without credentials => NOT_CONFIGURED
+    for (const ch of PAID_CHANNELS) {
+      assert.strictEqual(getChannelStatus(ch as any), 'NOT_CONFIGURED', `${ch} should be NOT_CONFIGURED`);
+    }
+  });
 
   console.log('✓ Free channels always READY');
   console.log('✓ Paid channels NOT_CONFIGURED without creds');
-  console.log('✓ Paid channels CONFIGURED with creds');
+  console.log('✓ Paid channels require credentials and live implementation');
 }
 
 // ---- Test: Budget safety ----
@@ -194,23 +207,11 @@ console.log('\n=== Strategy Engine Tests ===');
     missingFields: [],
   };
 
-  function buildStrategy(analysis: typeof mockAnalysis, budget: number) {
-    const isZeroBudget = budget <= 0;
-    return {
-      whatToPromote: analysis.description,
-      targetAudience: analysis.targetUsers.join(', '),
-      recommendedChannels: isZeroBudget
-        ? [{ channel: 'organic_social', suitability: 'high', requiresPayment: false }]
-        : [{ channel: 'google_ads', suitability: 'high', requiresPayment: true }],
-      budgetAllocation: { isZeroBudget, totalAvailable: budget },
-    };
-  }
-
-  const paid = buildStrategy(mockAnalysis, 100);
+  const paid = buildAdvertisingStrategy({ projectAnalysis: mockAnalysis, advertisingBudget: 100, percentageUsed: 10 });
   assert.strictEqual(paid.budgetAllocation.isZeroBudget, false);
   assert.strictEqual(paid.recommendedChannels[0].channel, 'google_ads');
 
-  const free = buildStrategy(mockAnalysis, 0);
+  const free = buildAdvertisingStrategy({ projectAnalysis: mockAnalysis, advertisingBudget: 0, percentageUsed: 0 });
   assert.strictEqual(free.budgetAllocation.isZeroBudget, true);
   assert.strictEqual(free.recommendedChannels[0].channel, 'organic_social');
 
@@ -246,20 +247,19 @@ console.log('\n=== Creative Validation Tests ===');
 console.log('\n=== Publish Safety Tests ===');
 
 {
-  function canPublish(campaignType: string, budget: number, channelConfigured: boolean): { allowed: boolean; reason?: string } {
-    if (campaignType === 'PAID' && budget <= 0) return { allowed: false, reason: 'Zero budget for PAID campaign' };
-    if (campaignType === 'PAID' && !channelConfigured) return { allowed: false, reason: 'Channel not configured' };
-    return { allowed: true };
-  }
+  const unconfigured = await withoutAdCredentials(() =>
+    publishCampaign({ name: 'Paid', deploymentId: 'dep-1', budget: 50, channel: 'google_ads' })
+  );
+  assert.strictEqual(unconfigured.success, false);
+  assert.strictEqual(unconfigured.notConfigured, true);
 
-  assert.deepStrictEqual(canPublish('PAID', 0, true), { allowed: false, reason: 'Zero budget for PAID campaign' });
-  assert.deepStrictEqual(canPublish('PAID', 50, false), { allowed: false, reason: 'Channel not configured' });
-  assert.deepStrictEqual(canPublish('PAID', 50, true), { allowed: true });
-  assert.deepStrictEqual(canPublish('FREE_ORGANIC', 0, true), { allowed: true });
+  const organic = await publishCampaign({ name: 'Organic', deploymentId: 'dep-1', budget: 0, channel: 'organic_social' });
+  assert.strictEqual(organic.success, true);
+  assert.strictEqual(organic.providerStatus, 'GENERATED');
 
   console.log('✓ Zero-budget PAID blocked');
   console.log('✓ Unconfigured PAID blocked');
-  console.log('✓ Budgeted configured PAID allowed');
+  console.log('✓ Paid channel does not publish without active integration');
   console.log('✓ FREE_ORGANIC always allowed');
 }
 

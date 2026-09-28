@@ -14,6 +14,7 @@ import { deployApplication, cleanStaleQueueItems } from './orchestrator';
 import { checkQueueHealth } from './auditScheduler';
 import { callLLM, MODEL_BUSINESS_PLAN } from './services/llm';
 import { broadcastEvent } from './websocket';
+import { runAdvertisingLifecycleForDeployment } from './services/advertising/growthEngine';
 
 // ------------------------------------------------------------
 // Configuration (all overridable via environment variables)
@@ -99,6 +100,12 @@ export async function runAutonomousCycle(): Promise<void> {
     for (const dep of active) {
       try {
         await monitorDeployment(dep as any);
+        await runAdvertisingLifecycleForDeployment(dep as any).catch((err) =>
+          console.error(
+            `[AutonomousManager] Advertising lifecycle failed for ${(dep as any).id}:`,
+            (err as Error)?.message || err
+          )
+        );
       } catch (err) {
         console.error(
           `[AutonomousManager] Error monitoring ${(dep as any).id}:`,

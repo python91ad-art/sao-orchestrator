@@ -7,13 +7,28 @@
 
 const VERCEL_API_BASE = 'https://api.vercel.com';
 
-function getVercelHeaders(): { Authorization: string; 'Content-Type': string } {
-  const token = process.env.VERCEL_API_TOKEN;
+async function getVercelToken(): Promise<string> {
+  let token = process.env.VERCEL_API_TOKEN;
+  try {
+    const { resolveCredential } = await import('./providerRegistry');
+    const resolved = await resolveCredential('vercel', ['VERCEL_API_TOKEN']);
+    if (resolved.value) {
+      token = resolved.value;
+    }
+  } catch {
+    /* fallback to env */
+  }
+
   if (!token) {
     throw new Error(
-      'VERCEL_API_TOKEN is not configured. Set VERCEL_API_TOKEN in your environment variables.'
+      'VERCEL_API_TOKEN is not configured. Set VERCEL_API_TOKEN in your environment variables or configure Vercel in Providers & API Keys.'
     );
   }
+  return token;
+}
+
+async function getVercelHeaders(): Promise<{ Authorization: string; 'Content-Type': string }> {
+  const token = await getVercelToken();
   return {
     Authorization: `Bearer ${token}`,
     'Content-Type': 'application/json',
@@ -84,7 +99,7 @@ export interface VercelDeployResult {
  */
 export async function testVercelConnection(): Promise<VercelTestResult> {
   try {
-    const headers = getVercelHeaders();
+    const headers = await getVercelHeaders();
     const teamParam = getTeamParam();
 
     const response = await fetch(
@@ -143,7 +158,7 @@ export async function testVercelConnection(): Promise<VercelTestResult> {
 export async function createVercelProject(
   params: VercelCreateProjectParams
 ): Promise<{ projectId: string; name: string }> {
-  const headers = getVercelHeaders();
+  const headers = await getVercelHeaders();
   const teamParam = getTeamParam();
 
   // Check if a project with this name already exists
@@ -219,7 +234,7 @@ export async function createVercelProject(
 export async function deployToVercel(
   params: VercelDeployParams
 ): Promise<VercelDeployResult> {
-  const headers = getVercelHeaders();
+  const headers = await getVercelHeaders();
   const teamParam = getTeamParam();
 
   // Build query: skip auto-detection for new projects (static sites)
@@ -288,7 +303,7 @@ export async function deployToVercel(
 export async function getVercelDeployment(
   deploymentId: string
 ): Promise<VercelDeployment | null> {
-  const headers = getVercelHeaders();
+  const headers = await getVercelHeaders();
   const teamParam = getTeamParam();
 
   const response = await fetch(

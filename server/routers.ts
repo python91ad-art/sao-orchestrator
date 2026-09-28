@@ -14,13 +14,13 @@ import {
   updateCoreLoopInterval,
 } from './orchestrator';
 import { auditAllActiveDeployments, auditDeployment } from './auditScheduler';
-import { testGroqConnection, testLLMRouter } from './services/llm';
+import { testGroqConnection, testLLMRouterAsync } from './services/llm';
 import { crawlAndExtract } from './services/crawler';
 import { search as googleSearch, searchForGaps, trendingProblems } from './services/search';
-import { users, gaps, queueItems } from '../drizzle/schema';
-import { eq, asc, sql } from 'drizzle-orm';
+import { users, gaps, queueItems, adExperiments } from '../drizzle/schema';
+import { eq, asc, sql, inArray } from 'drizzle-orm';
 import { createCryptoPayment, toSafePaymentView } from './services/crypto';
-import { hasNowPaymentsApiKey, getNowPaymentsConfig } from './services/nowpayments';
+import { hasNowPaymentsApiKeyAsync, getNowPaymentsConfigAsync } from './services/nowpayments';
 import * as providerRegistry from './services/providerRegistry';
 
 // ==========================================
@@ -1064,7 +1064,7 @@ const integrationsRouter = router({
 
   testLLMRouter: adminProcedure
     .query(async () => {
-      const status = testLLMRouter();
+      const status = await testLLMRouterAsync();
       return {
         success: status.success,
         message: status.message,
@@ -1135,7 +1135,7 @@ const integrationsRouter = router({
   testNowPayments: adminProcedure
     .query(async () => {
       // Report configuration presence only — never the secret values.
-      const hasKey = hasNowPaymentsApiKey();
+      const hasKey = await hasNowPaymentsApiKeyAsync();
       const hasSecret = Boolean(process.env.NOWPAYMENTS_IPN_SECRET);
       if (!hasKey || !hasSecret) {
         return {
@@ -1146,7 +1146,7 @@ const integrationsRouter = router({
         };
       }
       try {
-        getNowPaymentsConfig();
+        await getNowPaymentsConfigAsync();
         return { success: true, message: 'NOWPayments API key and IPN secret are configured' };
       } catch (err: any) {
         return { success: false, message: err.message || 'NOWPayments configuration error' };
@@ -1454,7 +1454,11 @@ const invitesRouter = router({
         // the admin can communicate the link directly.
       }
 
-      return invite;
+      return {
+        ...invite,
+        token,
+        registrationUrl,
+      };
     }),
 
   list: adminProcedure
@@ -1490,7 +1494,21 @@ const advertisingRouter = router({
       const totalBudget = campaigns.reduce((s, c) => s + parseFloat(String(c.budget || '0')), 0);
       const totalSpent = campaigns.reduce((s, c) => s + parseFloat(String(c.spent || '0')), 0);
       const activeCount = campaigns.filter(c => c.status === 'ACTIVE').length;
-      return { campaigns, totalBudget, totalSpent, activeCount };
+      const { getAdvertisingBalance, getCampaignMetrics } = await import('./services/advertising/growthEngine');
+      const deploymentIds = Array.from(new Set(campaigns.map((c: any) => c.deploymentId)));
+      const balances: Record<string, any> = {};
+      for (const deploymentId of deploymentIds) {
+        balances[deploymentId] = await getAdvertisingBalance(deploymentId);
+      }
+      const metrics: Record<string, any> = {};
+      for (const campaign of campaigns) {
+        metrics[campaign.id] = await getCampaignMetrics(campaign.id);
+      }
+      const campaignIds = campaigns.map((campaign: any) => campaign.id);
+      const experiments = campaignIds.length
+        ? await db.db.select().from(adExperiments).where(inArray(adExperiments.campaignId, campaignIds))
+        : [];
+      return { campaigns, totalBudget, totalSpent, activeCount, balances, metrics, experiments };
     }),
 
   listForDeployment: protectedProcedure
@@ -1552,6 +1570,7 @@ const advertisingRouter = router({
       const gap = await db.getGapById(deployment.gapId);
       const { analyzeProject } = await import('./services/advertising/projectAnalyzer');
       const { calculateAdvertisingBudget } = await import('./services/advertising/budgetEngine');
+      const { buildAudienceResearch, storeAudienceResearch, getAdvertisingBalance, getAdvertisingAllocationPercentage } = await import('./services/advertising/growthEngine');
       const revenue = parseFloat(String(deployment.revenue || '0'));
       const { budget, percentageUsed } = calculateAdvertisingBudget(revenue);
       const analysis = await analyzeProject({
@@ -1559,7 +1578,20 @@ const advertisingRouter = router({
         controlsAccess: gap?.controlsAccess || '', underestimatesValue: gap?.underestimatesValue || '',
         businessPlan: deployment.businessPlan || '',
       });
-      return { analysis, budget: { deploymentRevenue: revenue, advertisingRevenuePercentage: percentageUsed, calculatedBudget: budget } };
+      const audience = buildAudienceResearch(analysis);
+      await storeAudienceResearch(deployment.id, audience);
+      const balance = await getAdvertisingBalance(deployment.id);
+      return {
+        analysis,
+        audience,
+        balance,
+        budget: {
+          deploymentRevenue: revenue,
+          advertisingRevenuePercentage: percentageUsed || getAdvertisingAllocationPercentage(),
+          calculatedBudget: budget,
+          availableAdvertisingFunds: balance.available,
+        },
+      };
     }),
 
   generateStrategy: protectedProcedure
@@ -1573,22 +1605,52 @@ const advertisingRouter = router({
       const gap = await db.getGapById(deployment.gapId);
       const { analyzeProject } = await import('./services/advertising/projectAnalyzer');
       const { buildAdvertisingStrategy } = await import('./services/advertising/strategyEngine');
-      const { calculateAdvertisingBudget, determineCampaignType } = await import('./services/advertising/budgetEngine');
-      const revenue = parseFloat(String(deployment.revenue || '0'));
-      const { budget, percentageUsed } = calculateAdvertisingBudget(revenue);
+      const { determineCampaignType } = await import('./services/advertising/budgetEngine');
+      const {
+        buildAudienceResearch,
+        storeAudienceResearch,
+        selectChannels,
+        getAdvertisingBalance,
+        hasApprovedPaidCampaign,
+      } = await import('./services/advertising/growthEngine');
       const analysis = await analyzeProject({
         deploymentId: deployment.id, knows: gap?.knows || '', needs: gap?.needs || '',
         controlsAccess: gap?.controlsAccess || '', underestimatesValue: gap?.underestimatesValue || '',
         businessPlan: deployment.businessPlan || '',
       });
+      const audience = buildAudienceResearch(analysis);
+      await storeAudienceResearch(deployment.id, audience);
+      const balance = await getAdvertisingBalance(deployment.id);
+      const budget = balance.available;
+      const percentageUsed = 20;
       const strategy = buildAdvertisingStrategy({ projectAnalysis: analysis, advertisingBudget: budget, percentageUsed });
       const campaignType = determineCampaignType(budget);
-      const channel = input.channel || (campaignType === 'PAID' ? 'google_ads' : 'organic_social');
+      const rankedChannels = selectChannels({ research: audience, strategy, availableBudget: balance.available });
+      const channel = input.channel || rankedChannels[0]?.channel || (campaignType === 'PAID' ? 'google_ads' : 'organic_social');
+      const isPaid = ['google_ads', 'meta_ads', 'tiktok_ads'].includes(channel);
+      const finalType = isPaid ? 'PAID' : 'FREE_ORGANIC';
+      const approvalStatus = finalType === 'PAID'
+        ? (await hasApprovedPaidCampaign(deployment.id) ? 'APPROVED' : 'PENDING')
+        : 'NOT_REQUIRED';
+      const status = finalType === 'PAID' && approvalStatus !== 'APPROVED'
+        ? 'READY_FOR_APPROVAL'
+        : 'READY';
       const campaign = await db.createAdCampaign({
         deploymentId: deployment.id, name: `${analysis.appName.slice(0, 50)} - ${channel}`,
-        channel, campaignType, budget: budget.toFixed(2), strategy: JSON.stringify(strategy),
+        channel,
+        campaignType: finalType,
+        status,
+        objective: strategy.campaignObjectives[0],
+        targetAudience: strategy.targetAudienceDescription,
+        offer: strategy.valueProposition,
+        callToAction: analysis.callsToAction[0] || 'Learn More',
+        budget: budget.toFixed(2),
+        dailyLimit: finalType === 'PAID' ? Math.max(0, Math.round((budget / 30) * 100) / 100).toFixed(2) : '0.00',
+        approvalStatus,
+        approvedSpendLimit: approvalStatus === 'APPROVED' ? budget.toFixed(2) : '0.00',
+        strategy: JSON.stringify({ ...strategy, audience, rankedChannels }),
       });
-      return { campaign, strategy, analysis };
+      return { campaign, strategy, analysis, audience, rankedChannels, balance };
     }),
 
   generateCreatives: protectedProcedure
@@ -1643,9 +1705,25 @@ const advertisingRouter = router({
         throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this campaign.' });
       }
       const { publishCampaign } = await import('./services/advertising/channelAdapter');
+      const { canSpend, auditAdAction } = await import('./services/advertising/growthEngine');
       const channelBudget = parseFloat(String(campaign.budget || '0'));
       if (campaign.campaignType === 'PAID' && channelBudget <= 0) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'Cannot publish PAID campaign with zero budget.' });
+      }
+      if (campaign.campaignType === 'PAID') {
+        const check = await canSpend({
+          deploymentId: campaign.deploymentId,
+          campaignId: campaign.id,
+          requestedAmount: Math.min(channelBudget, Number(campaign.dailyLimit || channelBudget) || channelBudget),
+        });
+        if (!check.allowed) {
+          await db.updateAdCampaign(campaign.id, {
+            status: campaign.approvalStatus === 'PENDING' ? 'READY_FOR_APPROVAL' : 'WAITING_FOR_BUDGET',
+            errorMessage: check.reason,
+          } as any);
+          await auditAdAction(campaign.deploymentId, campaign.id, 'Paid Campaign Activation Denied', check.reason);
+          return { success: false, notConfigured: false, error: check.reason };
+        }
       }
       const result = await publishCampaign({ name: campaign.name, deploymentId: campaign.deploymentId, budget: channelBudget, channel: campaign.channel as any });
       if (!result.success) {
@@ -1654,6 +1732,110 @@ const advertisingRouter = router({
       }
       await db.updateAdCampaign(campaign.id, { status: 'ACTIVE', providerCampaignId: result.providerCampaignId || null, providerStatus: result.providerStatus || null, startedAt: new Date() } as any);
       return { success: true, notConfigured: false };
+    }),
+
+  balance: protectedProcedure
+    .input(z.string())
+    .query(async ({ input, ctx }) => {
+      const deployment = await db.getDeploymentById(input);
+      if (!deployment) throw new TRPCError({ code: 'NOT_FOUND', message: 'Deployment not found.' });
+      if (ctx.user.role !== 'admin' && deployment.userId !== ctx.user.id) {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this deployment.' });
+      }
+      const { getAdvertisingBalance } = await import('./services/advertising/growthEngine');
+      return getAdvertisingBalance(input);
+    }),
+
+  recordEvent: adminProcedure
+    .input(z.object({
+      campaignId: z.string(),
+      creativeId: z.string().nullable().optional(),
+      eventType: z.enum(['impression', 'reach', 'click', 'conversion', 'spend', 'revenue']),
+      quantity: z.number().min(1).default(1),
+      amount: z.number().min(0).default(0),
+      source: z.enum(['PROVIDER', 'INTERNAL', 'ESTIMATED']).default('INTERNAL'),
+      attribution: z.enum(['DIRECT', 'ASSISTED', 'ESTIMATED', 'UNKNOWN']).default('UNKNOWN'),
+      idempotencyKey: z.string().min(1),
+      metadata: z.any().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const campaign = await db.getAdCampaignById(input.campaignId);
+      if (!campaign) throw new TRPCError({ code: 'NOT_FOUND', message: 'Campaign not found.' });
+      const { recordCampaignEvent } = await import('./services/advertising/growthEngine');
+      return recordCampaignEvent(input as any);
+    }),
+
+  approve: adminProcedure
+    .input(z.object({ campaignId: z.string(), approvedLimit: z.number().min(0), reason: z.string().optional() }))
+    .mutation(async ({ input, ctx }) => {
+      const { approveCampaign } = await import('./services/advertising/growthEngine');
+      await approveCampaign(input.campaignId, ctx.user.id, input.approvedLimit, input.reason);
+      return { success: true };
+    }),
+
+  reject: adminProcedure
+    .input(z.object({ campaignId: z.string(), reason: z.string().optional() }))
+    .mutation(async ({ input, ctx }) => {
+      const { rejectCampaign } = await import('./services/advertising/growthEngine');
+      await rejectCampaign(input.campaignId, ctx.user.id, input.reason);
+      return { success: true };
+    }),
+
+  pause: adminProcedure
+    .input(z.string())
+    .mutation(async ({ input }) => {
+      await db.updateAdCampaign(input, { status: 'PAUSED' } as any);
+      return { success: true };
+    }),
+
+  resume: adminProcedure
+    .input(z.string())
+    .mutation(async ({ input }) => {
+      await db.updateAdCampaign(input, { status: 'ACTIVE' } as any);
+      return { success: true };
+    }),
+
+  stop: adminProcedure
+    .input(z.string())
+    .mutation(async ({ input }) => {
+      await db.updateAdCampaign(input, { status: 'STOPPED', endedAt: new Date() } as any);
+      return { success: true };
+    }),
+
+  optimize: adminProcedure
+    .input(z.string())
+    .mutation(async ({ input }) => {
+      const { optimizeCampaign } = await import('./services/advertising/growthEngine');
+      return optimizeCampaign(input);
+    }),
+
+  createExperiment: adminProcedure
+    .input(z.object({
+      campaignId: z.string(),
+      hypothesis: z.string().min(1),
+      variable: z.string().min(1),
+      controlCreativeId: z.string().nullable().optional(),
+      variantACreativeId: z.string().nullable().optional(),
+      variantBCreativeId: z.string().nullable().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const { createExperiment } = await import('./services/advertising/growthEngine');
+      const id = await createExperiment(input as {
+        campaignId: string;
+        hypothesis: string;
+        variable: string;
+        controlCreativeId?: string | null;
+        variantACreativeId?: string | null;
+        variantBCreativeId?: string | null;
+      });
+      return { success: true, id };
+    }),
+
+  evaluateExperiment: adminProcedure
+    .input(z.object({ experimentId: z.string(), minClicks: z.number().min(1).optional() }))
+    .mutation(async ({ input }) => {
+      const { evaluateExperiment } = await import('./services/advertising/growthEngine');
+      return evaluateExperiment(input.experimentId, input.minClicks);
     }),
 });
 

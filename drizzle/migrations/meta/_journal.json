@@ -71,6 +71,27 @@
       "when": 1756725000000,
       "tag": "0009_add_missing_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "5",
+      "when": 1756730000000,
+      "tag": "0010_registration_invite_token",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "5",
+      "when": 1756735000000,
+      "tag": "0011_provider_registry",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "5",
+      "when": 1756740000000,
+      "tag": "0012_advertising_growth_engine",
+      "breakpoints": true
     }
   ]
 }

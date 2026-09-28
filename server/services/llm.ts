@@ -11,11 +11,12 @@
 // ============================================================
 
 import { Capability, LLMRouterExhaustedError, ProviderId } from './llmTypes';
-import { route, getRouterStatus, resetProvider, resetRouterState, estimateTokens } from './llmRouter';
+import { route, getRouterStatus, getRouterStatusAsync, resetProvider, resetRouterState, estimateTokens } from './llmRouter';
+import { hasProviderCredentialsAsync } from './llmModels';
 
 // Re-export for callers/tests.
 export { LLMRouterExhaustedError, estimateTokens };
-export { getRouterStatus, resetProvider, resetRouterState };
+export { getRouterStatus, getRouterStatusAsync, resetProvider, resetRouterState };
 
 export interface LLMResponse {
   content: string;
@@ -128,8 +129,8 @@ export async function testGroqConnection(): Promise<{
   message: string;
   model?: string;
 }> {
-  if (!process.env.GROQ_API_KEY) {
-    return { success: false, message: 'GROQ_API_KEY is not configured' };
+  if (!(await hasProviderCredentialsAsync('groq'))) {
+    return { success: false, message: 'Groq credentials are not configured in environment or Providers & API Keys.' };
   }
   try {
     const result = await route({
@@ -170,3 +171,19 @@ export function testLLMRouter(): {
   };
 }
 
+export async function testLLMRouterAsync(): Promise<{
+  success: boolean;
+  message: string;
+  providers: Awaited<ReturnType<typeof getRouterStatusAsync>>;
+}> {
+  const status = await getRouterStatusAsync();
+  const configured = status.filter((s) => s.credentials === 'SET').length;
+  return {
+    success: configured > 0,
+    message:
+      configured > 0
+        ? `${configured} provider(s) configured; see per-provider status.`
+        : 'No LLM providers configured (all API keys missing).',
+    providers: status,
+  };
+}

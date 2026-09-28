@@ -109,6 +109,7 @@ const poolConfig: mysql.PoolOptions = {
 // Create MySQL connection pool
 // ==========================================
 const poolConnection = mysql.createPool(poolConfig);
+export const mysqlPool = poolConnection;
 
 // ==========================================
 // DIAGNOSTIC: Test connection at startup
@@ -1600,7 +1601,15 @@ export async function createAdCampaign(data: {
   name: string;
   channel: string;
   campaignType: 'PAID' | 'FREE_ORGANIC';
+  status?: any;
+  objective?: string | null;
+  targetAudience?: string | null;
+  offer?: string | null;
+  callToAction?: string | null;
   budget?: string;
+  dailyLimit?: string;
+  approvalStatus?: string;
+  approvedSpendLimit?: string;
   strategy?: string;
 }) {
   const id = generateId();
@@ -1610,7 +1619,15 @@ export async function createAdCampaign(data: {
     name: data.name,
     channel: data.channel,
     campaignType: data.campaignType,
+    status: data.status || 'DRAFT',
+    objective: data.objective || null,
+    targetAudience: data.targetAudience || null,
+    offer: data.offer || null,
+    callToAction: data.callToAction || null,
     budget: data.budget || '0.00',
+    dailyLimit: data.dailyLimit || '0.00',
+    approvalStatus: data.approvalStatus || (data.campaignType === 'PAID' ? 'PENDING' : 'NOT_REQUIRED'),
+    approvedSpendLimit: data.approvedSpendLimit || '0.00',
     strategy: data.strategy || null,
   });
   return getAdCampaignById(id);

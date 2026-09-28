@@ -173,14 +173,23 @@ export const adCampaigns = mysqlTable('ad_campaigns', {
   name: varchar('name', { length: 255 }).notNull(),
   channel: varchar('channel', { length: 50 }).notNull(), // provider type: google_ads, meta_ads, tiktok_ads, organic_social, etc.
   status: mysqlEnum('status', [
-    'DRAFT', 'ANALYSING', 'READY', 'WAITING_FOR_BUDGET',
+    'PLANNED', 'DRAFT', 'ANALYSING', 'READY', 'WAITING_FOR_BUDGET',
     'WAITING_FOR_CREDENTIALS', 'READY_TO_PUBLISH', 'ACTIVE',
-    'PAUSED', 'COMPLETED', 'FAILED'
+    'PAUSED', 'COMPLETED', 'FAILED', 'READY_FOR_APPROVAL',
+    'APPROVED', 'REJECTED', 'STOPPED'
   ]).default('DRAFT').notNull(),
   campaignType: mysqlEnum('campaign_type', ['PAID', 'FREE_ORGANIC']).default('PAID').notNull(),
+  objective: varchar('objective', { length: 255 }),
+  targetAudience: text('target_audience'),
+  offer: varchar('offer', { length: 512 }),
+  callToAction: varchar('call_to_action', { length: 255 }),
   budget: decimal('budget', { precision: 12, scale: 2 }).default('0.00').notNull(),
+  dailyLimit: decimal('daily_limit', { precision: 12, scale: 2 }).default('0.00').notNull(),
+  approvedSpendLimit: decimal('approved_spend_limit', { precision: 12, scale: 2 }).default('0.00').notNull(),
   spent: decimal('spent', { precision: 12, scale: 2 }).default('0.00').notNull(),
   revenueAttributed: decimal('revenue_attributed', { precision: 12, scale: 2 }).default('0.00'),
+  approvalStatus: varchar('approval_status', { length: 32 }).default('NOT_REQUIRED').notNull(),
+  optimizationStatus: varchar('optimization_status', { length: 32 }).default('MONITOR').notNull(),
   strategy: text('strategy'), // JSON: the strategy analysis
   providerCampaignId: varchar('provider_campaign_id', { length: 255 }),
   providerStatus: varchar('provider_status', { length: 100 }),
@@ -210,6 +219,104 @@ export const adCreatives = mysqlTable('ad_creatives', {
   createdAt: datetime('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
   index('idx_ad_creatives_campaign').on(table.campaignId),
+]);
+
+export const adAudienceResearch = mysqlTable('ad_audience_research', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  deploymentId: varchar('deployment_id', { length: 255 }).notNull(),
+  researchJson: text('research_json').notNull(),
+  evidenceJson: text('evidence_json'),
+  sourceHash: varchar('source_hash', { length: 64 }).notNull().unique(),
+  createdAt: datetime('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: datetime('updated_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('idx_ad_audience_research_deployment').on(table.deploymentId),
+]);
+
+export const adBudgetLedger = mysqlTable('ad_budget_ledger', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  deploymentId: varchar('deployment_id', { length: 255 }).notNull(),
+  campaignId: varchar('campaign_id', { length: 255 }),
+  paymentId: varchar('payment_id', { length: 255 }),
+  type: varchar('type', { length: 32 }).notNull(),
+  amount: decimal('amount', { precision: 12, scale: 2 }).notNull(),
+  status: varchar('status', { length: 32 }).notNull().default('POSTED'),
+  idempotencyKey: varchar('idempotency_key', { length: 255 }).notNull().unique(),
+  metadata: text('metadata'),
+  createdAt: datetime('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('idx_ad_budget_ledger_deployment').on(table.deploymentId),
+  index('idx_ad_budget_ledger_campaign').on(table.campaignId),
+]);
+
+export const adCampaignEvents = mysqlTable('ad_campaign_events', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  campaignId: varchar('campaign_id', { length: 255 }).notNull(),
+  creativeId: varchar('creative_id', { length: 255 }),
+  eventType: varchar('event_type', { length: 32 }).notNull(),
+  quantity: int('quantity').default(1).notNull(),
+  amount: decimal('amount', { precision: 12, scale: 2 }).default('0.00').notNull(),
+  source: varchar('source', { length: 32 }).notNull().default('INTERNAL'),
+  attribution: varchar('attribution', { length: 32 }).notNull().default('UNKNOWN'),
+  idempotencyKey: varchar('idempotency_key', { length: 255 }).notNull().unique(),
+  metadata: text('metadata'),
+  createdAt: datetime('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('idx_ad_campaign_events_campaign').on(table.campaignId),
+  index('idx_ad_campaign_events_creative').on(table.creativeId),
+  index('idx_ad_campaign_events_type').on(table.eventType),
+]);
+
+export const adApprovals = mysqlTable('ad_approvals', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  deploymentId: varchar('deployment_id', { length: 255 }).notNull(),
+  campaignId: varchar('campaign_id', { length: 255 }).notNull(),
+  status: varchar('status', { length: 32 }).notNull().default('PENDING'),
+  requestedBudget: decimal('requested_budget', { precision: 12, scale: 2 }).notNull(),
+  requestedChannel: varchar('requested_channel', { length: 50 }).notNull(),
+  strategy: text('strategy'),
+  approvedLimit: decimal('approved_limit', { precision: 12, scale: 2 }).default('0.00').notNull(),
+  approvedBy: varchar('approved_by', { length: 255 }),
+  decisionReason: text('decision_reason'),
+  decidedAt: datetime('decided_at'),
+  createdAt: datetime('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('idx_ad_approvals_deployment').on(table.deploymentId),
+  index('idx_ad_approvals_campaign').on(table.campaignId),
+  index('idx_ad_approvals_status').on(table.status),
+]);
+
+export const adExperiments = mysqlTable('ad_experiments', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  campaignId: varchar('campaign_id', { length: 255 }).notNull(),
+  hypothesis: text('hypothesis').notNull(),
+  variable: varchar('variable', { length: 64 }).notNull(),
+  status: varchar('status', { length: 32 }).notNull().default('DRAFT'),
+  controlCreativeId: varchar('control_creative_id', { length: 255 }),
+  variantACreativeId: varchar('variant_a_creative_id', { length: 255 }),
+  variantBCreativeId: varchar('variant_b_creative_id', { length: 255 }),
+  metricsJson: text('metrics_json'),
+  selectedCreativeId: varchar('selected_creative_id', { length: 255 }),
+  decisionReason: text('decision_reason'),
+  startedAt: datetime('started_at'),
+  endedAt: datetime('ended_at'),
+  createdAt: datetime('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: datetime('updated_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('idx_ad_experiments_campaign').on(table.campaignId),
+  index('idx_ad_experiments_status').on(table.status),
+]);
+
+export const adOptimizationDecisions = mysqlTable('ad_optimization_decisions', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  campaignId: varchar('campaign_id', { length: 255 }).notNull(),
+  decision: varchar('decision', { length: 64 }).notNull(),
+  reason: text('reason').notNull(),
+  metricsJson: text('metrics_json'),
+  createdAt: datetime('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('idx_ad_optimization_campaign').on(table.campaignId),
+  index('idx_ad_optimization_decision').on(table.decision),
 ]);
 export const payments = mysqlTable('payments', {
   id: varchar('id', { length: 255 }).primaryKey(),
