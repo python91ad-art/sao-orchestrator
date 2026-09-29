@@ -6,13 +6,16 @@ import { retryWithExponentialBackoff } from './retryEngine';
 // ==========================================
 // AUDIT SCHEDULER INITIALIZATION
 // ==========================================
+let auditTimer: ReturnType<typeof setInterval> | null = null;
+let auditRunning = false;
+
 export function scheduleAudits() {
+  if (auditTimer) return;
+
   const threeDaysMs = 3 * 24 * 60 * 60 * 1000;
   console.log('Auditor scheduled to check active deployments every 3 days.');
 
-  let auditRunning = false;
-
-  setInterval(async () => {
+  auditTimer = setInterval(async () => {
     if (auditRunning) {
       console.warn('[Audit] Previous audit still running — skipping overlap.');
       return;
@@ -27,6 +30,13 @@ export function scheduleAudits() {
       auditRunning = false;
     }
   }, threeDaysMs);
+}
+
+export function stopAudits() {
+  if (auditTimer) {
+    clearInterval(auditTimer);
+    auditTimer = null;
+  }
 }
 
 // ==========================================

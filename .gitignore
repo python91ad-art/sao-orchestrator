@@ -4,3 +4,5 @@ dist/
 .env.*
 !.env.example
 mysql_data/
+playwright-report/
+test-results/

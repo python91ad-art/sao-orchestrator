@@ -23,6 +23,7 @@ let dbPort: number;
 let dbUser: string;
 let dbPassword: string;
 let dbName: string;
+let dbSocket: string | undefined;
 
 const databaseUrl = process.env.DATABASE_URL;
 
@@ -53,6 +54,7 @@ if (databaseUrl) {
   dbUser = process.env.DB_USER || 'root';
   dbPassword = process.env.DB_PASSWORD || '';
   dbName = process.env.DB_NAME || 'sao';
+  dbSocket = process.env.DB_SOCKET || undefined;
 
   console.log('Using individual DB_* variables for MySQL connection.');
 }
@@ -82,6 +84,7 @@ console.log(`DB Name: ${dbName}`);
 const poolConfig: mysql.PoolOptions = {
   host: dbHost,
   port: dbPort,
+  socketPath: dbSocket,
   user: dbUser,
   password: dbPassword,
   database: dbName,
@@ -100,9 +103,11 @@ const poolConfig: mysql.PoolOptions = {
   // Northflank MySQL requires TLS.
   // production defaults to secure certificate verification.
   // Set TLS_REJECT_UNAUTHORIZED=false only if your provider uses self-signed certs.
-  ssl: {
-    rejectUnauthorized: process.env.TLS_REJECT_UNAUTHORIZED !== 'false',
-  },
+  ssl: dbSocket
+    ? undefined
+    : {
+        rejectUnauthorized: process.env.TLS_REJECT_UNAUTHORIZED !== 'false',
+      },
 };
 
 // ==========================================
@@ -112,12 +117,13 @@ const poolConnection = mysql.createPool(poolConfig);
 export const mysqlPool = poolConnection;
 
 // ==========================================
-// DIAGNOSTIC: Test connection at startup
+// Explicit startup readiness check
 // ==========================================
-(async () => {
+export async function assertDatabaseReady(): Promise<void> {
   const configForLog = {
     host: poolConfig.host,
     port: poolConfig.port,
+    socketPath: poolConfig.socketPath,
     user: poolConfig.user,
     database: poolConfig.database,
     connectTimeout: poolConfig.connectTimeout,
@@ -130,6 +136,7 @@ export const mysqlPool = poolConnection;
 
   try {
     const connection = await poolConnection.getConnection();
+    await connection.ping();
 
     console.log('DB connection successful');
 
@@ -144,8 +151,9 @@ export const mysqlPool = poolConnection;
       fatal: err.fatal,
       message: err.message,
     });
+    throw new Error(`Database connection failed: ${err?.code || err?.message || 'unknown error'}`);
   }
-})();
+}
 
 // ==========================================
 // Drizzle database
@@ -1107,6 +1115,39 @@ export async function recordPaymentPaid(
   });
 }
 
+export async function getOrCreateProviderPayment(paymentData: {
+  deploymentId: string;
+  providerType: string;
+  providerPaymentId: string;
+  amount: string;
+  currency: string;
+  providerStatus?: string | null;
+}) {
+  const existing = await getPaymentByProviderPaymentId(
+    paymentData.providerType,
+    paymentData.providerPaymentId
+  );
+
+  if (existing) {
+    return { payment: existing, created: false };
+  }
+
+  const payment = await createPayment({
+    deploymentId: paymentData.deploymentId,
+    providerType: paymentData.providerType,
+    providerPaymentId: paymentData.providerPaymentId,
+    amount: paymentData.amount,
+    currency: paymentData.currency,
+    providerStatus: paymentData.providerStatus || null,
+  });
+
+  if (!payment) {
+    throw new Error('Failed to create payment ledger entry.');
+  }
+
+  return { payment, created: true };
+}
+
 /**
  * Enqueue an existing deployment for processing through the existing
  * queue/orchestrator pipeline. Idempotent: does not create a duplicate
@@ -1191,6 +1232,16 @@ export async function listAuditLogs(
     .orderBy(desc(schema.auditLogs.timestamp))
     .limit(limit)
     .offset(offset);
+}
+
+export async function getAuditLogById(id: string) {
+  const results = await db
+    .select()
+    .from(schema.auditLogs)
+    .where(eq(schema.auditLogs.id, id))
+    .limit(1);
+
+  return results[0] || null;
 }
 
 export async function getAuditStats() {
@@ -1681,6 +1732,26 @@ export async function listCreativesForCampaign(campaignId: string) {
   return db.select().from(schema.adCreatives)
     .where(eq(schema.adCreatives.campaignId, campaignId))
     .orderBy(asc(schema.adCreatives.createdAt));
+}
+
+export async function getAdExperimentById(id: string) {
+  const rows = await db.select().from(schema.adExperiments)
+    .where(eq(schema.adExperiments.id, id))
+    .limit(1);
+  return rows[0] || null;
+}
+
+export async function listExperimentsForCampaign(campaignId: string) {
+  return db.select().from(schema.adExperiments)
+    .where(eq(schema.adExperiments.campaignId, campaignId))
+    .orderBy(desc(schema.adExperiments.createdAt));
+}
+
+export async function updateAdExperiment(id: string, updates: Partial<typeof schema.adExperiments.$inferInsert>) {
+  await db.update(schema.adExperiments)
+    .set({ ...updates, updatedAt: new Date() } as any)
+    .where(eq(schema.adExperiments.id, id));
+  return getAdExperimentById(id);
 }
 
 export async function getAdvertisingStats(deploymentId: string) {

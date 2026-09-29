@@ -122,6 +122,10 @@ function hash(value: string): string {
   return crypto.createHash('sha256').update(value).digest('hex');
 }
 
+function isDuplicateKeyError(err: any): boolean {
+  return err?.code === 'ER_DUP_ENTRY' || err?.cause?.code === 'ER_DUP_ENTRY';
+}
+
 function todayStart(): Date {
   const d = new Date();
   d.setHours(0, 0, 0, 0);
@@ -377,7 +381,7 @@ export async function allocateRevenueForPayment(payment: any, deployment: any) {
       businessHealth: deployment.health || 'healthy',
     });
   } catch (err: any) {
-    if (err?.code !== 'ER_DUP_ENTRY') throw err;
+    if (!isDuplicateKeyError(err)) throw err;
   }
   return getAdvertisingBalance(deployment.id);
 }
@@ -498,7 +502,7 @@ export async function reserveSpend(input: SpendCheckInput & { idempotencyKey: st
       idempotencyKey: input.idempotencyKey,
     });
   } catch (err: any) {
-    if (err?.code !== 'ER_DUP_ENTRY') throw err;
+    if (!isDuplicateKeyError(err)) throw err;
   } finally {
     try {
       await connection.query('SELECT RELEASE_LOCK(?)', [lockName]);
@@ -540,7 +544,7 @@ export async function confirmReservedSpend(input: {
       .set({ status: 'SPENT' })
       .where(eq(schema.adBudgetLedger.idempotencyKey, input.reservationKey));
   } catch (err: any) {
-    if (err?.code !== 'ER_DUP_ENTRY') throw err;
+    if (!isDuplicateKeyError(err)) throw err;
   }
   await recordCampaignEvent({
     campaignId: input.campaignId,
@@ -582,7 +586,7 @@ export async function releaseReservedSpend(input: {
       .set({ status: 'RELEASED' })
       .where(eq(schema.adBudgetLedger.idempotencyKey, input.reservationKey));
   } catch (err: any) {
-    if (err?.code !== 'ER_DUP_ENTRY') throw err;
+    if (!isDuplicateKeyError(err)) throw err;
   }
   await auditAdAction(input.deploymentId, input.campaignId, 'Budget Released', input.reason);
   return { success: true, balance: await getAdvertisingBalance(input.deploymentId) };
@@ -600,6 +604,7 @@ export async function recordCampaignEvent(input: {
   metadata?: any;
 }) {
   const id = database.generateId();
+  let inserted = false;
   try {
     await database.db.insert(schema.adCampaignEvents).values({
       id,
@@ -613,10 +618,11 @@ export async function recordCampaignEvent(input: {
       idempotencyKey: input.idempotencyKey,
       metadata: input.metadata ? JSON.stringify(input.metadata) : null,
     });
+    inserted = true;
   } catch (err: any) {
-    if (err?.code !== 'ER_DUP_ENTRY') throw err;
+    if (!isDuplicateKeyError(err)) throw err;
   }
-  if (input.eventType === 'spend') {
+  if (inserted && input.eventType === 'spend') {
     const campaign = await database.getAdCampaignById(input.campaignId);
     if (campaign) {
       await database.updateAdCampaign(input.campaignId, {
@@ -624,7 +630,7 @@ export async function recordCampaignEvent(input: {
       } as any);
     }
   }
-  if (input.eventType === 'revenue') {
+  if (inserted && input.eventType === 'revenue') {
     const campaign = await database.getAdCampaignById(input.campaignId);
     if (campaign) {
       await database.updateAdCampaign(input.campaignId, {
@@ -766,11 +772,68 @@ export async function createExperiment(input: {
   return id;
 }
 
+export async function startExperiment(experimentId: string) {
+  const experiment = await database.getAdExperimentById(experimentId);
+  if (!experiment) throw new Error('Experiment not found.');
+
+  const creativeIds = [
+    experiment.variantACreativeId,
+    experiment.variantBCreativeId,
+  ].filter(Boolean);
+
+  if (creativeIds.length < 2) {
+    throw new Error('Two configured variants are required before starting an experiment.');
+  }
+
+  if (['COMPLETED', 'STOPPED'].includes(experiment.status)) {
+    throw new Error(`Experiment is terminal (${experiment.status}).`);
+  }
+
+  await database.updateAdExperiment(experimentId, {
+    status: 'ACTIVE',
+    startedAt: experiment.startedAt || new Date(),
+    decisionReason: null,
+  } as any);
+
+  const campaign = await database.getAdCampaignById(experiment.campaignId);
+  if (campaign) {
+    await auditAdAction(campaign.deploymentId, experiment.campaignId, 'Experiment Started', experiment.hypothesis);
+  }
+
+  return database.getAdExperimentById(experimentId);
+}
+
+export async function stopExperiment(experimentId: string, reason = 'Stopped by admin') {
+  const experiment = await database.getAdExperimentById(experimentId);
+  if (!experiment) throw new Error('Experiment not found.');
+
+  await database.updateAdExperiment(experimentId, {
+    status: 'STOPPED',
+    decisionReason: reason,
+    endedAt: new Date(),
+  } as any);
+
+  const campaign = await database.getAdCampaignById(experiment.campaignId);
+  if (campaign) {
+    await auditAdAction(campaign.deploymentId, experiment.campaignId, 'Experiment Stopped', reason);
+  }
+
+  return database.getAdExperimentById(experimentId);
+}
+
 export async function evaluateExperiment(experimentId: string, minClicks = 50) {
   const rows = await database.db.select().from(schema.adExperiments)
     .where(eq(schema.adExperiments.id, experimentId)).limit(1);
   const experiment = rows[0];
   if (!experiment) throw new Error('Experiment not found.');
+  if (['COMPLETED', 'STOPPED'].includes(experiment.status)) {
+    return {
+      status: experiment.status,
+      selectedCreativeId: experiment.selectedCreativeId,
+      reason: experiment.decisionReason || 'Experiment is terminal.',
+      metrics: experiment.metricsJson ? JSON.parse(experiment.metricsJson) : {},
+    };
+  }
   const creativeIds = [experiment.variantACreativeId, experiment.variantBCreativeId].filter(Boolean) as string[];
   if (creativeIds.length < 2) {
     return { status: 'INCONCLUSIVE', reason: 'Two variants are required.' };
@@ -790,17 +853,26 @@ export async function evaluateExperiment(experimentId: string, minClicks = 50) {
       status = 'COMPLETED'; selected = creativeIds[0]; reason = 'Variant A conversion rate is materially higher.';
     } else if (b.conversionRate > a.conversionRate * 1.1) {
       status = 'COMPLETED'; selected = creativeIds[1]; reason = 'Variant B conversion rate is materially higher.';
+    } else {
+      reason = 'Sample size is sufficient but no variant is materially better.';
     }
   }
   await database.db.update(schema.adExperiments).set({
-    status,
+    status: status === 'COMPLETED' ? 'COMPLETED' : experiment.status === 'ACTIVE' ? 'ACTIVE' : 'INCONCLUSIVE',
     selectedCreativeId: selected,
     decisionReason: reason,
     metricsJson: JSON.stringify(Object.fromEntries(byCreative)),
     endedAt: status === 'COMPLETED' ? new Date() : null,
     updatedAt: new Date(),
   }).where(eq(schema.adExperiments.id, experimentId));
-  return { status, selectedCreativeId: selected, reason, metrics: Object.fromEntries(byCreative) };
+  const persistedStatus = status === 'COMPLETED' ? 'COMPLETED' : experiment.status === 'ACTIVE' ? 'ACTIVE' : 'INCONCLUSIVE';
+  if (persistedStatus === 'COMPLETED') {
+    const campaign = await database.getAdCampaignById(experiment.campaignId);
+    if (campaign) {
+      await auditAdAction(campaign.deploymentId, experiment.campaignId, 'Experiment Completed', reason);
+    }
+  }
+  return { status: persistedStatus, selectedCreativeId: selected, reason, metrics: Object.fromEntries(byCreative) };
 }
 
 export async function auditAdAction(deploymentId: string, campaignId: string | null, decision: string, reason: string) {

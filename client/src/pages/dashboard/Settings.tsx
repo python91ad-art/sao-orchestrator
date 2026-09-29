@@ -163,6 +163,15 @@ const Settings: React.FC = () => {
         emailNotifications: emailNotify,
         slackNotifications: slackNotify,
       });
+      const state: any = await trpcQuery('coreLoop.status');
+      if (state) {
+        if (typeof state.intervalMs === 'number') setIntervalMs(state.intervalMs);
+        if (state.maxCostPerDay !== undefined) setMaxCost(Number(state.maxCostPerDay));
+        if (typeof state.maxDeployments === 'number') setMaxDeployments(state.maxDeployments);
+        if (typeof state.autoPauseOnHighBanRisk === 'boolean') setAutoPause(state.autoPauseOnHighBanRisk);
+        if (typeof state.emailNotifications === 'boolean') setEmailNotify(state.emailNotifications);
+        if (typeof state.slackNotifications === 'boolean') setSlackNotify(state.slackNotifications);
+      }
 
       alert('Settings saved and applied to the application.');
     } catch (error: any) {
@@ -325,6 +334,12 @@ const Settings: React.FC = () => {
                     backoffMultiplier,
                     baseDelayMs,
                   });
+                  const value: any = await trpcQuery('settings.getRetryConfig');
+                  if (value) {
+                    if (typeof value.maxAttempts === 'number') setMaxAttempts(value.maxAttempts);
+                    if (typeof value.backoffMultiplier === 'number') setBackoffMultiplier(value.backoffMultiplier);
+                    if (typeof value.baseDelayMs === 'number') setBaseDelayMs(value.baseDelayMs);
+                  }
                   setRetrySaved(true);
                   setTimeout(() => setRetrySaved(false), 2000);
                 } catch (e: any) {
@@ -363,6 +378,11 @@ const Settings: React.FC = () => {
                     maxSize: queueMaxSize,
                     expirationHours: queueExpirationHours,
                   });
+                  const value: any = await trpcQuery('settings.getQueueLimits');
+                  if (value) {
+                    if (typeof value.maxSize === 'number') setQueueMaxSize(value.maxSize);
+                    if (typeof value.expirationHours === 'number') setQueueExpirationHours(value.expirationHours);
+                  }
                   setQueueSaved(true);
                   setTimeout(() => setQueueSaved(false), 2000);
                 } catch (e: any) {
@@ -409,6 +429,8 @@ const Settings: React.FC = () => {
                         await trpcMutation('settings.setConcurrency', {
                           level: concurrencyLevel,
                         });
+                        const value: any = await trpcQuery('settings.getConcurrency');
+                        if (typeof value?.concurrency === 'number') setConcurrencyLevel(value.concurrency);
                         setConcurrencySaved(true);
                         setTimeout(() => setConcurrencySaved(false), 2000);
                       } catch (e: any) {

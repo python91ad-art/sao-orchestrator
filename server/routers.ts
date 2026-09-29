@@ -406,7 +406,7 @@ const gapsRouter = router({
       return gap;
     }),
 
-  list: protectedProcedure
+  list: adminProcedure
     .input(z.object({
       limit: z.number().min(1).max(100).default(50),
       skip: z.number().min(0).default(0),
@@ -415,7 +415,7 @@ const gapsRouter = router({
       return db.listGaps(input.limit, input.skip);
     }),
 
-  get: protectedProcedure
+  get: adminProcedure
     .input(z.string())
     .query(async ({ input }) => {
       const gap = await db.getGapById(input);
@@ -432,7 +432,7 @@ const gapsRouter = router({
       return db.updateGapStatus(input.id, input.status);
     }),
 
-  retry: protectedProcedure
+  retry: adminProcedure
     .input(z.string())
     .mutation(async ({ input }) => {
       const gap = await db.getGapById(input);
@@ -470,12 +470,12 @@ const gapsRouter = router({
 // QUEUE ROUTER
 // ==========================================
 const queueRouter = router({
-  list: protectedProcedure
+  list: adminProcedure
     .query(async () => {
       return db.listQueueItems();
     }),
 
-  stats: protectedProcedure
+  stats: adminProcedure
     .query(async () => {
       return db.getQueueStats();
     }),
@@ -555,7 +555,7 @@ const queueRouter = router({
 // DEPLOYMENTS ROUTER
 // ==========================================
 const deploymentsRouter = router({
-  list: protectedProcedure
+  list: adminProcedure
     .query(async ({ ctx }) => {
       // Admins see all deployments; regular users only their own.
       if (ctx.user.role === 'admin') {
@@ -564,7 +564,7 @@ const deploymentsRouter = router({
       return db.listDeployments(ctx.user.id);
     }),
 
-  get: protectedProcedure
+  get: adminProcedure
     .input(z.string())
     .query(async ({ input, ctx }) => {
       const deployment = await db.getDeploymentById(input);
@@ -669,7 +669,7 @@ const deploymentsRouter = router({
 // AUDIT ROUTER
 // ==========================================
 const auditRouter = router({
-  list: protectedProcedure
+  list: adminProcedure
     .input(z.object({
       limit: z.number().min(1).max(100).default(50),
       skip: z.number().min(0).default(0),
@@ -678,11 +678,12 @@ const auditRouter = router({
       return db.listAuditLogs(input.limit, input.skip);
     }),
 
-  get: protectedProcedure
+  get: adminProcedure
     .input(z.string())
-    .query(async () => {
-      const logs = await db.listAuditLogs(1, 0);
-      return logs[0] || null;
+    .query(async ({ input }) => {
+      const log = await db.getAuditLogById(input);
+      if (!log) throw new TRPCError({ code: 'NOT_FOUND', message: 'Audit log not found' });
+      return log;
     }),
 });
 
@@ -834,7 +835,7 @@ const coreLoopRouter = router({
 const analyticsRouter = router({
   overview: protectedProcedure
     .query(async ({ ctx }) => {
-      const allGaps = await db.listGaps(1000, 0);
+      const allGaps = ctx.user.role === 'admin' ? await db.listGaps(1000, 0) : [];
       const allDeployments = ctx.user.role === 'admin'
         ? await db.listDeployments()
         : await db.listDeployments(ctx.user.id);
@@ -1831,11 +1832,40 @@ const advertisingRouter = router({
       return { success: true, id };
     }),
 
+  listExperiments: protectedProcedure
+    .input(z.object({ campaignId: z.string() }))
+    .query(async ({ input, ctx }) => {
+      const campaign = await db.getAdCampaignById(input.campaignId);
+      if (!campaign) throw new TRPCError({ code: 'NOT_FOUND', message: 'Campaign not found.' });
+      const deployment = await db.getDeploymentById(campaign.deploymentId);
+      if (!deployment) throw new TRPCError({ code: 'NOT_FOUND', message: 'Deployment not found.' });
+      if (ctx.user.role !== 'admin' && deployment.userId !== ctx.user.id) {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this campaign.' });
+      }
+      return db.listExperimentsForCampaign(input.campaignId);
+    }),
+
+  startExperiment: adminProcedure
+    .input(z.object({ experimentId: z.string() }))
+    .mutation(async ({ input }) => {
+      const { startExperiment } = await import('./services/advertising/growthEngine');
+      const experiment = await startExperiment(input.experimentId);
+      return { success: true, experiment };
+    }),
+
   evaluateExperiment: adminProcedure
     .input(z.object({ experimentId: z.string(), minClicks: z.number().min(1).optional() }))
     .mutation(async ({ input }) => {
       const { evaluateExperiment } = await import('./services/advertising/growthEngine');
       return evaluateExperiment(input.experimentId, input.minClicks);
+    }),
+
+  stopExperiment: adminProcedure
+    .input(z.object({ experimentId: z.string(), reason: z.string().optional() }))
+    .mutation(async ({ input }) => {
+      const { stopExperiment } = await import('./services/advertising/growthEngine');
+      const experiment = await stopExperiment(input.experimentId, input.reason);
+      return { success: true, experiment };
     }),
 });
 

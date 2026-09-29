@@ -49,6 +49,10 @@ const Advertising: React.FC = () => {
   const resumeMutation = trpc.advertising.resume.useMutation();
   const stopMutation = trpc.advertising.stop.useMutation();
   const optimizeMutation = trpc.advertising.optimize.useMutation();
+  const createExperimentMutation = trpc.advertising.createExperiment.useMutation();
+  const startExperimentMutation = trpc.advertising.startExperiment.useMutation();
+  const evaluateExperimentMutation = trpc.advertising.evaluateExperiment.useMutation();
+  const stopExperimentMutation = trpc.advertising.stopExperiment.useMutation();
 
   const campaigns: Campaign[] = overviewQuery.data?.campaigns || [];
   const balances = overviewQuery.data?.balances || {};
@@ -123,6 +127,39 @@ const Advertising: React.FC = () => {
       if (action === 'resume') await resumeMutation.mutateAsync(campaignId);
       if (action === 'stop') await stopMutation.mutateAsync(campaignId);
       if (action === 'optimize') await optimizeMutation.mutateAsync(campaignId);
+      refreshOverview();
+    } catch (e: any) { alert(e.message); }
+  };
+
+  const fetchCreatives = async (campaignId: string) => {
+    const resp = await fetch(`/api/trpc/advertising.getCreatives?input=${encodeURIComponent(JSON.stringify(campaignId))}`, { credentials: 'include' });
+    const json = await resp.json();
+    return json?.result?.data || [];
+  };
+
+  const createExperimentForCampaign = async (campaign: Campaign) => {
+    try {
+      const campaignCreatives = await fetchCreatives(campaign.id);
+      if (campaignCreatives.length < 2) {
+        alert('Generate at least two creatives before creating an A/B experiment.');
+        return;
+      }
+      await createExperimentMutation.mutateAsync({
+        campaignId: campaign.id,
+        hypothesis: 'Compare creative variants for conversion performance.',
+        variable: 'creative',
+        variantACreativeId: campaignCreatives[0].id,
+        variantBCreativeId: campaignCreatives[1].id,
+      });
+      refreshOverview();
+    } catch (e: any) { alert(e.message); }
+  };
+
+  const mutateExperiment = async (action: 'start' | 'evaluate' | 'stop', experimentId: string) => {
+    try {
+      if (action === 'start') await startExperimentMutation.mutateAsync({ experimentId });
+      if (action === 'evaluate') await evaluateExperimentMutation.mutateAsync({ experimentId, minClicks: 50 });
+      if (action === 'stop') await stopExperimentMutation.mutateAsync({ experimentId, reason: 'Stopped from admin dashboard.' });
       refreshOverview();
     } catch (e: any) { alert(e.message); }
   };
@@ -233,6 +270,7 @@ const Advertising: React.FC = () => {
                 {campaigns.map((c: Campaign) => {
                   const balance = balances[c.deploymentId];
                   const m: CampaignMetrics | undefined = metrics[c.id];
+                  const campaignExperiments = experiments.filter((e: any) => e.campaignId === c.id);
                   return (
                   <tr key={c.id}>
                     <td>
@@ -290,6 +328,36 @@ const Advertising: React.FC = () => {
                           className="btn-secondary p-1.5" title="View creatives">
                           <Eye className="h-3 w-3" />
                         </button>
+                        <button onClick={() => createExperimentForCampaign(c)}
+                          disabled={createExperimentMutation.isPending}
+                          className="btn-secondary p-1.5" title="Create A/B experiment">
+                          A/B
+                        </button>
+                        {campaignExperiments.map((experiment: any) => (
+                          <React.Fragment key={experiment.id}>
+                            {experiment.status === 'DRAFT' && (
+                              <button onClick={() => mutateExperiment('start', experiment.id)}
+                                disabled={startExperimentMutation.isPending}
+                                className="btn-secondary p-1.5" title="Start A/B experiment">
+                                <Play className="h-3 w-3" />
+                              </button>
+                            )}
+                            {experiment.status === 'ACTIVE' && (
+                              <>
+                                <button onClick={() => mutateExperiment('evaluate', experiment.id)}
+                                  disabled={evaluateExperimentMutation.isPending}
+                                  className="btn-secondary p-1.5" title="Evaluate A/B experiment">
+                                  <TrendingUp className="h-3 w-3" />
+                                </button>
+                                <button onClick={() => mutateExperiment('stop', experiment.id)}
+                                  disabled={stopExperimentMutation.isPending}
+                                  className="btn-secondary p-1.5" title="Stop A/B experiment">
+                                  <Square className="h-3 w-3" />
+                                </button>
+                              </>
+                            )}
+                          </React.Fragment>
+                        ))}
                         {c.status === 'READY' && (
                           <button onClick={() => handlePublish(c.id)}
                             disabled={publishMutation.isPending}

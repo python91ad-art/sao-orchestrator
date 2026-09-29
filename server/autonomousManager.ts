@@ -73,6 +73,14 @@ export function scheduleAutonomousManager(): void {
   }
 }
 
+export function stopAutonomousManager(): void {
+  if (monitorTimer) {
+    clearInterval(monitorTimer);
+    monitorTimer = null;
+  }
+  startupRunScheduled = false;
+}
+
 // ------------------------------------------------------------
 // Main cycle
 // ------------------------------------------------------------

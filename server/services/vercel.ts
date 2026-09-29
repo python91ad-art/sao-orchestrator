@@ -90,6 +90,26 @@ export interface VercelDeployResult {
   deploymentUrl: string;
   readyState: string;
 }
+
+type VercelTestAdapter = {
+  createProject?: (params: VercelCreateProjectParams) => Promise<{ projectId: string; name: string }>;
+  deploy?: (params: VercelDeployParams) => Promise<VercelDeployResult>;
+  waitReady?: (
+    deploymentId: string,
+    timeoutMs?: number,
+    pollIntervalMs?: number
+  ) => Promise<{ ready: boolean; state?: string; url?: string; alias?: string[] }>;
+  verifyPublicUrl?: (
+    url: string,
+    timeoutMs?: number
+  ) => Promise<{ reachable: boolean; status: number; gated: boolean }>;
+};
+
+let vercelTestAdapter: VercelTestAdapter | null = null;
+
+export function setVercelTestAdapter(adapter: VercelTestAdapter | null) {
+  vercelTestAdapter = adapter;
+}
 // ==========================================
 // API FUNCTIONS
 // ==========================================
@@ -158,6 +178,10 @@ export async function testVercelConnection(): Promise<VercelTestResult> {
 export async function createVercelProject(
   params: VercelCreateProjectParams
 ): Promise<{ projectId: string; name: string }> {
+  if (vercelTestAdapter?.createProject) {
+    return vercelTestAdapter.createProject(params);
+  }
+
   const headers = await getVercelHeaders();
   const teamParam = getTeamParam();
 
@@ -234,6 +258,10 @@ export async function createVercelProject(
 export async function deployToVercel(
   params: VercelDeployParams
 ): Promise<VercelDeployResult> {
+  if (vercelTestAdapter?.deploy) {
+    return vercelTestAdapter.deploy(params);
+  }
+
   const headers = await getVercelHeaders();
   const teamParam = getTeamParam();
 
@@ -405,6 +433,10 @@ export async function waitForVercelDeploymentReady(
   timeoutMs = 180_000,
   pollIntervalMs = 3_000
 ): Promise<{ ready: boolean; state?: string; url?: string; alias?: string[] }> {
+  if (vercelTestAdapter?.waitReady) {
+    return vercelTestAdapter.waitReady(deploymentId, timeoutMs, pollIntervalMs);
+  }
+
   const start = Date.now();
 
   while (Date.now() - start < timeoutMs) {
@@ -441,6 +473,10 @@ export async function verifyPublicUrl(
   url: string,
   timeoutMs = 20_000
 ): Promise<{ reachable: boolean; status: number; gated: boolean }> {
+  if (vercelTestAdapter?.verifyPublicUrl) {
+    return vercelTestAdapter.verifyPublicUrl(url, timeoutMs);
+  }
+
   try {
     const res = await fetch(url, {
       redirect: 'follow',

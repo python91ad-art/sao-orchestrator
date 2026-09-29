@@ -10,10 +10,10 @@ import { sql } from 'drizzle-orm';
 import { createContext } from './context';
 import { appRouter } from '../routers';
 import * as db from '../db';
-import { withRetry, databaseUrlResolved } from '../db';
-import { scheduleAudits } from '../auditScheduler';
-import { startCoreLoop } from '../orchestrator';
-import { scheduleAutonomousManager } from '../autonomousManager';
+import { withRetry, databaseUrlResolved, assertDatabaseReady } from '../db';
+import { scheduleAudits, stopAudits } from '../auditScheduler';
+import { startCoreLoop, stopCoreLoop } from '../orchestrator';
+import { scheduleAutonomousManager, stopAutonomousManager } from '../autonomousManager';
 import { initWebSocketServer } from '../websocket';
 import { createServer } from 'http';
 
@@ -77,19 +77,24 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
 
     if (deploymentId && amountTotal > 0) {
       try {
-        const deployment = await db.getDeploymentById(deploymentId);
-        if (deployment) {
-          const currentRevenue = parseFloat(deployment.revenue || '0.00');
-          const newRevenue = (currentRevenue + amountTotal).toFixed(2);
-          await db.updateDeployment(deployment.id, {
-            revenue: newRevenue,
-          });
-          console.log(`Stripe Webhook: Successfully attributed $${amountTotal} to Deployment ${deployment.id}`);
-        } else {
+        const { recognizeExternalPaymentRevenue } = await import('../services/revenue');
+        const result = await recognizeExternalPaymentRevenue({
+          providerType: 'stripe',
+          providerPaymentId: session.payment_intent?.toString() || session.id || event.id,
+          deploymentId,
+          amount: amountTotal,
+          currency: session.currency || 'usd',
+          providerStatus: session.payment_status || event.type,
+        });
+        if (result.outcome === 'deployment_not_found') {
           console.warn(`Stripe Webhook: Deployment with ID ${deploymentId} was not found.`);
+        } else if (result.outcome === 'already_paid') {
+          console.log(`Stripe Webhook: Duplicate paid event ignored for ${session.id}.`);
+        } else {
+          console.log(`Stripe Webhook: Recorded ${amountTotal} ${session.currency || 'usd'} for Deployment ${deploymentId}`);
         }
       } catch (err) {
-        console.error(`Stripe Webhook: Failed to update deployment revenue.`, err);
+        console.error(`Stripe Webhook: Failed to recognize revenue.`, err);
       }
     }
   }
@@ -220,6 +225,11 @@ async function bootstrap() {
 
     console.log('Connecting to database (with retry)...');
     await withRetry(
+      () => assertDatabaseReady(),
+      5,
+      3000
+    );
+    await withRetry(
       () => db.initCoreLoopState(),
       5,
       3000
@@ -247,6 +257,11 @@ async function bootstrap() {
       if (isShuttingDown) return;
       isShuttingDown = true;
       console.log(`Received ${signal}. Starting graceful shutdown...`);
+      stopAudits();
+      stopAutonomousManager();
+      void stopCoreLoop().catch((err) => {
+        console.error('Error stopping core loop during shutdown:', err);
+      });
 
       httpServer.close((err) => {
         if (err) {

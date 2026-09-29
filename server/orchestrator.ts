@@ -6,6 +6,7 @@ import { queueItems } from '../drizzle/schema';
 import { broadcastEvent } from './websocket';
 import { detectEcommerceGaps, detectOperationalGaps, DetectedGap, getDiscoveryStatus, getExtractionMetrics } from './services/search';
 import crypto from 'crypto';
+import { decideGapAnalysis } from './services/gapAnalysis';
 
 let loopInterval: NodeJS.Timeout | null = null;
 let coreLoopTickRunning = false;
@@ -212,6 +213,10 @@ async function processWithWorkerPool(): Promise<number> {
   return processed;
 }
 
+export async function processQueueBatch(): Promise<number> {
+  return processWithWorkerPool();
+}
+
 // ==========================================
 // MULTI-QUEUE TYPE HANDLERS
 // ==========================================
@@ -253,6 +258,15 @@ async function processSynthesisQueueItem(queueItem: any, _worker: Worker): Promi
   broadcastEvent({ type: 'audit:completed', data: { deploymentId: '', health: classification.classification } });
 
   if (classification.classification === 'safe') {
+    const existingDeployment = await db.getDeploymentByGapId(gap.id);
+    if (existingDeployment) {
+      await db.enqueueDeploymentQueueItem(gap.id);
+      await db.updateGapStatus(gap.id, 'deployed');
+      await db.updateQueueItem(queueItem.id, { status: 'completed', workerId: null, nextRetryAt: null });
+      broadcastEvent({ type: 'queue:updated', data: { queueItemId: queueItem.id, status: 'completed' } });
+      return true;
+    }
+
     const plan = await retryWithExponentialBackoff(
       () => generateBusinessPlan(gap),
       maxAttempts,
@@ -634,6 +648,9 @@ async function classifyGap(gap: {
   reasoning: string;
   banRisk: 'low' | 'medium' | 'high';
   explanation: string;
+  score: number;
+  qualified: boolean;
+  evidenceLevel: 'low' | 'medium' | 'high';
 }> {
   const hasToken = await aiRateLimiter.waitForTokens(1, 5000);
   if (!hasToken) {
@@ -665,12 +682,12 @@ Source: ${gap.source}`;
     temperature: 0.3,
   });
 
-  return {
+  return decideGapAnalysis(gap, {
     classification: result.classification || 'gray',
     reasoning: result.reasoning || 'No reasoning provided',
     banRisk: result.banRisk || 'medium',
     explanation: result.explanation || 'No explanation provided',
-  };
+  });
 }
 
 // ==========================================
@@ -760,6 +777,16 @@ export async function processOneGap(): Promise<boolean> {
     });
 
     if (classification.classification === 'safe') {
+      const existingDeployment = await db.getDeploymentByGapId(gap.id);
+      if (existingDeployment) {
+        await db.enqueueDeploymentQueueItem(gap.id);
+        await db.updateGapStatus(gap.id, 'deployed');
+        await db.updateQueueItem(queueItem.id, { status: 'completed', nextRetryAt: null });
+        broadcastEvent({ type: 'deployment:created', data: { deploymentId: existingDeployment.id, gapId: gap.id } });
+        broadcastEvent({ type: 'queue:updated', data: { queueItemId: queueItem.id, status: 'completed' } });
+        return true;
+      }
+
       const limitCheck = await db.canCreateDeployment();
       if (!limitCheck.allowed) {
         await db.updateGapStatus(gap.id, 'gray');
@@ -1072,7 +1099,15 @@ export async function startCoreLoop() {
 
   console.log(`Starting SAO Core Loop. Interval: ${state.intervalMs}ms, Concurrency: ${state.concurrency || 1}`);
 
-  scheduleCoreLoopTick(state.intervalMs);
+  setTimeout(() => {
+    runCoreLoopTick().catch(async (error) => {
+      console.error('[Core Loop] Immediate startup tick failed:', error);
+      const current = await getStatus().catch(() => null);
+      if (current?.isRunning) {
+        scheduleCoreLoopTick(current.intervalMs);
+      }
+    });
+  }, 0);
 }
 
 export async function updateCoreLoopInterval(intervalMs: number): Promise<void> {
