@@ -2,6 +2,24 @@
 
 This guide covers deploying the Situational Arbitrage Orchestrator (SAO) on Northflank using Docker containers.
 
+## Existing production service: controlled update only
+
+For the existing SAO installation, do not follow the new-resource creation steps below. Reuse project `sao`, build service `sao-build`, runtime service `sao-app`, the existing MySQL addon and `https://http--sao-app--pnzzhg9j6qvv.code.run/`.
+
+Read-only investigation on 2026-10-15 found runtime source selection `main` with deployed SHA `babf1f432f7562f5085b642c8175b5002c347b8b`. GitHub branch `sao-policy-update-20261015` points to `5ce84b05ad19d7522052f6e6b8c6b2d33064b656`. A successful new build does not update a runtime tracking another branch/image. Do not change source selection, enable automatic deployment or trigger a rollout without explicit approval.
+
+Before an approved rollout:
+
+1. Review the local repair diff, obtain any required commit/push authorization, and identify the exact resulting commit. Do not deploy an unreviewed `latest` tag.
+2. Verify current schema compatibility read-only. Lifecycle/policy tables now exist on the actual database; do not rerun migrations merely because the previous historical report described them as absent. `pnpm start` invokes migrations, so approve its DDL scope separately before using the production entrypoint.
+3. Resolve the missing production JWT/encryption configuration through a separately approved, verified credential-preserving migration/recovery plan. Never set a new encryption/session secret blindly: existing seven credential ciphertexts must remain recoverable.
+4. Obtain separate approval for explicit administrator permission grants and policy configuration. A new image does not itself grant policy access, activate financial agreements or provide owner consent.
+5. Build the reviewed source using the existing Dockerfile and supply the non-secret build argument `SAO_BUILD_SHA` with that exact commit. If omitted, `/build-info.json` reports a null revision rather than guessing. Its SHA-256 asset hashes still identify the actual build.
+6. After staging and explicit deployment approval, select the reviewed branch/immutable image for the existing runtime. Preserve its current environment, encrypted credentials, domain, provider integrations and database. Do not create another service or URL.
+7. Verify live `/build-info.json`, the referenced JS/CSS hashes, authentication, authorized dashboard routes and real API responses. New APIs must not return `NOT_FOUND`; a permission denial is distinct from a missing route. Index/deep-link HTML and build identity must be `no-store`, while content-addressed assets may be immutable.
+
+See `SAO_FRONTEND_BACKEND_INVESTIGATION_REPORT.md` and `SAO_POLICY_MIGRATION_PLAN.md`. No live configuration change or deployment is implied by these instructions. Unsupported publication/payout operations and unapproved policies remain blocked.
+
 ## Prerequisites
 
 - A Northflank account (https://northflank.com)

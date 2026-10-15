@@ -14,21 +14,35 @@ import Infrastructure from './dashboard/Infrastructure';
 import Operations from './dashboard/Operations';
 import Authorizations from './dashboard/Authorizations';
 import { useAuth } from '../hooks/useAuth';
+import { dashboardPage, requiresAdministrator } from '../lib/dashboardRoutes';
 
 import Advertising from './dashboard/Advertising';
 
 const Dashboard: React.FC = () => {
   const { user } = useAuth();
-  const [currentPage, setCurrentPage] = useState<string>('overview');
+  const [currentPage, setCurrentPage] = useState<string>(() => dashboardPage(window.location, localStorage.getItem('currentPage')));
 
   useEffect(() => {
-    const savedPage = localStorage.getItem('currentPage');
-    if (savedPage) {
-      setCurrentPage(savedPage);
-    }
-  }, []);
+    const navigate = () => {
+      if (!window.dispatchEvent(new Event('sao:before-navigation', { cancelable: true }))) {
+        window.history.pushState(null, '', `/dashboard/${currentPage}`);
+        return;
+      }
+      const page = dashboardPage(window.location, localStorage.getItem('currentPage'));
+      localStorage.setItem('currentPage', page);
+      setCurrentPage(page);
+    };
+    window.addEventListener('popstate', navigate);
+    return () => window.removeEventListener('popstate', navigate);
+  }, [currentPage]);
+
+  const navigate = (page: string) => {
+    window.history.pushState(null, '', `/dashboard/${page}`);
+    setCurrentPage(page);
+  };
 
   const renderActivePage = () => {
+    if (requiresAdministrator(currentPage) && user?.role !== 'admin') return <p role="alert">Administrator access required.</p>;
     switch (currentPage) {
       case 'operations':
         return user?.role === 'admin' ? <Operations /> : <p role="alert">Administrator access required.</p>;
@@ -64,7 +78,7 @@ const Dashboard: React.FC = () => {
   };
 
   return (
-    <DashboardLayout currentPage={currentPage} setCurrentPage={setCurrentPage}>
+    <DashboardLayout currentPage={currentPage} setCurrentPage={navigate}>
       {renderActivePage()}
     </DashboardLayout>
   );

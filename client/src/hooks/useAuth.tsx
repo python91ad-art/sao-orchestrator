@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 
 export interface User {
   id: string;
@@ -49,6 +50,7 @@ async function trpcCall<T>(
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
+  const queryClient = useQueryClient();
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -91,6 +93,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       password,
     });
 
+    await queryClient.cancelQueries();
+    queryClient.clear();
     setUser(result.user);
   };
 
@@ -108,11 +112,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       name,
     });
 
+    await queryClient.cancelQueries();
+    queryClient.clear();
     setUser(result.user);
   };
 
   const logout = async () => {
     await trpcCall<{ success: boolean }>('auth.logout', {});
+    await queryClient.cancelQueries();
+    queryClient.clear();
     setUser(null);
   };
 

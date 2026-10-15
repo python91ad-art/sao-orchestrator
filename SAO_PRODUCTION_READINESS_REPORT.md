@@ -2,6 +2,8 @@
 
 Date: 2026-10-15. Scope: the existing application, six production-readiness areas; no separate Situational Arbitrage methodology audit.
 
+Subsequent frontend investigation on the same date: see `SAO_FRONTEND_BACKEND_INVESTIGATION_REPORT.md` for newer live observations. The actual database now has 65 tables including the policy/lifecycle schema, but zero administrator grants and no configured policies. The live service still serves `main` at `babf1f4`, not the requested `5ce84b0` branch. The 24-table/missing-schema observations below are historical; do not use them to justify rerunning live migrations. No live mutation was performed by the frontend investigation.
+
 ## 1. Executive status
 
 **Production activation: BLOCKED.** Exact-version staging, backup restoration, real provider metadata verification and supported workflow regression testing are implemented. No live migration, privilege grant, policy activation, consent grant, discovery deletion/archive, charge, payout, advertising publication, production deployment or Git push was executed.

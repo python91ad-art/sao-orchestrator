@@ -3,6 +3,8 @@
 Date: 2026-10-15
 Scope: continuation of the existing implementation; no rewrite and no separate Situational Arbitrage methodology audit.
 
+Latest frontend/runtime follow-up: `SAO_FRONTEND_BACKEND_INVESTIGATION_REPORT.md` verifies the live service remains on old `main`/`babf1f4` while the requested branch is at `5ce84b0`. The policy schema now exists remotely; explicit grants and production configurations are still absent. Targeted navigation/delivery/cache fixes pass browser and lifecycle regression checks locally. No live rollout or grant was performed by this investigation.
+
 Production-readiness follow-up: `SAO_PRODUCTION_READINESS_REPORT.md` is the current source of truth for live observations and approvals. Exact MySQL 9.6.0 staging/native backup restoration and real provider metadata checks now pass. The deployed runtime lacks production authentication/encryption secrets and uses legacy default encryption; live activation remains BLOCKED pending a separately approved secure cutover. No live schema/grant/reset/deployment was executed.
 
 ## 1. Executive completion summary

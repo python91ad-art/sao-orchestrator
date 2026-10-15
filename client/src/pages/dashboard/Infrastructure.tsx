@@ -61,6 +61,7 @@ const Infrastructure: React.FC = () => {
   const settlements = trpc.finance.settlements.useQuery({});
   const lifecycle = trpc.lifecycle.list.useQuery({});
   const trace = trpc.infrastructure.businessTrace.useQuery({});
+  const queryErrors = [overview, evidence, specs, agents, tasks, builds, qc, leads, customers, revenue, settlements, lifecycle, trace].flatMap(query => query.error ? [query.error.message] : []);
 
   const createEvidence = trpc.evidence.create.useMutation();
   const createSpec = trpc.specifications.createDraft.useMutation();
@@ -101,6 +102,7 @@ const Infrastructure: React.FC = () => {
       </div>
 
       {message && <div className="rounded border border-purple-500/20 bg-purple-500/10 px-3 py-2 text-sm text-purple-100">{message}</div>}
+      {queryErrors.length > 0 && <div role="alert" className="rounded border border-red-500/30 p-3 text-red-200"><p>Infrastructure records could not be loaded. Check server availability, schema readiness and access permissions.</p>{Array.from(new Set(queryErrors)).map(error => <p key={error}>{error}</p>)}</div>}
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
         {Object.entries(overview.data || {}).filter(([key]) => key !== 'policyStatus').map(([key, value]) => (

@@ -24,7 +24,7 @@ export default function SettingsPanels({ section }: { section: string }) {
   async function persist(key: 'general' | 'emergencyStop' | 'retention' | 'notificationRouting' | 'reasoningAssignments', value: unknown) {
     try { await save.mutateAsync({ key, value, expectedRevision: saved.find(setting => setting.key === key)?.revision || 0 }); const refreshed = await diagnostics.refetch(); setValues(current => ({ ...current, [key]: refreshed.data?.settings.find(setting => setting.key === key)?.value })); setDirtyKeys(current => current.filter(value => value !== key)); setMessage('Saved, audited and applied.'); } catch (error: any) { setMessage(error.message); }
   }
-  function navigate(page: string) { if (!window.dispatchEvent(new Event('sao:before-navigation', { cancelable: true }))) return; localStorage.setItem('currentPage', page); window.location.reload(); }
+  function navigate(page: string) { if (!window.dispatchEvent(new Event('sao:before-navigation', { cancelable: true }))) return; localStorage.setItem('currentPage', page); window.location.assign(`/dashboard/${page}`); }
   if (diagnostics.isLoading) return <p role="status">Loading operational settings…</p>;
   if (diagnostics.error) return <p role="alert">{diagnostics.error.message}</p>;
   return <section data-operational-panel="true" className="card-bold space-y-4" onChangeCapture={() => { if (sectionKey) setDirtyKeys(current => [...new Set([...current, sectionKey])]); }}>{message && <p role="status">{message}</p>}

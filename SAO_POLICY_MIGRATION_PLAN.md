@@ -2,6 +2,8 @@
 
 Updated: 2026-10-15. **No live execution is authorized by this document.** Current evidence and six-area status are in SAO_PRODUCTION_READINESS_REPORT.md.
 
+**Later read-only inspection:** the database now contains 65 tables, including policy/lifecycle/operational tables. The earlier absent-schema inventory below is historical. See `SAO_FRONTEND_BACKEND_INVESTIGATION_REPORT.md`; reconcile current DDL/checksum history before any approved startup/migration. This investigation did not apply these remote changes. Do not rerun the original rollout merely to fix stale frontend assets.
+
 ## 1. Exact target and critical prerequisites
 
 - Project/addon: sao / sao-sql.

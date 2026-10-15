@@ -16,6 +16,7 @@ import { startCoreLoop, stopCoreLoop } from '../orchestrator';
 import { scheduleAutonomousManager, stopAutonomousManager } from '../autonomousManager';
 import { initWebSocketServer } from '../websocket';
 import { createServer } from 'http';
+import { serveBuiltFrontend } from './frontend';
 
 // Load .env (for local dev)
 const possibleEnvPaths = [
@@ -213,13 +214,7 @@ app.get('/api/ready', async (req, res) => {
 // 5. SERVE BUILT CLIENT (production)
 // ==========================================
 const clientDistPath = path.resolve(process.cwd(), 'dist', 'client');
-if (fs.existsSync(clientDistPath)) {
-  app.use(express.static(clientDistPath));
-  app.get('*', (req, res) => {
-    if (!req.path.startsWith('/api')) {
-      res.sendFile(path.join(clientDistPath, 'index.html'));
-    }
-  });
+if (serveBuiltFrontend(app, clientDistPath)) {
   console.log(`Serving client from: ${clientDistPath}`);
 } else {
   console.warn('No built client found at dist/client — running in API-only mode.');

@@ -13,6 +13,7 @@ RUN pnpm exec playwright install --with-deps firefox && rm -rf /var/lib/apt/list
 
 COPY --chown=node:node . .
 
+ARG SAO_BUILD_SHA
 RUN pnpm build:client && pnpm prune --prod
 RUN chown node:node /app
 ENV NODE_ENV=production

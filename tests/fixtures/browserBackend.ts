@@ -10,6 +10,7 @@ import { createContext } from '../../server/_core/context';
 import { db, mysqlPool, createGap, createDeployment } from '../../server/db';
 import * as schema from '../../drizzle/schema';
 import { ADMIN_PERMISSIONS } from '../../shared/permissions';
+import { serveBuiltFrontend } from '../../server/_core/frontend';
 
 assert.equal(process.env.NODE_ENV, 'test');
 assert.ok(process.env.DB_SOCKET?.startsWith('/tmp/'));
@@ -30,8 +31,7 @@ async function main() {
   const app = express();
   app.use(cookieParser());
   app.use('/api/trpc', createExpressMiddleware({ router: appRouter, createContext }));
-  app.use(express.static(path.resolve('dist/client')));
-  app.get('*', (_request, response) => response.sendFile(path.resolve('dist/client/index.html')));
+  serveBuiltFrontend(app, path.resolve('dist/client'));
   const server = app.listen(Number(process.env.PORT), '127.0.0.1', () => console.log('ISOLATED_BROWSER_BACKEND_READY'));
   process.on('SIGTERM', () => { server.close(); mysqlPool.end().finally(() => process.exit(0)); });
 }
