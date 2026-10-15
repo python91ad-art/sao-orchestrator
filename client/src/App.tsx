@@ -42,7 +42,7 @@ const AppContent: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="flex h-screen items-center justify-center bg-[#100e17]">
+      <div className="flex h-screen items-center justify-center bg-[var(--background)]">
         <div className="spinner"></div>
       </div>
     );

@@ -415,9 +415,11 @@ const gapsRouter = router({
     .input(z.object({
       limit: z.number().min(1).max(100).default(50),
       skip: z.number().min(0).default(0),
+      status: z.enum(['pending', 'processing', 'safe', 'unsafe', 'gray', 'false', 'deployed', 'failed']).optional(),
+      search: z.string().trim().max(200).optional(),
     }))
     .query(async ({ input }) => {
-      return db.listGaps(input.limit, input.skip);
+      return db.listGaps(input.limit, input.skip, input);
     }),
 
   get: adminProcedure
@@ -859,7 +861,7 @@ const coreLoopRouter = router({
 const analyticsRouter = router({
   overview: protectedProcedure
     .query(async ({ ctx }) => {
-      const allGaps = ctx.user.role === 'admin' ? await db.listGaps(1000, 0) : [];
+      const gapsByStatus: Record<string, number> = ctx.user.role === 'admin' ? await db.getGapStatusCounts() : {};
       const allDeployments = ctx.user.role === 'admin'
         ? await db.listDeployments()
         : await db.listDeployments(ctx.user.id);
@@ -872,13 +874,6 @@ const analyticsRouter = router({
         0
       );
 
-      const gapsByStatus: Record<string, number> = {};
-
-      for (const gap of allGaps) {
-        const status = String((gap as any).status || 'unknown');
-        gapsByStatus[status] = (gapsByStatus[status] || 0) + 1;
-      }
-
       const deploymentsByStatus: Record<string, number> = {};
 
       for (const deployment of allDeployments) {
@@ -888,7 +883,7 @@ const analyticsRouter = router({
       }
 
       return {
-        totalGaps: allGaps.length,
+        totalGaps: Object.values(gapsByStatus).reduce((total, count) => total + count, 0),
         activeDeployments: deploymentsByStatus.active || 0,
 
         queue: {

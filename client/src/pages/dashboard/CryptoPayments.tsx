@@ -59,20 +59,20 @@ const CryptoPayments: React.FC = () => {
 
   return (
     <div className="card-bold space-y-5">
-      <div className="flex items-center gap-3 border-b border-[#221c32] pb-3">
+      <div className="flex items-center gap-3 border-b border-[var(--border)] pb-3">
         <Bitcoin className="h-5 w-5 text-amber-400" />
         <h3 className="text-base font-bold text-white">Crypto Payments (NOWPayments)</h3>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <div>
-          <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">
+          <label htmlFor="field-cryptopayments-1" className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">
             Deployment
           </label>
-          <select
+          <select id="field-cryptopayments-1"
             value={deploymentId}
             onChange={(e) => setDeploymentId(e.target.value)}
-            className="w-full bg-[#0c0a12] border border-[#221c32] rounded-lg px-3 py-2 text-sm text-white focus:outline-none"
+            className="w-full bg-[var(--sidebar)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-white focus:outline-none"
           >
             <option value="">Select a deployment…</option>
             {deployments.map((d) => (
@@ -84,13 +84,13 @@ const CryptoPayments: React.FC = () => {
         </div>
 
         <div>
-          <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">
+          <label htmlFor="field-cryptopayments-2" className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">
             Cryptocurrency
           </label>
-          <select
+          <select id="field-cryptopayments-2"
             value={payCurrency}
             onChange={(e) => setPayCurrency(e.target.value)}
-            className="w-full bg-[#0c0a12] border border-[#221c32] rounded-lg px-3 py-2 text-sm text-white focus:outline-none"
+            className="w-full bg-[var(--sidebar)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-white focus:outline-none"
           >
             {PAY_CURRENCIES.map((c) => (
               <option key={c.value} value={c.value}>

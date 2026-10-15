@@ -1,10 +1,14 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Play, Pause, Trash2, RefreshCw, AlertCircle } from 'lucide-react';
 import { trpc } from '../../lib/trpc';
+import { ErrorState, LoadingState } from '../../components/ui';
 
 const Queue: React.FC = () => {
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
   const [queueTypeFilter, setQueueTypeFilter] = useState<string>('all');
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState('');
+  const executing = useRef(false);
 
   const queueQuery = trpc.queue.list.useQuery();
   const queueStatsQuery = trpc.queue.stats.useQuery();
@@ -30,34 +34,40 @@ const Queue: React.FC = () => {
   };
 
 
-  const handleMove = async (id: string, direction: 'up' | 'down') => {
+  const perform = async (action: () => Promise<unknown>) => {
+    if (executing.current) return;
+    executing.current = true;
+    setPending(true);
+    setError('');
+    try { await action(); await refreshQueue(); }
+    catch (failure: any) { setError(failure.message || 'Queue action failed. No success was confirmed.'); }
+    finally { executing.current = false; setPending(false); }
+  };
+
+  const handleMove = async (id: string, direction: 'up' | 'down') => perform(async () => {
     if (direction === 'up') {
       await moveUpMutation.mutateAsync(id);
     } else {
       await moveDownMutation.mutateAsync(id);
     }
-    await refreshQueue();
-  };
+  });
 
-  const handleTogglePause = async (id: string, status: string) => {
+  const handleTogglePause = async (id: string, status: string) => perform(async () => {
     if (status === 'paused') {
       await resumeMutation.mutateAsync(id);
     } else {
       await pauseMutation.mutateAsync(id);
     }
-    await refreshQueue();
-  };
+  });
 
   const handleDelete = async (id: string) => {
     if (confirm('Are you sure you want to remove this item from the pipeline queue?')) {
-      await deleteMutation.mutateAsync(id);
-      await refreshQueue();
+      await perform(() => deleteMutation.mutateAsync(id));
     }
   };
 
   const handleRetry = async (id: string) => {
-    await retryMutation.mutateAsync(id);
-    await refreshQueue();
+    await perform(() => retryMutation.mutateAsync(id));
   };
 
   const toggleRow = (id: string) => {
@@ -76,16 +86,13 @@ const Queue: React.FC = () => {
     failed: backendStats?.failed ?? queue.filter(q => q.status === 'failed').length,
   };
 
-  if (loading) {
-    return (
-      <div className="flex justify-center items-center h-[50vh]">
-        <div className="spinner"></div>
-      </div>
-    );
-  }
+  if (loading) return <LoadingState label="Loading task queue…" />;
+  if (queueQuery.error || queueStatsQuery.error) return <ErrorState message={(queueQuery.error || queueStatsQuery.error)!.message} retry={refreshQueue} />;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" aria-busy={pending}>
+      {error && <ErrorState message={error} />}
+      {pending && <p role="status">Applying queue action. Waiting for the server…</p>}
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
@@ -93,11 +100,11 @@ const Queue: React.FC = () => {
           <p className="text-sm text-neutral-400">Manage queue prioritization, retry triggers, and microservice setups</p>
         </div>
         <div className="flex items-center gap-3">
-          <label className="text-xs font-semibold uppercase tracking-wider text-neutral-400">Type:</label>
-          <select
+          <label htmlFor="field-queue-1" className="text-xs font-semibold uppercase tracking-wider text-neutral-400">Type:</label>
+          <select id="field-queue-1"
             value={queueTypeFilter}
             onChange={(e) => setQueueTypeFilter(e.target.value)}
-            className="w-40 bg-[#181524] border-neutral-800 text-sm py-1.5 px-3 rounded-lg text-white"
+            className="w-40 bg-[var(--muted)] border-neutral-800 text-sm py-1.5 px-3 rounded-lg text-white"
           >
             <option value="all">All Types</option>
             <option value="synthesis">Synthesis</option>
@@ -105,7 +112,7 @@ const Queue: React.FC = () => {
             <option value="audit">Audit</option>
             <option value="maintenance">Maintenance</option>
           </select>
-          <button onClick={refreshQueue} className="btn-secondary">
+          <button onClick={refreshQueue} disabled={pending || queueQuery.isFetching} className="btn-secondary">
             <RefreshCw className="h-4 w-4" />
             <span>Reload Queue</span>
           </button>
@@ -146,7 +153,7 @@ const Queue: React.FC = () => {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
           <div className="text-center">
             <p className="text-[10px] font-bold uppercase tracking-wider text-neutral-400 mb-1">Avg Processing Time</p>
-            <p className="text-lg font-black text-white">{queue.length > 0 ? '~3.2m' : '—'}</p>
+            <p className="text-lg font-black text-white" title="No measured processing duration is supplied by this endpoint">Not reported</p>
           </div>
           <div className="text-center">
             <p className="text-[10px] font-bold uppercase tracking-wider text-neutral-400 mb-1">Failure Rate</p>
@@ -218,14 +225,14 @@ const Queue: React.FC = () => {
                           <div className="flex items-center gap-2">
                             <div className="flex flex-col">
                               <button
-                                disabled={index === 0}
+                                disabled={pending || index === 0}
                                 onClick={() => handleMove(item.id, 'up')}
                                 className="text-neutral-400 hover:text-white disabled:opacity-30 disabled:pointer-events-none"
                               >
                                 ▲
                               </button>
                               <button
-                                disabled={index === queue.length - 1}
+                                disabled={pending || index === queue.length - 1}
                                 onClick={() => handleMove(item.id, 'down')}
                                 className="text-neutral-400 hover:text-white disabled:opacity-30 disabled:pointer-events-none"
                               >
@@ -268,6 +275,7 @@ const Queue: React.FC = () => {
                           <div className="flex items-center justify-end gap-1.5">
                             <button
                               onClick={() => handleTogglePause(item.id, item.status)}
+                              disabled={pending}
                               className="btn-secondary p-1.5"
                               title={item.status === 'paused' ? 'Resume Processing' : 'Pause Processing'}
                             >
@@ -276,6 +284,7 @@ const Queue: React.FC = () => {
                             {item.status === 'failed' && (
                               <button
                                 onClick={() => handleRetry(item.id)}
+                                disabled={pending}
                                 className="btn-bold-primary p-1.5"
                                 title="Retry Pipeline Loop"
                               >
@@ -284,6 +293,7 @@ const Queue: React.FC = () => {
                             )}
                             <button
                               onClick={() => handleDelete(item.id)}
+                              disabled={pending}
                               className="btn-danger p-1.5"
                               title="Delete Item"
                             >
@@ -302,7 +312,7 @@ const Queue: React.FC = () => {
                       {/* Expandable Inspection Drawer */}
                       {isExpanded && (
                         <tr>
-                          <td colSpan={5} className="bg-[#141220]/60 p-6 border-b border-[#221c32]">
+                          <td colSpan={5} className="bg-[var(--sidebar)]/60 p-6 border-b border-[var(--border)]">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                               <div className="space-y-3">
                                 <h4 className="text-xs font-bold uppercase tracking-wider text-purple-400">Pipeline Registry Metadata</h4>
@@ -335,7 +345,7 @@ const Queue: React.FC = () => {
                                   </div>
                                 ) : (
                                   <div className="p-3.5 rounded-lg bg-green-500/5 border border-green-500/10 text-xs text-green-400">
-                                    Pipeline is performing health checks. No runtime exceptions or logical validation blocks detected in the stream logs.
+                                    No error message is stored for this task. This does not verify runtime health or QC.
                                   </div>
                                 )}
                               </div>

@@ -1,6 +1,9 @@
+import { Dialog } from '../../components/ui';
 import React, { useState } from 'react';
 import { Check, Eye, Megaphone, Pause, Play, RefreshCw, Square, TrendingUp, X } from 'lucide-react';
 import { trpc } from '../../lib/trpc';
+import { useAuth } from '../../hooks/useAuth';
+import { ErrorState, LoadingState } from '../../components/ui';
 
 interface Channel {
   id: string; name: string; status: string;
@@ -35,9 +38,11 @@ const Advertising: React.FC = () => {
   const [creatives, setCreatives] = useState<any[]>([]);
   const [showCreatives, setShowCreatives] = useState<string | null>(null);
 
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
   const overviewQuery = trpc.advertising.overview.useQuery();
   const channelsQuery = trpc.advertising.channels.useQuery();
-  const deploymentsQuery = trpc.deployments.list.useQuery();
+  const deploymentsQuery = trpc.deployments.list.useQuery(undefined, { enabled: isAdmin });
 
   const analyzeMutation = trpc.advertising.analyze.useMutation();
   const strategyMutation = trpc.advertising.generateStrategy.useMutation();
@@ -176,6 +181,8 @@ const Advertising: React.FC = () => {
     return colors[status] || 'badge-gray';
   };
 
+  if (overviewQuery.isLoading || channelsQuery.isLoading) return <LoadingState label="Loading marketing operations…" />;
+  if (overviewQuery.error || channelsQuery.error) return <ErrorState message={(overviewQuery.error || channelsQuery.error)!.message} retry={() => { void overviewQuery.refetch(); void channelsQuery.refetch(); }} />;
   return (
     <div className="space-y-6">
       <div>
@@ -185,10 +192,10 @@ const Advertising: React.FC = () => {
 
       {/* Channel Status */}
       <div className="card-bold">
-        <h3 className="text-base font-bold text-white mb-4 pb-2 border-b border-[#221c32]">Channel Configuration</h3>
+        <h3 className="text-base font-bold text-white mb-4 pb-2 border-b border-[var(--border)]">Channel Configuration</h3>
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
           {(channelsQuery.data || []).map((ch: Channel) => (
-            <div key={ch.id} className="bg-[#0c0a12] border border-[#221c32] rounded-lg p-3 text-center">
+            <div key={ch.id} className="bg-[var(--sidebar)] border border-[var(--border)] rounded-lg p-3 text-center">
               <div className="text-xs font-bold text-white mb-1">{ch.name}</div>
               <span className={`badge-xs ${getStatusBadge(ch.status)}`}>{ch.status}</span>
               {ch.missingCredentials.length > 0 && (
@@ -203,26 +210,26 @@ const Advertising: React.FC = () => {
 
       {/* Action Panel */}
       <div className="card-bold">
-        <h3 className="text-base font-bold text-white mb-4 pb-2 border-b border-[#221c32]">Create Campaign</h3>
+        <h3 className="text-base font-bold text-white mb-4 pb-2 border-b border-[var(--border)]">Create Campaign</h3>
         <div className="flex flex-wrap gap-3 items-end">
           <div className="flex-1 min-w-[200px]">
-            <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">Deployment</label>
-            <select value={selectedDeployment} onChange={e => setSelectedDeployment(e.target.value)} className="w-full">
+            <label htmlFor="field-advertising-1" className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">Deployment</label>
+            <select id="field-advertising-1" value={selectedDeployment} onChange={e => setSelectedDeployment(e.target.value)} className="w-full">
               <option value="">Select deployment...</option>
               {(deploymentsQuery.data || []).map((d: any) => (
                 <option key={d.id} value={d.id}>{d.id.slice(0,8)} — ${Number(d.revenue).toFixed(2)}</option>
               ))}
             </select>
           </div>
-          <button onClick={handleAnalyze} disabled={analyzeMutation.isPending} className="btn-secondary">
+          <button onClick={handleAnalyze} disabled={!isAdmin || (analyzeMutation.isPending)} className="btn-secondary">
             {analyzeMutation.isPending ? <RefreshCw className="animate-spin h-4 w-4" /> : 'Analyze'}
           </button>
-          <button onClick={handleGenerateStrategy} disabled={strategyMutation.isPending} className="btn-bold-primary">
+          <button onClick={handleGenerateStrategy} disabled={!isAdmin || (strategyMutation.isPending)} className="btn-bold-primary">
             {strategyMutation.isPending ? <RefreshCw className="animate-spin h-4 w-4" /> : 'Generate Strategy'}
           </button>
         </div>
         {analyzeMutation.data && (
-          <div className="mt-4 p-3 bg-[#0c0a12] border border-[#221c32] rounded-lg text-xs text-neutral-400">
+          <div className="mt-4 p-3 bg-[var(--sidebar)] border border-[var(--border)] rounded-lg text-xs text-neutral-400">
             <div>Completeness: <span className="text-white font-bold">{analyzeMutation.data.analysis.completeness}</span></div>
             <div>Available ad funds: <span className="text-white font-bold">${analyzeMutation.data.budget.availableAdvertisingFunds.toFixed(2)}</span> ({analyzeMutation.data.budget.advertisingRevenuePercentage}% realized revenue allocation)</div>
             <div>Audience: <span className="text-white font-bold">{analyzeMutation.data.audience.likelyCustomerType}</span> · intent {analyzeMutation.data.audience.buyerIntent} · {analyzeMutation.data.audience.marketType}</div>
@@ -235,7 +242,7 @@ const Advertising: React.FC = () => {
 
       {/* Campaign List */}
       <div className="card-bold">
-        <div className="flex items-center justify-between mb-4 pb-2 border-b border-[#221c32]">
+        <div className="flex items-center justify-between mb-4 pb-2 border-b border-[var(--border)]">
           <h3 className="text-base font-bold text-white">Campaigns</h3>
           <div className="flex gap-3 text-sm text-neutral-400">
             <span>Budget: ${overviewQuery.data?.totalBudget?.toFixed(2) || '0.00'}</span>
@@ -319,7 +326,7 @@ const Advertising: React.FC = () => {
                       <div className="flex flex-wrap gap-1">
                         {(c.status === 'DRAFT' || c.status === 'PLANNED' || c.status === 'READY') && (
                           <button onClick={() => handleGenerateCreatives(c.id)}
-                            disabled={creativesMutation.isPending}
+                            disabled={!isAdmin || (creativesMutation.isPending)}
                             className="btn-secondary p-1.5" title="Generate creatives">
                             <RefreshCw className="h-3 w-3" />
                           </button>
@@ -360,7 +367,7 @@ const Advertising: React.FC = () => {
                         ))}
                         {c.status === 'READY' && (
                           <button onClick={() => handlePublish(c.id)}
-                            disabled={publishMutation.isPending}
+                            disabled={!isAdmin || (publishMutation.isPending)}
                             className="btn-bold-primary p-1.5" title="Publish">
                             <Play className="h-3 w-3" />
                           </button>
@@ -368,12 +375,12 @@ const Advertising: React.FC = () => {
                         {c.status === 'READY_FOR_APPROVAL' && (
                           <>
                             <button onClick={() => handleApprove(c)}
-                              disabled={approveMutation.isPending}
+                              disabled={!isAdmin || (approveMutation.isPending)}
                               className="btn-bold-primary p-1.5" title="Approve paid campaign">
                               <Check className="h-3 w-3" />
                             </button>
                             <button onClick={() => handleReject(c.id)}
-                              disabled={rejectMutation.isPending}
+                              disabled={!isAdmin || (rejectMutation.isPending)}
                               className="btn-secondary p-1.5" title="Reject paid campaign">
                               <X className="h-3 w-3" />
                             </button>
@@ -420,18 +427,14 @@ const Advertising: React.FC = () => {
 
       {/* Creatives Modal */}
       {showCreatives && (
-        <div className="modal-overlay">
-          <div className="modal-content max-w-2xl">
-            <div className="flex items-center justify-between mb-6 pb-2 border-b border-[#221c32]">
-              <h3 className="text-lg font-bold text-white">Creatives</h3>
-              <button onClick={() => setShowCreatives(null)} className="text-neutral-400 hover:text-white">✕</button>
-            </div>
+<Dialog title="Creatives" onClose={() => setShowCreatives(null)}>
+
             {creatives.length === 0 ? (
               <p className="text-neutral-400">No creatives yet. Generate them first.</p>
             ) : (
               <div className="space-y-3 max-h-[60vh] overflow-y-auto">
                 {creatives.map((cr: any, i: number) => (
-                  <div key={i} className="bg-[#0c0a12] p-3 rounded-lg border border-[#221c32]">
+                  <div key={i} className="bg-[var(--sidebar)] p-3 rounded-lg border border-[var(--border)]">
                     <div className="flex justify-between items-start mb-1">
                       <span className="badge-primary text-xs">{cr.format}</span>
                       {cr.variation > 1 && <span className="text-xs text-neutral-500">Var {cr.variation}</span>}
@@ -444,8 +447,7 @@ const Advertising: React.FC = () => {
                 ))}
               </div>
             )}
-          </div>
-        </div>
+          </Dialog>
       )}
     </div>
   );

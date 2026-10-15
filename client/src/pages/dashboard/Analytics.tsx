@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { RefreshCw, TrendingUp, Activity, Filter, Zap } from 'lucide-react';
 import { trpc } from '../../lib/trpc';
+import { ErrorState, LoadingState } from '../../components/ui';
 
 const Analytics: React.FC = () => {
   const [loading, setLoading] = useState(true);
@@ -18,6 +19,7 @@ const Analytics: React.FC = () => {
     if (!data) return;
 
     setAnalytics({
+      activeDeployments: data.activeDeployments || 0,
       gaps: {
         total: data.totalGaps || 0,
         ...(data.gapsByStatus || {}),
@@ -40,6 +42,7 @@ const Analytics: React.FC = () => {
     });
 
     const totalGaps = Number(data.totalGaps || 0);
+    const classifiedGaps = ['safe', 'unsafe', 'gray', 'false', 'deployed'].reduce((total, status) => total + Number((data.gapsByStatus as Record<string, number> | undefined)?.[status] || 0), 0);
     const queuedGaps = Number(data.queue?.total || 0);
     const deployedGaps = Number(
       data.deploymentsByStatus?.active || 0
@@ -48,13 +51,13 @@ const Analytics: React.FC = () => {
     setFunnel({
       totalGaps,
       queuedGaps,
-      classifiedGaps: totalGaps,
+      classifiedGaps,
       deployedGaps,
       conversionRate: {
         toQueue: totalGaps
           ? ((queuedGaps / totalGaps) * 100).toFixed(1)
           : '0.0',
-        toClassified: totalGaps ? '100.0' : '0.0',
+        toClassified: totalGaps ? ((classifiedGaps / totalGaps) * 100).toFixed(1) : '0.0',
         toDeployed: totalGaps
           ? ((deployedGaps / totalGaps) * 100).toFixed(1)
           : '0.0',
@@ -75,13 +78,8 @@ const Analytics: React.FC = () => {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="flex justify-center items-center h-[50vh]">
-        <div className="spinner"></div>
-      </div>
-    );
-  }
+  if (loading) return <LoadingState label="Loading business analytics…" />;
+  if (analyticsQuery.error) return <ErrorState message={analyticsQuery.error.message} retry={loadData} />;
 
   const gapData = analytics?.gaps || {};
 
@@ -110,7 +108,7 @@ const Analytics: React.FC = () => {
         <div className="card-bold p-5 text-center">
           <p className="text-[10px] font-bold uppercase tracking-wider text-neutral-400 mb-1">Total Revenue</p>
           <p className="text-2xl font-black text-white">${Number(deployData.totalRevenue || 0).toLocaleString()}</p>
-          <p className="text-[10px] text-emerald-400 mt-1">↗ {analytics?.activeDeployments || 0} active deployments</p>
+          <p className="text-[10px] text-emerald-400 mt-1">{analytics?.activeDeployments || 0} active deployments</p>
         </div>
         <div className="card-bold p-5 text-center">
           <p className="text-[10px] font-bold uppercase tracking-wider text-neutral-400 mb-1">Gaps Discovered</p>

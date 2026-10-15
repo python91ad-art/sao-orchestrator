@@ -14,8 +14,12 @@ import {
 import { Gap, AuditLog, Stats } from '../../lib/trpc';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import { trpc } from '../../lib/trpc'; // <-- added
+import { ErrorState, LoadingState } from '../../components/ui';
+import { useAuth } from '../../hooks/useAuth';
 
 const Overview: React.FC = () => {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
   const [stats, setStats] = useState<Stats>({
     totalGaps: 0,
     activeDeployments: 0,
@@ -24,7 +28,7 @@ const Overview: React.FC = () => {
   });
 
   // 👇 Replaced fake state with real tRPC query
-  const coreLoopStatusQuery = trpc.coreLoop.status.useQuery();
+  const coreLoopStatusQuery = trpc.coreLoop.status.useQuery(undefined, { refetchInterval: 30000 });
 
   // 👇 Real mutations for core loop controls
   const startLoop = trpc.coreLoop.start.useMutation();
@@ -38,20 +42,29 @@ const Overview: React.FC = () => {
   const [recentAuditLogs, setRecentAuditLogs] = useState<AuditLog[]>([]);
 
    // Real dashboard data from the backend
-  const analyticsQuery = trpc.analytics.overview.useQuery();
-  const gapsQuery = trpc.gaps.list.useQuery({ limit: 3, skip: 0 });
-  const auditLogsQuery = trpc.audit.list.useQuery({ limit: 3, skip: 0 });
+  const analyticsQuery = trpc.analytics.overview.useQuery(undefined, { refetchInterval: wsConnected ? false : 30000 });
+  const gapsQuery = trpc.gaps.list.useQuery({ limit: 3, skip: 0 }, { enabled: isAdmin, refetchInterval: wsConnected ? false : 30000 });
+  const auditLogsQuery = trpc.audit.list.useQuery({ limit: 3, skip: 0 }, { enabled: isAdmin, refetchInterval: wsConnected ? false : 30000 });
+  const utils = trpc.useUtils();
+  useEffect(() => {
+    if (!lastEvent) return;
+    const timer = window.setTimeout(() => {
+      void utils.analytics.overview.invalidate();
+      void utils.coreLoop.status.invalidate();
+      if (isAdmin) { void utils.gaps.list.invalidate(); void utils.audit.list.invalidate(); }
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [lastEvent, isAdmin, utils]);
 
   const loading =
-    analyticsQuery.isLoading ||
+    analyticsQuery.isLoading || coreLoopStatusQuery.isLoading ||
     gapsQuery.isLoading ||
     auditLogsQuery.isLoading;
 
   const handleRefresh = async () => {
     await Promise.all([
       analyticsQuery.refetch(),
-      gapsQuery.refetch(),
-      auditLogsQuery.refetch(),
+      ...(isAdmin ? [gapsQuery.refetch(), auditLogsQuery.refetch()] : []),
       coreLoopStatusQuery.refetch(),
     ]);
   };
@@ -136,13 +149,10 @@ const Overview: React.FC = () => {
     nextExecutionAt: null,
   };
 
-  if (loading) {
-    return (
-      <div className="flex justify-center items-center h-[50vh]">
-        <div className="spinner"></div>
-      </div>
-    );
-  }
+  if (loading) return <LoadingState label="Loading operational telemetry…" />;
+  const queryError = analyticsQuery.error || coreLoopStatusQuery.error || (isAdmin && (gapsQuery.error || auditLogsQuery.error));
+  if (queryError) return <ErrorState message={queryError.message} retry={handleRefresh} />;
+  const controlsBusy = startLoop.isPending || stopLoop.isPending || runOnce.isPending || runAudit.isPending;
 
   return (
     <div className="space-y-6">
@@ -150,7 +160,7 @@ const Overview: React.FC = () => {
       <div className="flex items-center justify-end gap-2">
         <span className={`status-indicator ${wsConnected ? 'green' : 'red'}`} />
         <span className="text-xs text-neutral-400">
-          {wsConnected ? 'Live (WebSocket)' : 'Offline (polling)'}
+          {wsConnected ? 'Live event stream connected' : 'Event stream offline · refreshes every 30 seconds'}
         </span>
         {lastEvent && (
           <span className="text-[10px] text-neutral-500 ml-2">
@@ -159,13 +169,14 @@ const Overview: React.FC = () => {
         )}
       </div>
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+      <div className="command-hero flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
+          <p className="eyebrow">AUTONOMOUS BUSINESS INTELLIGENCE</p>
           <h2 className="text-2xl font-bold tracking-tight text-white">System Overview</h2>
-          <p className="text-sm text-neutral-400">Real-time telemetry and orchestrator loops</p>
+          <p className="text-sm text-neutral-400">Opportunity, execution and governance. One operational picture.</p>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={handleRefresh} className="btn-secondary">
+          <button onClick={handleRefresh} disabled={analyticsQuery.isFetching || coreLoopStatusQuery.isFetching} className="btn-secondary">
             <RefreshCw className="h-4 w-4" />
             <span>Refresh Telemetry</span>
           </button>
@@ -216,7 +227,7 @@ const Overview: React.FC = () => {
       </div>
 
       {/* Core Loop Controller Banner */}
-      <div className="card-bold border border-purple-500/20 bg-gradient-to-r from-[#171424] to-[#110e1a]">
+      <div className="card-bold border border-purple-500/20 bg-gradient-to-r from-[var(--muted)] to-[var(--background)]">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
           <div className="flex items-start gap-4">
             <div className="p-3.5 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400">
@@ -250,21 +261,21 @@ const Overview: React.FC = () => {
 
           <div className="flex flex-wrap items-center gap-2">
             {coreLoopStatus.isRunning ? (
-              <button onClick={handleStopLoop} className="btn-danger">
+              <button onClick={handleStopLoop} disabled={!isAdmin || controlsBusy} className="btn-danger">
                 <Square className="h-4 w-4 fill-white" />
                 <span>Pause Loop</span>
               </button>
             ) : (
-              <button onClick={handleStartLoop} className="btn-bold-primary">
+              <button onClick={handleStartLoop} disabled={!isAdmin || controlsBusy} className="btn-bold-primary">
                 <Play className="h-4 w-4 fill-white" />
                 <span>Start Loop</span>
               </button>
             )}
-            <button onClick={handleRunOnce} className="btn-secondary">
+            <button onClick={handleRunOnce} disabled={!isAdmin || controlsBusy} className="btn-secondary">
               <Play className="h-4 w-4" />
               <span>Run Once Now</span>
             </button>
-            <button onClick={handleRunAudit} className="btn-secondary">
+            <button onClick={handleRunAudit} disabled={!isAdmin || controlsBusy} className="btn-secondary">
               <ShieldCheck className="h-4 w-4" />
               <span>Force Safety Audit</span>
             </button>
@@ -272,11 +283,12 @@ const Overview: React.FC = () => {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {!isAdmin && <p className="card-bold">Your business approvals and deadline notices are in My Authorizations. Global discovery and audit controls require an administrator.</p>}
+      {isAdmin && <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Recent Gaps Card */}
         <div className="card-bold flex flex-col justify-between">
           <div>
-            <div className="flex items-center justify-between mb-4 pb-2 border-b border-[#221c32]">
+            <div className="flex items-center justify-between mb-4 pb-2 border-b border-[var(--border)]">
               <h3 className="text-base font-bold text-white">Recent Discovered Gaps</h3>
               <span className="text-xs text-neutral-400">Latest manual & stream scans</span>
             </div>
@@ -328,7 +340,7 @@ const Overview: React.FC = () => {
         {/* Recent Audit Logs */}
         <div className="card-bold flex flex-col justify-between">
           <div>
-            <div className="flex items-center justify-between mb-4 pb-2 border-b border-[#221c32]">
+            <div className="flex items-center justify-between mb-4 pb-2 border-b border-[var(--border)]">
               <h3 className="text-base font-bold text-white">Safety & Audit Loop</h3>
               <span className="text-xs text-neutral-400">LLM Guardrail enforcement</span>
             </div>
@@ -376,7 +388,7 @@ const Overview: React.FC = () => {
             </div>
           </div>
         </div>
-      </div>
+      </div>}
     </div>
   );
 };

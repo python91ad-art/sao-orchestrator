@@ -1,0 +1,3976 @@
+{
+  "summary": {
+    "sourceFiles": 30,
+    "controls": 322,
+    "byTag": {
+      "a": 7,
+      "button": 186,
+      "Dialog": 7,
+      "input": 69,
+      "form": 12,
+      "select": 25,
+      "details": 9,
+      "textarea": 7
+    },
+    "endpoints": 149,
+    "missingEndpoints": [],
+    "note": "Counts are source declarations, not rendered row instances or proof every action executed."
+  },
+  "endpoints": [
+    "advertising.analyze",
+    "advertising.approve",
+    "advertising.channels",
+    "advertising.createExperiment",
+    "advertising.evaluateExperiment",
+    "advertising.generateCreatives",
+    "advertising.generateStrategy",
+    "advertising.optimize",
+    "advertising.overview",
+    "advertising.pause",
+    "advertising.publish",
+    "advertising.reject",
+    "advertising.resume",
+    "advertising.startExperiment",
+    "advertising.stop",
+    "advertising.stopExperiment",
+    "agents.ensureDefaults",
+    "agents.list",
+    "analytics.overview",
+    "audit.list",
+    "auth.register",
+    "auth.validateInvite",
+    "builder.create",
+    "builder.list",
+    "coreLoop.runAudit",
+    "coreLoop.runOnce",
+    "coreLoop.start",
+    "coreLoop.status",
+    "coreLoop.stop",
+    "deployments.audit",
+    "deployments.list",
+    "deployments.pause",
+    "deployments.resume",
+    "deployments.resumeAll",
+    "deployments.stop",
+    "deployments.stopAll",
+    "evidence.create",
+    "evidence.list",
+    "finance.createAccount",
+    "finance.settlements",
+    "finance.transactions",
+    "gaps.create",
+    "gaps.list",
+    "gaps.retry",
+    "infrastructure.businessTrace",
+    "infrastructure.overview",
+    "invites.create",
+    "invites.delete",
+    "invites.list",
+    "lifecycle.create",
+    "lifecycle.list",
+    "operations.analyzeLessons",
+    "operations.applyPricing",
+    "operations.approveSpecification",
+    "operations.assignPolicy",
+    "operations.calculateWeekly",
+    "operations.cancelTask",
+    "operations.checkout",
+    "operations.closeBusiness",
+    "operations.configureBackup",
+    "operations.correctAccountingPeriods",
+    "operations.decideApproval",
+    "operations.diagnostics",
+    "operations.disablePolicy",
+    "operations.discoveryCounts",
+    "operations.editDraft",
+    "operations.evaluateBusiness",
+    "operations.evaluateImprovements",
+    "operations.executeReset",
+    "operations.impactPage",
+    "operations.investigateConflict",
+    "operations.issueAgentSession",
+    "operations.offerExtension",
+    "operations.openingBalance",
+    "operations.ownedBusinesses",
+    "operations.ownerWorkspace",
+    "operations.preferences",
+    "operations.prepareReset",
+    "operations.previewAccountingCorrection",
+    "operations.proposeCampaignBudget",
+    "operations.proposeSpecification",
+    "operations.publicPrice",
+    "operations.purchaseExtension",
+    "operations.recommendPricing",
+    "operations.reconcilePeriod",
+    "operations.reconcileRelease",
+    "operations.recordAccounting",
+    "operations.requestApproval",
+    "operations.resetPreview",
+    "operations.resolveConflict",
+    "operations.resolvePaymentException",
+    "operations.restartBusiness",
+    "operations.resumeBusiness",
+    "operations.revokeAgentSession",
+    "operations.rollbackPricing",
+    "operations.saveSetting",
+    "operations.setDeadline",
+    "operations.suspendBusiness",
+    "operations.verifyAccounting",
+    "operations.workspace",
+    "payments.createCryptoPayment",
+    "payments.list",
+    "policies.acknowledge",
+    "policies.activate",
+    "policies.activity",
+    "policies.create",
+    "policies.delete",
+    "policies.discoveryBoard",
+    "policies.discoveryResetPreview",
+    "policies.history",
+    "policies.list",
+    "policies.overview",
+    "policies.reviewEvidence",
+    "policies.reviewGap",
+    "policies.saveDraft",
+    "policies.validateDraft",
+    "providers.create",
+    "providers.knownProviders",
+    "providers.list",
+    "providers.remove",
+    "providers.serviceTypes",
+    "providers.setEnabled",
+    "providers.setPriority",
+    "providers.test",
+    "providers.update",
+    "qc.create",
+    "qc.list",
+    "queue.delete",
+    "queue.list",
+    "queue.moveDown",
+    "queue.moveUp",
+    "queue.pause",
+    "queue.resume",
+    "queue.retry",
+    "queue.stats",
+    "sales.createLead",
+    "sales.customers",
+    "sales.leads",
+    "settings.getConcurrency",
+    "settings.getQueueLimits",
+    "settings.getRetryConfig",
+    "settings.queueLimits",
+    "settings.retryConfig",
+    "settings.save",
+    "settings.setConcurrency",
+    "specifications.createDraft",
+    "specifications.list",
+    "supervisor.createTask",
+    "supervisor.tasks"
+  ],
+  "inventory": [
+    {
+      "file": "client/src/components/DashboardLayout.tsx",
+      "line": 84,
+      "tag": "a",
+      "label": null,
+      "handlers": {},
+      "disabled": null,
+      "nativeAction": true,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/components/DashboardLayout.tsx",
+      "line": 85,
+      "tag": "button",
+      "label": "\"Close navigation backdrop\"",
+      "handlers": {
+        "onClick": "{() => setSidebarOpen(false)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/components/DashboardLayout.tsx",
+      "line": 90,
+      "tag": "button",
+      "label": "\"Close navigation\"",
+      "handlers": {
+        "onClick": "{() => setSidebarOpen(false)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/components/DashboardLayout.tsx",
+      "line": 95,
+      "tag": "button",
+      "label": "{item.label}",
+      "handlers": {
+        "onClick": "{() => handleNavClick(item.id)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/components/DashboardLayout.tsx",
+      "line": 102,
+      "tag": "button",
+      "label": "\"Sign Out\"",
+      "handlers": {
+        "onClick": "{async () => { if (loggingOut) return; setLoggingOut(true); try { await logout(); } catch { setLogoutError('Sign out failed. Please retry.'); } finally { setLoggingOut(false); } }}"
+      },
+      "disabled": "{loggingOut}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/components/DashboardLayout.tsx",
+      "line": 103,
+      "tag": "button",
+      "label": "{collapsed ? 'Expand sidebar' : 'Collapse sidebar'}",
+      "handlers": {
+        "onClick": "{() => { localStorage.setItem('sao:sidebar-collapsed', String(!collapsed)); setCollapsed(!collapsed); }}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/components/DashboardLayout.tsx",
+      "line": 109,
+      "tag": "button",
+      "label": "\"Open navigation\"",
+      "handlers": {
+        "onClick": "{() => setSidebarOpen(true)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/components/DashboardLayout.tsx",
+      "line": 111,
+      "tag": "button",
+      "label": "\"Search workspaces\"",
+      "handlers": {
+        "onClick": "{() => { setSearch(''); setCommandOpen(true); }}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/components/DashboardLayout.tsx",
+      "line": 116,
+      "tag": "Dialog",
+      "label": "\"Find workspace\"",
+      "handlers": {
+        "onClose": "{() => setCommandOpen(false)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/components/DashboardLayout.tsx",
+      "line": 116,
+      "tag": "input",
+      "label": "\"Policies, agents, deployments…\"",
+      "handlers": {
+        "onChange": "{event => setSearch(event.target.value)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/components/DashboardLayout.tsx",
+      "line": 116,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => handleNavClick(item.id)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/components/ui.tsx",
+      "line": 9,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{retry}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/components/ui.tsx",
+      "line": 27,
+      "tag": "button",
+      "label": "{`Close ${title}`}",
+      "handlers": {
+        "onClick": "{onClose}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/Checkout.tsx",
+      "line": 10,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{async () => { if (!confirm(`Create a payment request for ${price.data!.amount} ${price.data!.currency}?`)) return; try { const result = await checkout.mutateAsync({ deploymentId: businessId, quoteId: price.data!.quoteId }); setPayment({ id"
+      },
+      "disabled": "{checkout.isPending || Boolean(payment)}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/Checkout.tsx",
+      "line": 10,
+      "tag": "a",
+      "label": null,
+      "handlers": {},
+      "disabled": null,
+      "nativeAction": true,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/Checkout.tsx",
+      "line": 10,
+      "tag": "a",
+      "label": null,
+      "handlers": {},
+      "disabled": null,
+      "nativeAction": true,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/Login.tsx",
+      "line": 74,
+      "tag": "form",
+      "label": null,
+      "handlers": {
+        "onSubmit": "{handleSubmit}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/Login.tsx",
+      "line": 92,
+      "tag": "input",
+      "label": "\"sao@example.com\"",
+      "handlers": {
+        "onChange": "{(e) => setEmail(e.target.value)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/Login.tsx",
+      "line": 109,
+      "tag": "input",
+      "label": "\"123456\"",
+      "handlers": {
+        "onChange": "{(e) => setCode(e.target.value)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/Login.tsx",
+      "line": 123,
+      "tag": "input",
+      "label": "\"••••••••\"",
+      "handlers": {
+        "onChange": "{(e) => setNewPassword(e.target.value)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/Login.tsx",
+      "line": 140,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => {\n                        setIsResetMode(true);\n                        setError(null);\n                        setSuccess(null);\n                      }}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/Login.tsx",
+      "line": 152,
+      "tag": "input",
+      "label": "\"••••••••\"",
+      "handlers": {
+        "onChange": "{(e) => setPassword(e.target.value)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/Login.tsx",
+      "line": 165,
+      "tag": "button",
+      "label": null,
+      "handlers": {},
+      "disabled": "{loading}",
+      "nativeAction": true,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/Login.tsx",
+      "line": 185,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => {\n                  setIsResetMode(false);\n                  setIsResetConfirmMode(false);\n                  setError(null);\n                  setSuccess(null);\n                }}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/Registration.tsx",
+      "line": 99,
+      "tag": "form",
+      "label": null,
+      "handlers": {
+        "onSubmit": "{handleSubmit}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/Registration.tsx",
+      "line": 121,
+      "tag": "input",
+      "label": "\"••••••••\"",
+      "handlers": {
+        "onChange": "{(e) => setPassword(e.target.value)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/Registration.tsx",
+      "line": 135,
+      "tag": "input",
+      "label": "\"••••••••\"",
+      "handlers": {
+        "onChange": "{(e) => setConfirmPassword(e.target.value)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/Registration.tsx",
+      "line": 145,
+      "tag": "button",
+      "label": null,
+      "handlers": {},
+      "disabled": "{\n                  !password ||\n                  !confirmPassword ||\n                  registerMutation.isPending\n                }",
+      "nativeAction": true,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Advertising.tsx",
+      "line": 217,
+      "tag": "select",
+      "label": null,
+      "handlers": {
+        "onChange": "{e => setSelectedDeployment(e.target.value)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Advertising.tsx",
+      "line": 224,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{handleAnalyze}"
+      },
+      "disabled": "{!isAdmin || (analyzeMutation.isPending)}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Advertising.tsx",
+      "line": 227,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{handleGenerateStrategy}"
+      },
+      "disabled": "{!isAdmin || (strategyMutation.isPending)}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Advertising.tsx",
+      "line": 328,
+      "tag": "button",
+      "label": "\"Generate creatives\"",
+      "handlers": {
+        "onClick": "{() => handleGenerateCreatives(c.id)}"
+      },
+      "disabled": "{!isAdmin || (creativesMutation.isPending)}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Advertising.tsx",
+      "line": 334,
+      "tag": "button",
+      "label": "\"View creatives\"",
+      "handlers": {
+        "onClick": "{() => loadCreatives(c.id)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Advertising.tsx",
+      "line": 338,
+      "tag": "button",
+      "label": "\"Create A/B experiment\"",
+      "handlers": {
+        "onClick": "{() => createExperimentForCampaign(c)}"
+      },
+      "disabled": "{createExperimentMutation.isPending}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Advertising.tsx",
+      "line": 346,
+      "tag": "button",
+      "label": "\"Start A/B experiment\"",
+      "handlers": {
+        "onClick": "{() => mutateExperiment('start', experiment.id)}"
+      },
+      "disabled": "{startExperimentMutation.isPending}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Advertising.tsx",
+      "line": 354,
+      "tag": "button",
+      "label": "\"Evaluate A/B experiment\"",
+      "handlers": {
+        "onClick": "{() => mutateExperiment('evaluate', experiment.id)}"
+      },
+      "disabled": "{evaluateExperimentMutation.isPending}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Advertising.tsx",
+      "line": 359,
+      "tag": "button",
+      "label": "\"Stop A/B experiment\"",
+      "handlers": {
+        "onClick": "{() => mutateExperiment('stop', experiment.id)}"
+      },
+      "disabled": "{stopExperimentMutation.isPending}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Advertising.tsx",
+      "line": 369,
+      "tag": "button",
+      "label": "\"Publish\"",
+      "handlers": {
+        "onClick": "{() => handlePublish(c.id)}"
+      },
+      "disabled": "{!isAdmin || (publishMutation.isPending)}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Advertising.tsx",
+      "line": 377,
+      "tag": "button",
+      "label": "\"Approve paid campaign\"",
+      "handlers": {
+        "onClick": "{() => handleApprove(c)}"
+      },
+      "disabled": "{!isAdmin || (approveMutation.isPending)}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Advertising.tsx",
+      "line": 382,
+      "tag": "button",
+      "label": "\"Reject paid campaign\"",
+      "handlers": {
+        "onClick": "{() => handleReject(c.id)}"
+      },
+      "disabled": "{!isAdmin || (rejectMutation.isPending)}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Advertising.tsx",
+      "line": 391,
+      "tag": "button",
+      "label": "\"Optimize\"",
+      "handlers": {
+        "onClick": "{() => mutateCampaign('optimize', c.id)}"
+      },
+      "disabled": "{optimizeMutation.isPending}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Advertising.tsx",
+      "line": 396,
+      "tag": "button",
+      "label": "\"Pause\"",
+      "handlers": {
+        "onClick": "{() => mutateCampaign('pause', c.id)}"
+      },
+      "disabled": "{pauseMutation.isPending}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Advertising.tsx",
+      "line": 404,
+      "tag": "button",
+      "label": "\"Resume\"",
+      "handlers": {
+        "onClick": "{() => mutateCampaign('resume', c.id)}"
+      },
+      "disabled": "{resumeMutation.isPending}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Advertising.tsx",
+      "line": 411,
+      "tag": "button",
+      "label": "\"Stop\"",
+      "handlers": {
+        "onClick": "{() => mutateCampaign('stop', c.id)}"
+      },
+      "disabled": "{stopMutation.isPending}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Advertising.tsx",
+      "line": 430,
+      "tag": "Dialog",
+      "label": "\"Creatives\"",
+      "handlers": {
+        "onClose": "{() => setShowCreatives(null)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Analytics.tsx",
+      "line": 100,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{loadData}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/AuditLog.tsx",
+      "line": 67,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{loadData}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/AuditLog.tsx",
+      "line": 128,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => openModal(log)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/AuditLog.tsx",
+      "line": 144,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => setOffset(current => Math.max(0, current - 50))}"
+      },
+      "disabled": "{offset === 0 || auditQuery.isFetching}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/AuditLog.tsx",
+      "line": 144,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => setOffset(current => current + 50)}"
+      },
+      "disabled": "{logs.length < 50 || auditQuery.isFetching}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/AuditLog.tsx",
+      "line": 146,
+      "tag": "Dialog",
+      "label": "\"Orchestrator Decision Reasoning\"",
+      "handlers": {
+        "onClose": "{() => setIsModalOpen(false)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/AuditLog.tsx",
+      "line": 180,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => setIsModalOpen(false)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Authorizations.tsx",
+      "line": 16,
+      "tag": "select",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => { setBusinessId(event.target.value); setOffset(0); }}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Authorizations.tsx",
+      "line": 16,
+      "tag": "details",
+      "label": null,
+      "handlers": {},
+      "disabled": null,
+      "nativeAction": true,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Authorizations.tsx",
+      "line": 16,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => decision(approval.id, 'approved')}"
+      },
+      "disabled": "{decide.isPending}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Authorizations.tsx",
+      "line": 16,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => decision(approval.id, 'rejected')}"
+      },
+      "disabled": "{decide.isPending}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Authorizations.tsx",
+      "line": 16,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => decision(approval.id, 'revoked')}"
+      },
+      "disabled": "{decide.isPending}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Authorizations.tsx",
+      "line": 16,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{async () => { if (!confirm(`Accept the fixed ${offer.price} ${offer.currency} offer and create a payment request?`)) return; try { const result = await purchase.mutateAsync({ id: offer.id }); setMessage(result.checkoutUrl ? `Payment reques"
+      },
+      "disabled": "{purchase.isPending}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Authorizations.tsx",
+      "line": 16,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => setOffset(current => Math.max(0, current - 50))}"
+      },
+      "disabled": "{offset === 0 || workspace.isFetching}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Authorizations.tsx",
+      "line": 16,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => setOffset(current => current + 50)}"
+      },
+      "disabled": "{!workspace.data?.hasMore || workspace.isFetching}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/CryptoPayments.tsx",
+      "line": 72,
+      "tag": "select",
+      "label": null,
+      "handlers": {
+        "onChange": "{(e) => setDeploymentId(e.target.value)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/CryptoPayments.tsx",
+      "line": 90,
+      "tag": "select",
+      "label": null,
+      "handlers": {
+        "onChange": "{(e) => setPayCurrency(e.target.value)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/CryptoPayments.tsx",
+      "line": 104,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{handleCreate}"
+      },
+      "disabled": "{createPaymentMutation.isPending}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/CryptoPayments.tsx",
+      "line": 186,
+      "tag": "a",
+      "label": "\"Open payment page\"",
+      "handlers": {},
+      "disabled": null,
+      "nativeAction": true,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/CryptoPayments.tsx",
+      "line": 205,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => paymentsQuery.refetch()}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Deployments.tsx",
+      "line": 141,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{loadData}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Deployments.tsx",
+      "line": 145,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{handleResumeAll}"
+      },
+      "disabled": "{busy}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Deployments.tsx",
+      "line": 149,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{handleStopAll}"
+      },
+      "disabled": "{busy}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Deployments.tsx",
+      "line": 177,
+      "tag": "a",
+      "label": null,
+      "handlers": {},
+      "disabled": null,
+      "nativeAction": true,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Deployments.tsx",
+      "line": 182,
+      "tag": "button",
+      "label": "\"View Full Business Plan\"",
+      "handlers": {
+        "onClick": "{() => openPlanModal(dep.businessPlan)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Deployments.tsx",
+      "line": 234,
+      "tag": "button",
+      "label": "{dep.status === 'paused' ? 'Resume microservice' : 'Pause microservice'}",
+      "handlers": {
+        "onClick": "{() => handleTogglePause(dep.id)}"
+      },
+      "disabled": "{busy}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Deployments.tsx",
+      "line": 242,
+      "tag": "button",
+      "label": "\"Audit safety policies\"",
+      "handlers": {
+        "onClick": "{() => handleAudit(dep.id)}"
+      },
+      "disabled": "{busy}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Deployments.tsx",
+      "line": 250,
+      "tag": "button",
+      "label": "\"Stop & teardown micro-worker\"",
+      "handlers": {
+        "onClick": "{() => handleStop(dep.id)}"
+      },
+      "disabled": "{busy}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Deployments.tsx",
+      "line": 303,
+      "tag": "Dialog",
+      "label": "\"Asymmetric Business Plan\"",
+      "handlers": {
+        "onClose": "{() => setIsPlanModalOpen(false)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Deployments.tsx",
+      "line": 309,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => setIsPlanModalOpen(false)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Gaps.tsx",
+      "line": 106,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => setIsAddModalOpen(true)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Gaps.tsx",
+      "line": 116,
+      "tag": "input",
+      "label": "\"Search gaps\"",
+      "handlers": {
+        "onChange": "{event => { setSearch(event.target.value); setOffset(0); }}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Gaps.tsx",
+      "line": 117,
+      "tag": "select",
+      "label": "\"Gap status\"",
+      "handlers": {
+        "onChange": "{(e) => { setFilter(e.target.value); setOffset(0); }}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Gaps.tsx",
+      "line": 130,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{loadData}"
+      },
+      "disabled": "{gapsQuery.isFetching}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Gaps.tsx",
+      "line": 184,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => toggleRow(gap.id)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Gaps.tsx",
+      "line": 192,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => handleRetry(gap.id)}"
+      },
+      "disabled": "{retryMutation.isPending}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Gaps.tsx",
+      "line": 263,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => setOffset(current => Math.max(0, current - 50))}"
+      },
+      "disabled": "{offset === 0 || gapsQuery.isFetching || search.trim() !== query}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Gaps.tsx",
+      "line": 263,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => setOffset(current => current + 50)}"
+      },
+      "disabled": "{gaps.length < 50 || gapsQuery.isFetching || search.trim() !== query}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Gaps.tsx",
+      "line": 265,
+      "tag": "Dialog",
+      "label": "\"Add Asymmetric Gap\"",
+      "handlers": {
+        "onClose": "{() => setIsAddModalOpen(false)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Gaps.tsx",
+      "line": 268,
+      "tag": "form",
+      "label": null,
+      "handlers": {
+        "onSubmit": "{handleAddGap}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Gaps.tsx",
+      "line": 273,
+      "tag": "textarea",
+      "label": "\"e.g. Local farm cooperatives with extra diesel surplus\"",
+      "handlers": {
+        "onChange": "{(e) => setKnows(e.target.value)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Gaps.tsx",
+      "line": 286,
+      "tag": "textarea",
+      "label": "\"e.g. Decentralized cold-storage distribution routes\"",
+      "handlers": {
+        "onChange": "{(e) => setNeeds(e.target.value)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Gaps.tsx",
+      "line": 300,
+      "tag": "input",
+      "label": "\"e.g. Regional logistics platform\"",
+      "handlers": {
+        "onChange": "{(e) => setControlsAccess(e.target.value)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Gaps.tsx",
+      "line": 312,
+      "tag": "input",
+      "label": "\"e.g. Small local agricultural operations\"",
+      "handlers": {
+        "onChange": "{(e) => setUnderestimatesValue(e.target.value)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Gaps.tsx",
+      "line": 327,
+      "tag": "input",
+      "label": "\"manual\"",
+      "handlers": {
+        "onChange": "{(e) => setSource(e.target.value)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Gaps.tsx",
+      "line": 338,
+      "tag": "select",
+      "label": null,
+      "handlers": {
+        "onChange": "{(e) => setPriority(e.target.value as any)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Gaps.tsx",
+      "line": 352,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => setIsAddModalOpen(false)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Gaps.tsx",
+      "line": 355,
+      "tag": "button",
+      "label": null,
+      "handlers": {},
+      "disabled": "{createMutation.isPending}",
+      "nativeAction": true,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Infrastructure.tsx",
+      "line": 112,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{refreshAll}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Infrastructure.tsx",
+      "line": 132,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => setTab(item.id)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Infrastructure.tsx",
+      "line": 140,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => setEvidenceOpen(true)}"
+      },
+      "disabled": "{!canManage || working}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Infrastructure.tsx",
+      "line": 151,
+      "tag": "a",
+      "label": null,
+      "handlers": {},
+      "disabled": null,
+      "nativeAction": true,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Infrastructure.tsx",
+      "line": 159,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => run(() => createSpec.mutateAsync({ title: 'Draft specification', sections: { objectives: [], dependencies: [] } }), 'Create draft specification')}"
+      },
+      "disabled": "{!canManage || working}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Infrastructure.tsx",
+      "line": 178,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => run(() => ensureAgents.mutateAsync(), 'Ensure default agents')}"
+      },
+      "disabled": "{!canManage || working}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Infrastructure.tsx",
+      "line": 193,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => run(() => createTask.mutateAsync({ taskType: 'manual_review', title: 'Policy-blocked infrastructure task' }), 'Create task')}"
+      },
+      "disabled": "{!canManage || working}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Infrastructure.tsx",
+      "line": 209,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => run(() => createBuild.mutateAsync({ projectType: 'software', architecture: { status: 'draft' } }), 'Create build project')}"
+      },
+      "disabled": "{!canManage || working}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Infrastructure.tsx",
+      "line": 225,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => run(() => createQc.mutateAsync({ summary: 'Manual QC job' }), 'Create QC job')}"
+      },
+      "disabled": "{!canManage || working}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Infrastructure.tsx",
+      "line": 241,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => run(() => createLead.mutateAsync({ source: 'manual', name: 'Manual lead' }), 'Create lead')}"
+      },
+      "disabled": "{!canManage || working}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Infrastructure.tsx",
+      "line": 254,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => run(() => createAccount.mutateAsync({ accountType: 'platform_revenue_share_pending' }), 'Create revenue account')}"
+      },
+      "disabled": "{!canManage || working}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Infrastructure.tsx",
+      "line": 267,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => run(() => createLifecycle.mutateAsync({ state: 'monitoring' }), 'Create lifecycle record')}"
+      },
+      "disabled": "{!canManage || working}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Infrastructure.tsx",
+      "line": 291,
+      "tag": "Dialog",
+      "label": "\"Record evidence\"",
+      "handlers": {
+        "onClose": "{() => { if (!working) setEvidenceOpen(false); }}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Infrastructure.tsx",
+      "line": 291,
+      "tag": "form",
+      "label": null,
+      "handlers": {
+        "onSubmit": "{event => { event.preventDefault(); void run(async () => { await createEvidence.mutateAsync({ ...evidenceDraft, provider: 'manual', category: 'market_context', caveats: ['Operator-supplied evidence requires independent verification.'] }); s"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Infrastructure.tsx",
+      "line": 291,
+      "tag": "input",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => setEvidenceDraft(current => ({ ...current, title: event.target.value }))}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Infrastructure.tsx",
+      "line": 291,
+      "tag": "input",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => setEvidenceDraft(current => ({ ...current, sourceUrl: event.target.value }))}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Infrastructure.tsx",
+      "line": 291,
+      "tag": "textarea",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => setEvidenceDraft(current => ({ ...current, summary: event.target.value }))}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Infrastructure.tsx",
+      "line": 291,
+      "tag": "button",
+      "label": null,
+      "handlers": {},
+      "disabled": "{!canManage || working}",
+      "nativeAction": true,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 67,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => setTab(item)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 68,
+      "tag": "select",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => { setBusinessId(event.target.value); setResourceId(event.target.value); setOffset(0); }}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 69,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => { const business = workspace.data?.businesses.find((record: any) => record.id === businessId); if (business) { setGapId(business.gapId); setEvidenceIds([]); } }}"
+      },
+      "disabled": "{!businessId}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 69,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => setLegalState(state)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 69,
+      "tag": "details",
+      "label": null,
+      "handlers": {},
+      "disabled": null,
+      "nativeAction": true,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 69,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => { setGapId(gap.id); setEvidenceIds([]); }}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 69,
+      "tag": "form",
+      "label": null,
+      "handlers": {
+        "onSubmit": "{event => { event.preventDefault(); perform(() => review.mutateAsync({ gapId, legalState, confidence, jurisdiction, complexity, rationale: reason, uncertainty: confidence === 'uncertain' ? [reason] : [], evidenceIds, demandScore: Number(sco"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 69,
+      "tag": "select",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => setLegalState(event.target.value as typeof legalState)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 69,
+      "tag": "select",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => setConfidence(event.target.value as typeof confidence)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 69,
+      "tag": "input",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => setJurisdiction(event.target.value)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 69,
+      "tag": "select",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => setComplexity(event.target.value as typeof complexity)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 69,
+      "tag": "input",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => setScores(current => ({ ...current, [key]: event.target.value }))}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 69,
+      "tag": "textarea",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => setReason(event.target.value)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 69,
+      "tag": "input",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => setEvidenceIds(current => event.target.checked ? [...current, record.id] : current.filter(id => id !== record.id))}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 69,
+      "tag": "a",
+      "label": null,
+      "handlers": {},
+      "disabled": null,
+      "nativeAction": true,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 69,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => { const publisher = prompt('Independent publisher / organization identity'); const rationale = prompt('Evidence reliability review rationale'); if (publisher && rationale) perform(() => reviewEvidence.mutateAsync({ id: record.id, rel"
+      },
+      "disabled": "{busy}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 69,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => { const rationale = prompt('Reason this source is unreliable'); if (rationale) perform(() => reviewEvidence.mutateAsync({ id: record.id, reliable: false, rationale, publisher: record.provider })); }}"
+      },
+      "disabled": "{busy}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 69,
+      "tag": "button",
+      "label": null,
+      "handlers": {},
+      "disabled": "{busy || evidenceIds.length < 2}",
+      "nativeAction": true,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 70,
+      "tag": "form",
+      "label": null,
+      "handlers": {
+        "onSubmit": "{event => { event.preventDefault(); perform(() => request.mutateAsync({ deploymentId: businessId, action, resourceId, authority, risk: 'high', expiresAt: new Date(expiresAt).toISOString(), amount: amount || undefined, currency: currency || "
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 70,
+      "tag": "select",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => setAction(event.target.value as typeof action)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 70,
+      "tag": "select",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => setAuthority(event.target.value as typeof authority)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 70,
+      "tag": "input",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => setResourceId(event.target.value)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 70,
+      "tag": "input",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => setExpiresAt(event.target.value)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 70,
+      "tag": "input",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => setAmount(event.target.value)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 70,
+      "tag": "input",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => setCurrency(event.target.value.toUpperCase())}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 70,
+      "tag": "input",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => setReason(event.target.value)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 70,
+      "tag": "button",
+      "label": null,
+      "handlers": {},
+      "disabled": "{busy || !businessId}",
+      "nativeAction": true,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 71,
+      "tag": "input",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => setReference(event.target.value)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 71,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => perform(() => recommend.mutateAsync({ deploymentId: businessId, evidenceIds: reference.split(',').map(value => value.trim()) }))}"
+      },
+      "disabled": "{busy || !businessId || !reference}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 72,
+      "tag": "input",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => setSourcePaymentId(event.target.value)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 72,
+      "tag": "input",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => setAmount(event.target.value)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 72,
+      "tag": "input",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => setCurrency(event.target.value.toUpperCase())}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 72,
+      "tag": "input",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => setOccurredAt(event.target.value)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 72,
+      "tag": "select",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => setKind(event.target.value as typeof kind)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 72,
+      "tag": "input",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => setReference(event.target.value)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 72,
+      "tag": "textarea",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => setReason(event.target.value)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 72,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => perform(() => opening.mutateAsync({ deploymentId: businessId, loss: amount, currency, startsAt: new Date(occurredAt).toISOString() }))}"
+      },
+      "disabled": "{busy || !businessId || !amount || !occurredAt || !currency}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 72,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => perform(() => recordItem.mutateAsync({ deploymentId: businessId, kind, amount, currency, occurredAt: new Date(occurredAt).toISOString(), sourceProvider: 'documented_manual_accounting', sourceReference: reference, paymentId: sourcePay"
+      },
+      "disabled": "{busy || !businessId || !amount || !reference || !reason || !occurredAt}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 72,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => perform(() => calculate.mutateAsync(businessId))}"
+      },
+      "disabled": "{busy || !businessId}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 73,
+      "tag": "input",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => setReason(event.target.value)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 73,
+      "tag": "input",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => setAmount(event.target.value)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 73,
+      "tag": "input",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => setCurrency(event.target.value.toUpperCase())}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 73,
+      "tag": "input",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => setExpiresAt(event.target.value)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 73,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => perform(() => deadline.mutateAsync(businessId))}"
+      },
+      "disabled": "{busy || !businessId}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 73,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => perform(() => evaluate.mutateAsync(businessId))}"
+      },
+      "disabled": "{busy || !businessId}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 73,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => perform(() => extend.mutateAsync({ deploymentId: businessId, price: amount, currency, expiresAt: new Date(expiresAt).toISOString() }))}"
+      },
+      "disabled": "{busy || !businessId || !amount || !currency || !expiresAt}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 73,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => { if (confirm('Suspend activity while retaining resources and obligations?')) perform(() => suspend.mutateAsync({ deploymentId: businessId, reason })); }}"
+      },
+      "disabled": "{busy || !businessId || !reason}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 73,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => { if (confirm('Resume only after verified legal, QC, provider, deadline and financial recovery checks? Campaign spending remains paused.')) perform(() => resume.mutateAsync({ deploymentId: businessId, reason })); }}"
+      },
+      "disabled": "{busy || !businessId || !reason}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 73,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => { if (confirm('Evaluate permanent closure using recorded approvals and obligation checks?')) perform(() => close.mutateAsync({ deploymentId: businessId, reason, approvalExpiresAt: expiresAt ? new Date(expiresAt).toISOString() : undef"
+      },
+      "disabled": "{busy || !businessId || !reason}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 73,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => perform(() => restart.mutateAsync({ deploymentId: businessId, freshGapId: reason }))}"
+      },
+      "disabled": "{busy || !businessId || !reason}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 73,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => perform(() => learn.mutateAsync(businessId))}"
+      },
+      "disabled": "{busy || !businessId}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 74,
+      "tag": "input",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => setExpectedDatabase(event.target.value)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 74,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => perform(async () => setPrepared(await prepare.mutateAsync({ expectedDatabase })))}"
+      },
+      "disabled": "{busy || !expectedDatabase}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 74,
+      "tag": "input",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => setConfirmation(event.target.value)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 74,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => { if (confirm('Execute the exact reviewed discovery reset? Protected businesses and provider records are retained.')) perform(async () => { setPrepared(await execute.mutateAsync({ id: prepared.id, confirmation })); await preview.refe"
+      },
+      "disabled": "{busy || confirmation !== prepared.confirmation}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 76,
+      "tag": "details",
+      "label": null,
+      "handlers": {},
+      "disabled": null,
+      "nativeAction": true,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 76,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => perform(() => decide.mutateAsync({ id: record.id, decision: 'approved' }))}"
+      },
+      "disabled": "{busy}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 76,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => perform(() => decide.mutateAsync({ id: record.id, decision: 'rejected' }))}"
+      },
+      "disabled": "{busy}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 76,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => perform(() => applyPrice.mutateAsync(record.id))}"
+      },
+      "disabled": "{busy}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 76,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => perform(() => rollbackPrice.mutateAsync(record.id))}"
+      },
+      "disabled": "{busy}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 76,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => perform(() => verifyItem.mutateAsync({ id: record.id, disputed: false }))}"
+      },
+      "disabled": "{busy}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 76,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => perform(() => verifyItem.mutateAsync({ id: record.id, disputed: true }))}"
+      },
+      "disabled": "{busy}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 76,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => perform(() => reconcile.mutateAsync({ id: record.id, evidence: reason }))}"
+      },
+      "disabled": "{busy || !reason}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 77,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => setOffset(Math.max(0, offset - 50))}"
+      },
+      "disabled": "{offset === 0}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 77,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => setOffset(offset + 50)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Operations.tsx",
+      "line": 77,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => perform(() => workspace.refetch())}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Overview.tsx",
+      "line": 179,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{handleRefresh}"
+      },
+      "disabled": "{analyticsQuery.isFetching || coreLoopStatusQuery.isFetching}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Overview.tsx",
+      "line": 264,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{handleStopLoop}"
+      },
+      "disabled": "{!isAdmin || controlsBusy}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Overview.tsx",
+      "line": 269,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{handleStartLoop}"
+      },
+      "disabled": "{!isAdmin || controlsBusy}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Overview.tsx",
+      "line": 274,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{handleRunOnce}"
+      },
+      "disabled": "{!isAdmin || controlsBusy}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Overview.tsx",
+      "line": 278,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{handleRunAudit}"
+      },
+      "disabled": "{!isAdmin || controlsBusy}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Policies.tsx",
+      "line": 50,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => overview.refetch()}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Policies.tsx",
+      "line": 53,
+      "tag": "details",
+      "label": null,
+      "handlers": {},
+      "disabled": null,
+      "nativeAction": true,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Policies.tsx",
+      "line": 54,
+      "tag": "input",
+      "label": "\"Search policies\"",
+      "handlers": {
+        "onChange": "{event => setSearch(event.target.value)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Policies.tsx",
+      "line": 55,
+      "tag": "details",
+      "label": null,
+      "handlers": {},
+      "disabled": null,
+      "nativeAction": true,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Policies.tsx",
+      "line": 55,
+      "tag": "form",
+      "label": null,
+      "handlers": {
+        "onSubmit": "{event => { event.preventDefault(); perform(async () => { await createGuardrail.mutateAsync({ ruleText: guardrailText }); setGuardrailText(''); }); }}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Policies.tsx",
+      "line": 55,
+      "tag": "input",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => setGuardrailText(event.target.value)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Policies.tsx",
+      "line": 55,
+      "tag": "button",
+      "label": null,
+      "handlers": {},
+      "disabled": "{createGuardrail.isPending}",
+      "nativeAction": true,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Policies.tsx",
+      "line": 55,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => perform(() => acknowledgeGuardrail.mutateAsync(guardrail.id))}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Policies.tsx",
+      "line": 55,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => { if (confirm('Remove this custom guardrail?')) perform(() => deleteGuardrail.mutateAsync(guardrail.id)); }}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Policies.tsx",
+      "line": 57,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => {\n        if (dirty && !confirm('Discard unsaved policy changes?')) return;\n        setDirty(false); setEditing(null); setCategory(policy.category); localStorage.setItem('policyCategory', policy.category); setConfig(policy.config); s"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Policies.tsx",
+      "line": 62,
+      "tag": "input",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => setBusinessId(event.target.value)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Policies.tsx",
+      "line": 62,
+      "tag": "select",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => { const versionId = event.target.value; if (businessId && reason.trim() && versionId && confirm('Assign this reviewed version to the specific business? Existing authorizations remain independently enforced.')) perform(() => assign"
+      },
+      "disabled": "{busy || !businessId || !reason.trim()}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Policies.tsx",
+      "line": 62,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => { if (confirm('Disable optional pricing changes globally? Dependent pricing operations remain denied; existing agreements are not overwritten.')) perform(() => disable.mutateAsync({ category, reason })); }}"
+      },
+      "disabled": "{busy || !reason.trim()}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Policies.tsx",
+      "line": 64,
+      "tag": "form",
+      "label": null,
+      "handlers": {
+        "onSubmit": "{event => { event.preventDefault(); perform(async () => { if (editing) await edit.mutateAsync({ ...editing, config, reason }); else await save.mutateAsync({ category, config, reason }); setEditing(null); setDirty(false); }); }}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Policies.tsx",
+      "line": 71,
+      "tag": "input",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => update(event.target.checked)}"
+      },
+      "disabled": "{locked}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Policies.tsx",
+      "line": 71,
+      "tag": "select",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => update(event.target.value || null)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Policies.tsx",
+      "line": 71,
+      "tag": "input",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => update(Array.isArray(value) ? event.target.value.split(',').map(item => item.trim()).filter(Boolean) : numeric ? event.target.value === '' ? null : Number(event.target.value) : event.target.value || null)}"
+      },
+      "disabled": "{locked}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Policies.tsx",
+      "line": 74,
+      "tag": "input",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => setReason(event.target.value)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Policies.tsx",
+      "line": 76,
+      "tag": "button",
+      "label": null,
+      "handlers": {},
+      "disabled": "{busy || !validation.valid || !reason.trim()}",
+      "nativeAction": true,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Policies.tsx",
+      "line": 76,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => { setConfig(selected?.config || policyDefinitions[category].defaults); setDirty(false); }}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Policies.tsx",
+      "line": 80,
+      "tag": "details",
+      "label": null,
+      "handlers": {},
+      "disabled": null,
+      "nativeAction": true,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Policies.tsx",
+      "line": 80,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => setImpactOffset(Math.max(0, impactOffset - 50))}"
+      },
+      "disabled": "{impactOffset === 0}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Policies.tsx",
+      "line": 80,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => setImpactOffset(impactOffset + 50)}"
+      },
+      "disabled": "{Math.max(...Object.values(impact.data?.counts || {}).map(value => Number(value))) <= impactOffset + 50}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Policies.tsx",
+      "line": 81,
+      "tag": "details",
+      "label": null,
+      "handlers": {},
+      "disabled": null,
+      "nativeAction": true,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Policies.tsx",
+      "line": 81,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => { if (dirty && !confirm('Discard unsaved changes?')) return; setConfig(JSON.parse(version.configJson)); setReason(version.reason); setEditing({ id: version.id, expectedHash: version.configHash }); setDirty(false); }}"
+      },
+      "disabled": "{busy}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Policies.tsx",
+      "line": 81,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => perform(async () => { const result = await validate.mutateAsync(version.id); if (result.errors.length || result.missing.length) throw new Error([...result.errors, ...result.missing.map(field => `Not configured: ${field}`)].join(', ')"
+      },
+      "disabled": "{busy}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Policies.tsx",
+      "line": 81,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => { if (confirm('Activate this version for new work? Review the impact above. Existing consent is preserved.')) perform(() => activate.mutateAsync(version.id)); }}"
+      },
+      "disabled": "{busy || dirty || impact.isLoading || !!impact.error}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Policies.tsx",
+      "line": 81,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => { if (confirm('Create a new draft from this historical version?')) perform(() => save.mutateAsync({ category, config: {}, reason: `Restore ${version.id}`, restoreId: version.id })); }}"
+      },
+      "disabled": "{busy}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Policies.tsx",
+      "line": 83,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => setOffset(Math.max(0, offset - 50))}"
+      },
+      "disabled": "{offset === 0}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Policies.tsx",
+      "line": 83,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => setOffset(offset + 50)}"
+      },
+      "disabled": "{(history.data?.length || 0) < 50 && (activity.data?.length || 0) < 50}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Providers.tsx",
+      "line": 207,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => openAdd(group.id)}"
+      },
+      "disabled": "{!isAdmin || busy}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Providers.tsx",
+      "line": 265,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => handlePriority(p, p.priority === 'primary' ? null : 'primary')}"
+      },
+      "disabled": "{!isAdmin || busy}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Providers.tsx",
+      "line": 267,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => handlePriority(p, p.priority === 'fallback' ? null : 'fallback')}"
+      },
+      "disabled": "{!isAdmin || busy}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Providers.tsx",
+      "line": 273,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => handleTest(p.id)}"
+      },
+      "disabled": "{!isAdmin || busy || (testing === p.id)}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Providers.tsx",
+      "line": 274,
+      "tag": "button",
+      "label": "\"Edit\"",
+      "handlers": {
+        "onClick": "{() => openEdit(p)}"
+      },
+      "disabled": "{!isAdmin || busy}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Providers.tsx",
+      "line": 275,
+      "tag": "button",
+      "label": "{p.enabled ? 'Disable' : 'Enable'}",
+      "handlers": {
+        "onClick": "{() => handleToggle(p)}"
+      },
+      "disabled": "{!isAdmin || busy}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Providers.tsx",
+      "line": 276,
+      "tag": "button",
+      "label": "\"Delete\"",
+      "handlers": {
+        "onClick": "{() => handleDelete(p.id)}"
+      },
+      "disabled": "{!isAdmin || busy}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Providers.tsx",
+      "line": 295,
+      "tag": "Dialog",
+      "label": "{editing ? \"Edit Provider\" : \"Add Provider\"}",
+      "handlers": {
+        "onClose": "{() => setIsAddOpen(false)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Providers.tsx",
+      "line": 298,
+      "tag": "form",
+      "label": null,
+      "handlers": {
+        "onSubmit": "{handleSave}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Providers.tsx",
+      "line": 301,
+      "tag": "input",
+      "label": "\"e.g. Tavily, ONS\"",
+      "handlers": {
+        "onChange": "{(e) => setForm({ ...form, name: e.target.value })}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Providers.tsx",
+      "line": 305,
+      "tag": "select",
+      "label": null,
+      "handlers": {
+        "onChange": "{(e) => setForm({ ...form, service: e.target.value as ServiceType })}"
+      },
+      "disabled": "{!!editing}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Providers.tsx",
+      "line": 311,
+      "tag": "select",
+      "label": null,
+      "handlers": {
+        "onChange": "{(e) => {\n                  const next = knownProviders.find((k) => k.id === e.target.value);\n                  setForm({\n                    ...form,\n                    providerId: e.target.value,\n                    credentialType: next?"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Providers.tsx",
+      "line": 333,
+      "tag": "input",
+      "label": "{credentialRequired ? (editing ? 'Leave blank to keep existing key' : 'Required for this provider') : 'Not required'}",
+      "handlers": {
+        "onChange": "{(e) => setForm({ ...form, credential: e.target.value })}"
+      },
+      "disabled": "{!credentialRequired}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Providers.tsx",
+      "line": 341,
+      "tag": "input",
+      "label": "\"https://api.example.com\"",
+      "handlers": {
+        "onChange": "{(e) => setForm({ ...form, baseUrl: e.target.value })}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Providers.tsx",
+      "line": 345,
+      "tag": "select",
+      "label": null,
+      "handlers": {
+        "onChange": "{(e) => setForm({ ...form, priority: e.target.value as any })}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Providers.tsx",
+      "line": 352,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => setIsAddOpen(false)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Providers.tsx",
+      "line": 353,
+      "tag": "button",
+      "label": null,
+      "handlers": {},
+      "disabled": "{!isAdmin || busy}",
+      "nativeAction": true,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Queue.tsx",
+      "line": 104,
+      "tag": "select",
+      "label": null,
+      "handlers": {
+        "onChange": "{(e) => setQueueTypeFilter(e.target.value)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Queue.tsx",
+      "line": 115,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{refreshQueue}"
+      },
+      "disabled": "{pending || queueQuery.isFetching}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Queue.tsx",
+      "line": 227,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => handleMove(item.id, 'up')}"
+      },
+      "disabled": "{pending || index === 0}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Queue.tsx",
+      "line": 234,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => handleMove(item.id, 'down')}"
+      },
+      "disabled": "{pending || index === queue.length - 1}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Queue.tsx",
+      "line": 276,
+      "tag": "button",
+      "label": "{item.status === 'paused' ? 'Resume Processing' : 'Pause Processing'}",
+      "handlers": {
+        "onClick": "{() => handleTogglePause(item.id, item.status)}"
+      },
+      "disabled": "{pending}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Queue.tsx",
+      "line": 285,
+      "tag": "button",
+      "label": "\"Retry Pipeline Loop\"",
+      "handlers": {
+        "onClick": "{() => handleRetry(item.id)}"
+      },
+      "disabled": "{pending}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Queue.tsx",
+      "line": 294,
+      "tag": "button",
+      "label": "\"Delete Item\"",
+      "handlers": {
+        "onClick": "{() => handleDelete(item.id)}"
+      },
+      "disabled": "{pending}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Queue.tsx",
+      "line": 302,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => toggleRow(item.id)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/RegistrationAccess.tsx",
+      "line": 79,
+      "tag": "form",
+      "label": null,
+      "handlers": {
+        "onSubmit": "{handleSubmit}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/RegistrationAccess.tsx",
+      "line": 85,
+      "tag": "input",
+      "label": "\"sao@example.com\"",
+      "handlers": {
+        "onChange": "{(e) => setEmail(e.target.value)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/RegistrationAccess.tsx",
+      "line": 98,
+      "tag": "select",
+      "label": null,
+      "handlers": {
+        "onChange": "{(e) => setRole(e.target.value as 'admin' | 'user')}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/RegistrationAccess.tsx",
+      "line": 111,
+      "tag": "input",
+      "label": null,
+      "handlers": {
+        "onChange": "{(e) => setExpiresAt(e.target.value)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/RegistrationAccess.tsx",
+      "line": 120,
+      "tag": "button",
+      "label": null,
+      "handlers": {},
+      "disabled": "{createMutation.isPending}",
+      "nativeAction": true,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/RegistrationAccess.tsx",
+      "line": 139,
+      "tag": "input",
+      "label": null,
+      "handlers": {},
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/RegistrationAccess.tsx",
+      "line": 145,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{handleCopy}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/RegistrationAccess.tsx",
+      "line": 208,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => handleDelete(invite.id)}"
+      },
+      "disabled": "{deleteMutation.isPending}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Settings.tsx",
+      "line": 212,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => window.location.reload()}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Settings.tsx",
+      "line": 222,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => { if (!window.dispatchEvent(new Event('sao:before-navigation', { cancelable: true }))) return; setDirtyGroups([]); setReloadVersion(value => value + 1); }}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Settings.tsx",
+      "line": 223,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{handleReset}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Settings.tsx",
+      "line": 227,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{handleSave}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Settings.tsx",
+      "line": 234,
+      "tag": "input",
+      "label": "\"Search settings\"",
+      "handlers": {
+        "onChange": "{event => setSearch(event.target.value)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Settings.tsx",
+      "line": 235,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => setSection(item)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Settings.tsx",
+      "line": 238,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{handleReset}"
+      },
+      "disabled": "{resetPreview.isFetching}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Settings.tsx",
+      "line": 252,
+      "tag": "input",
+      "label": "\"10800000\"",
+      "handlers": {
+        "onChange": "{(e) => setIntervalMs(Number(e.target.value))}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Settings.tsx",
+      "line": 275,
+      "tag": "input",
+      "label": "\"50.00\"",
+      "handlers": {
+        "onChange": "{(e) => setMaxCost(parseFloat(e.target.value) || 0)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Settings.tsx",
+      "line": 287,
+      "tag": "input",
+      "label": "\"10\"",
+      "handlers": {
+        "onChange": "{(e) => setMaxDeployments(parseInt(e.target.value) || 10)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Settings.tsx",
+      "line": 300,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => setAutoPause(!autoPause)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Settings.tsx",
+      "line": 318,
+      "tag": "input",
+      "label": null,
+      "handlers": {
+        "onChange": "{(e) => setMaxAttempts(Number(e.target.value))}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Settings.tsx",
+      "line": 322,
+      "tag": "input",
+      "label": null,
+      "handlers": {
+        "onChange": "{(e) => setBackoffMultiplier(Number(e.target.value))}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Settings.tsx",
+      "line": 326,
+      "tag": "input",
+      "label": null,
+      "handlers": {
+        "onChange": "{(e) => setBaseDelayMs(Number(e.target.value))}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Settings.tsx",
+      "line": 329,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{async () => {\n                try {\n                  await trpcMutation('settings.retryConfig', {\n                    maxAttempts,\n                    backoffMultiplier,\n                    baseDelayMs,\n                  });\n             "
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Settings.tsx",
+      "line": 368,
+      "tag": "input",
+      "label": null,
+      "handlers": {
+        "onChange": "{(e) => setQueueMaxSize(Number(e.target.value))}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Settings.tsx",
+      "line": 372,
+      "tag": "input",
+      "label": null,
+      "handlers": {
+        "onChange": "{(e) => setQueueExpirationHours(Number(e.target.value))}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Settings.tsx",
+      "line": 375,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{async () => {\n                try {\n                  await trpcMutation('settings.queueLimits', {\n                    maxSize: queueMaxSize,\n                    expirationHours: queueExpirationHours,\n                  });\n                "
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Settings.tsx",
+      "line": 417,
+      "tag": "input",
+      "label": null,
+      "handlers": {
+        "onChange": "{(e) => setConcurrencyLevel(Number(e.target.value))}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Settings.tsx",
+      "line": 428,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{async () => {\n                      try {\n                        await trpcMutation('settings.setConcurrency', {\n                          level: concurrencyLevel,\n                        });\n                        const value: any = awa"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Settings.tsx",
+      "line": 470,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => setEmailNotify(!emailNotify)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/Settings.tsx",
+      "line": 482,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => setSlackNotify(!slackNotify)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/SettingsPanels.tsx",
+      "line": 32,
+      "tag": "details",
+      "label": null,
+      "handlers": {},
+      "disabled": null,
+      "nativeAction": true,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/SettingsPanels.tsx",
+      "line": 33,
+      "tag": "form",
+      "label": null,
+      "handlers": {
+        "onSubmit": "{event => { event.preventDefault(); persist('general', values.general); }}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/SettingsPanels.tsx",
+      "line": 33,
+      "tag": "input",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => setValues(current => ({ ...current, general: { ...current.general, [key]: event.target.value } }))}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/SettingsPanels.tsx",
+      "line": 33,
+      "tag": "button",
+      "label": null,
+      "handlers": {},
+      "disabled": "{save.isPending}",
+      "nativeAction": true,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/SettingsPanels.tsx",
+      "line": 34,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{async () => { try { await start.mutateAsync(); await diagnostics.refetch(); } catch (error: any) { setMessage(error.message); } }}"
+      },
+      "disabled": "{start.isPending}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/SettingsPanels.tsx",
+      "line": 34,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{async () => { await stop.mutateAsync(); await diagnostics.refetch(); }}"
+      },
+      "disabled": "{stop.isPending}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/SettingsPanels.tsx",
+      "line": 34,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{async () => { try { await runOnce.mutateAsync(); await diagnostics.refetch(); } catch (error: any) { setMessage(error.message); } }}"
+      },
+      "disabled": "{runOnce.isPending}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/SettingsPanels.tsx",
+      "line": 36,
+      "tag": "select",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => setRole(event.target.value)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/SettingsPanels.tsx",
+      "line": 36,
+      "tag": "input",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => setModel(event.target.value)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/SettingsPanels.tsx",
+      "line": 36,
+      "tag": "select",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => setLevel(event.target.value as typeof level)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/SettingsPanels.tsx",
+      "line": 36,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => persist('reasoningAssignments', [...(values.reasoningAssignments || []).filter((assignment: any) => assignment.role !== role), { role, model, level }])}"
+      },
+      "disabled": "{!role || !model || save.isPending}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/SettingsPanels.tsx",
+      "line": 37,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => { if (confirm(values.emergencyStop ? 'Clear emergency stop? Services remain stopped until explicitly restarted.' : 'Stop automation and safely suspend business activity?')) persist('emergencyStop', values.emergencyStop !== true); }}"
+      },
+      "disabled": "{save.isPending}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/SettingsPanels.tsx",
+      "line": 37,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => navigate('operations')}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/SettingsPanels.tsx",
+      "line": 38,
+      "tag": "input",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => setValues(current => ({ ...current, notificationRouting: { ...current.notificationRouting, [key]: event.target.checked } }))}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/SettingsPanels.tsx",
+      "line": 38,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => persist('notificationRouting', Object.fromEntries(['agentFailures', 'budgetAlerts', 'qcAlerts', 'deadlineWarnings', 'settlementExceptions', 'systemAlerts'].map(key => [key, values.notificationRouting?.[key] === true])))}"
+      },
+      "disabled": "{save.isPending}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/SettingsPanels.tsx",
+      "line": 39,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => navigate('operations')}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/SettingsPanels.tsx",
+      "line": 40,
+      "tag": "input",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => setValues(current => ({ ...current, retention: { ...current.retention, [key]: event.target.value ? Number(event.target.value) : null, automatedDeletion: false } }))}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/SettingsPanels.tsx",
+      "line": 40,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => persist('retention', { discoveryDays: values.retention?.discoveryDays ?? null, auditDays: values.retention?.auditDays ?? null, financialDays: values.retention?.financialDays ?? null, automatedDeletion: false })}"
+      },
+      "disabled": "{save.isPending}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/SettingsPanels.tsx",
+      "line": 40,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => navigate('operations')}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/SettingsPanels.tsx",
+      "line": 41,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => navigate('operations')}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/SettingsPanels.tsx",
+      "line": 42,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => navigate('policies')}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/SettingsPanels.tsx",
+      "line": 43,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => { setValues(current => ({ ...current, [sectionKey]: saved.find(setting => setting.key === sectionKey)?.value })); setDirtyKeys(current => current.filter(value => value !== sectionKey)); }}"
+      },
+      "disabled": "{!sectionKey}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/SettingsPanels.tsx",
+      "line": 43,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => diagnostics.refetch()}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/SettingsPanels.tsx",
+      "line": 43,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => navigate('providers')}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/WorkflowControls.tsx",
+      "line": 35,
+      "tag": "input",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => setPaymentId(event.target.value)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/WorkflowControls.tsx",
+      "line": 35,
+      "tag": "input",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => setRefundItemId(event.target.value)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/WorkflowControls.tsx",
+      "line": 35,
+      "tag": "input",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => setProviderResolutionEventId(event.target.value)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/WorkflowControls.tsx",
+      "line": 35,
+      "tag": "textarea",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => setReason(event.target.value)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/WorkflowControls.tsx",
+      "line": 35,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => perform(() => resolvePayment.mutateAsync({ paymentId, refundItemId: refundItemId || undefined, providerResolutionEventId: providerResolutionEventId || undefined, evidence: reason }))}"
+      },
+      "disabled": "{!paymentId || !reason || (!refundItemId && !providerResolutionEventId) || resolvePayment.isPending}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/WorkflowControls.tsx",
+      "line": 36,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => perform(() => improvements.mutateAsync(specification.id))}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/WorkflowControls.tsx",
+      "line": 37,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => { const externalDeploymentId = prompt('Exact deployment ID from the provider console'); if (externalDeploymentId) perform(() => reconcileRelease.mutateAsync({ releaseId: release.id, externalDeploymentId })); }}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/WorkflowControls.tsx",
+      "line": 38,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => { if (confirm('Cancel this assignment? In-flight outputs will be rejected; completed external side effects are not undone.')) perform(() => cancel.mutateAsync(task.id)); }}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/WorkflowControls.tsx",
+      "line": 39,
+      "tag": "select",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => setAgentId(event.target.value)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/WorkflowControls.tsx",
+      "line": 39,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => perform(() => backup.mutateAsync(agentId))}"
+      },
+      "disabled": "{!agentId || backup.isPending}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/WorkflowControls.tsx",
+      "line": 39,
+      "tag": "input",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => setTools(event.target.value)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/WorkflowControls.tsx",
+      "line": 39,
+      "tag": "input",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => setExpiresAt(event.target.value)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/WorkflowControls.tsx",
+      "line": 39,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => perform(async () => { const issued = await issue.mutateAsync({ agentId, deploymentId: businessId, tools: tools.split(',').map(value => value.trim()).filter(Boolean), expiresAt: new Date(expiresAt).toISOString() }); setToken(issued.to"
+      },
+      "disabled": "{!businessId || !agentId || !tools || !expiresAt || issue.isPending}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/WorkflowControls.tsx",
+      "line": 39,
+      "tag": "input",
+      "label": "\"New agent token\"",
+      "handlers": {},
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/WorkflowControls.tsx",
+      "line": 39,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => setToken('')}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/WorkflowControls.tsx",
+      "line": 39,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => perform(() => revoke.mutateAsync(session.id))}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/WorkflowControls.tsx",
+      "line": 40,
+      "tag": "form",
+      "label": null,
+      "handlers": {
+        "onSubmit": "{event => { event.preventDefault(); perform(() => campaign.mutateAsync({ campaignId, amount, currency, expiresAt: new Date(expiresAt).toISOString(), reinvestment })); }}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/WorkflowControls.tsx",
+      "line": 40,
+      "tag": "select",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => setCampaignId(event.target.value)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/WorkflowControls.tsx",
+      "line": 40,
+      "tag": "input",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => setAmount(event.target.value)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/WorkflowControls.tsx",
+      "line": 40,
+      "tag": "input",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => setCurrency(event.target.value.toUpperCase())}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/WorkflowControls.tsx",
+      "line": 40,
+      "tag": "input",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => setExpiresAt(event.target.value)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/WorkflowControls.tsx",
+      "line": 40,
+      "tag": "input",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => setReinvestment(event.target.checked)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/WorkflowControls.tsx",
+      "line": 40,
+      "tag": "button",
+      "label": null,
+      "handlers": {},
+      "disabled": "{campaign.isPending}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/WorkflowControls.tsx",
+      "line": 41,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => { const summary = prompt('Change rationale'); const current = workspace.specificationVersions.find((version: any) => version.id === specification.currentVersionId); const sections = prompt('Proposed structured specification sections "
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/WorkflowControls.tsx",
+      "line": 41,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => { const concern = prompt('Technical disagreement to investigate'); const taskIds = prompt('Affected task IDs, comma-separated'); if (concern && taskIds) perform(() => investigate.mutateAsync({ specificationId: specification.id, taskI"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/WorkflowControls.tsx",
+      "line": 41,
+      "tag": "details",
+      "label": null,
+      "handlers": {},
+      "disabled": null,
+      "nativeAction": true,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/WorkflowControls.tsx",
+      "line": 41,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => perform(() => approve.mutateAsync({ specificationId: version.specificationId, versionId: version.id }))}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/WorkflowControls.tsx",
+      "line": 41,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => { const resolution = prompt('Supervisor resolution rationale'); if (resolution) perform(() => resolve.mutateAsync({ id: conflict.id, resolution })); }}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/WorkflowControls.tsx",
+      "line": 42,
+      "tag": "select",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => setPeriodId(event.target.value)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/WorkflowControls.tsx",
+      "line": 42,
+      "tag": "textarea",
+      "label": null,
+      "handlers": {
+        "onChange": "{event => setReason(event.target.value)}"
+      },
+      "disabled": null,
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    },
+    {
+      "file": "client/src/pages/dashboard/WorkflowControls.tsx",
+      "line": 42,
+      "tag": "button",
+      "label": null,
+      "handlers": {
+        "onClick": "{() => { if (confirm('Recalculate the reviewed periods and preserve prior calculations as audit history?')) perform(() => correction.mutateAsync({ id: periodId, expectedPeriodIds: preview.data.periodIds, reason })); }}"
+      },
+      "disabled": "{!reason || correction.isPending}",
+      "nativeAction": false,
+      "review": "STATIC_INSPECTION_ONLY; browser coverage recorded separately"
+    }
+  ]
+}

@@ -68,12 +68,10 @@ const Registration: React.FC = () => {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#100e17] px-4 py-12 sm:px-6 lg:px-8">
+    <div className="auth-screen flex min-h-screen items-center justify-center px-4 py-12 sm:px-6 lg:px-8">
       <div className="w-full max-w-md space-y-8">
         <div className="text-center">
-          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-tr from-[#a855f7] via-[#f43f5e] to-[#eab308] shadow-lg shadow-purple-500/20">
-            <span className="text-2xl font-black text-white">SAO</span>
-          </div>
+          <div className="auth-brand"><span className="brand-mark">SAO</span><div className="text-left"><strong>SAO COMMAND CENTRE</strong><p>Secure invitation access</p></div></div>
 
           <h2 className="mt-6 text-3xl font-extrabold tracking-tight text-white">
             Join SAO
@@ -117,10 +115,10 @@ const Registration: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">
+                <label htmlFor="field-registration-1" className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">
                   Create password
                 </label>
-                <input
+                <input id="field-registration-1"
                   type="password"
                   required
                   minLength={6}
@@ -131,10 +129,10 @@ const Registration: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">
+                <label htmlFor="field-registration-2" className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">
                   Confirm password
                 </label>
-                <input
+                <input id="field-registration-2"
                   type="password"
                   required
                   minLength={6}

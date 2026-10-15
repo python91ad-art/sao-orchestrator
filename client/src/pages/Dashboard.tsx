@@ -1,22 +1,23 @@
-import React, { useState, useEffect } from 'react';
+import React, { lazy, Suspense, useState, useEffect } from 'react';
 import DashboardLayout from '../components/DashboardLayout';
-import Overview from './dashboard/Overview';
-import Gaps from './dashboard/Gaps';
-import Queue from './dashboard/Queue';
-import Deployments from './dashboard/Deployments';
-import AuditLog from './dashboard/AuditLog';
-import Policies from './dashboard/Policies';
-import Settings from './dashboard/Settings';
-import Analytics from './dashboard/Analytics';
-import RegistrationAccess from './dashboard/RegistrationAccess';
-import Providers from './dashboard/Providers';
-import Infrastructure from './dashboard/Infrastructure';
-import Operations from './dashboard/Operations';
-import Authorizations from './dashboard/Authorizations';
+import { LoadingState, WorkspaceBoundary } from '../components/ui';
 import { useAuth } from '../hooks/useAuth';
 import { dashboardPage, requiresAdministrator } from '../lib/dashboardRoutes';
 
-import Advertising from './dashboard/Advertising';
+const Overview = lazy(() => import('./dashboard/Overview'));
+const Gaps = lazy(() => import('./dashboard/Gaps'));
+const Queue = lazy(() => import('./dashboard/Queue'));
+const Deployments = lazy(() => import('./dashboard/Deployments'));
+const AuditLog = lazy(() => import('./dashboard/AuditLog'));
+const Policies = lazy(() => import('./dashboard/Policies'));
+const Settings = lazy(() => import('./dashboard/Settings'));
+const Analytics = lazy(() => import('./dashboard/Analytics'));
+const RegistrationAccess = lazy(() => import('./dashboard/RegistrationAccess'));
+const Providers = lazy(() => import('./dashboard/Providers'));
+const Infrastructure = lazy(() => import('./dashboard/Infrastructure'));
+const Operations = lazy(() => import('./dashboard/Operations'));
+const Authorizations = lazy(() => import('./dashboard/Authorizations'));
+const Advertising = lazy(() => import('./dashboard/Advertising'));
 
 const Dashboard: React.FC = () => {
   const { user } = useAuth();
@@ -79,7 +80,7 @@ const Dashboard: React.FC = () => {
 
   return (
     <DashboardLayout currentPage={currentPage} setCurrentPage={navigate}>
-      {renderActivePage()}
+      <WorkspaceBoundary key={currentPage} page={currentPage}><Suspense fallback={<LoadingState />}><div className="workspace-page">{renderActivePage()}</div></Suspense></WorkspaceBoundary>
     </DashboardLayout>
   );
 };

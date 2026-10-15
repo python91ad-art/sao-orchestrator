@@ -1,3 +1,6 @@
+import { Dialog } from '../../components/ui';
+import { ErrorState, LoadingState } from '../../components/ui';
+import { useAuth } from '../../hooks/useAuth';
 import React, { useState } from 'react';
 import { Plus, Trash2, ShieldCheck, Power, Edit3 } from 'lucide-react';
 import { trpc } from '../../lib/trpc';
@@ -48,6 +51,9 @@ const Providers: React.FC = () => {
   const testMutation = trpc.providers.test.useMutation();
   const setPriorityMutation = trpc.providers.setPriority.useMutation();
   const setEnabledMutation = trpc.providers.setEnabled.useMutation();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
+  const busy = createMutation.isPending || updateMutation.isPending || removeMutation.isPending || testMutation.isPending || setPriorityMutation.isPending || setEnabledMutation.isPending;
 
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [editing, setEditing] = useState<ProviderRecord | null>(null);
@@ -185,6 +191,8 @@ const Providers: React.FC = () => {
   }));
 
 
+  if (listQuery.isLoading) return <LoadingState label="Loading configured integrations…" />;
+  if (listQuery.error || serviceTypesQuery.error || knownProvidersQuery.error) return <ErrorState message={(listQuery.error || serviceTypesQuery.error || knownProvidersQuery.error)!.message} retry={reload} />;
   return (
     <div className="space-y-6">
       <div>
@@ -194,9 +202,9 @@ const Providers: React.FC = () => {
 
       {grouped.map((group) => (
         <div key={group.id} className="card-bold space-y-4">
-          <div className="flex items-center justify-between border-b border-[#221c32] pb-2">
+          <div className="flex items-center justify-between border-b border-[var(--border)] pb-2">
             <h3 className="text-base font-bold text-white">{group.label}</h3>
-            <button onClick={() => openAdd(group.id)} className="btn-secondary py-1.5 px-3 text-xs">
+            <button disabled={!isAdmin || busy} onClick={() => openAdd(group.id)} className="btn-secondary py-1.5 px-3 text-xs">
               <Plus className="h-3.5 w-3.5" /><span>Add Provider</span>
             </button>
           </div>
@@ -254,18 +262,18 @@ const Providers: React.FC = () => {
                       </td>
                       <td>
                         <div className="flex items-center gap-1">
-                          <button onClick={() => handlePriority(p, p.priority === 'primary' ? null : 'primary')}
+                          <button disabled={!isAdmin || busy} onClick={() => handlePriority(p, p.priority === 'primary' ? null : 'primary')}
                             className={`text-xs px-2 py-1 rounded ${p.priority === 'primary' ? 'bg-purple-600 text-white' : 'bg-neutral-800 text-neutral-300'}`}>Primary</button>
-                          <button onClick={() => handlePriority(p, p.priority === 'fallback' ? null : 'fallback')}
+                          <button disabled={!isAdmin || busy} onClick={() => handlePriority(p, p.priority === 'fallback' ? null : 'fallback')}
                             className={`text-xs px-2 py-1 rounded ${p.priority === 'fallback' ? 'bg-amber-600 text-white' : 'bg-neutral-800 text-neutral-300'}`}>Fallback</button>
                         </div>
                       </td>
                       <td>
                         <div className="flex items-center justify-end gap-2">
-                          <button onClick={() => handleTest(p.id)} disabled={testing === p.id} className="btn-secondary py-1.5 px-3 text-xs">{testing === p.id ? '…' : 'Test'}</button>
-                          <button onClick={() => openEdit(p)} className="btn-secondary py-1.5 px-3 text-xs" title="Edit"><Edit3 className="h-3.5 w-3.5" /></button>
-                          <button onClick={() => handleToggle(p)} className="btn-secondary py-1.5 px-3 text-xs" title={p.enabled ? 'Disable' : 'Enable'}><Power className="h-3.5 w-3.5" /></button>
-                          <button onClick={() => handleDelete(p.id)} className="btn-secondary py-1.5 px-3 text-xs text-red-400" title="Delete"><Trash2 className="h-3.5 w-3.5" /></button>
+                          <button onClick={() => handleTest(p.id)} disabled={!isAdmin || busy || (testing === p.id)} className="btn-secondary py-1.5 px-3 text-xs">{testing === p.id ? '…' : 'Test'}</button>
+                          <button disabled={!isAdmin || busy} onClick={() => openEdit(p)} className="btn-secondary py-1.5 px-3 text-xs" title="Edit"><Edit3 className="h-3.5 w-3.5" /></button>
+                          <button disabled={!isAdmin || busy} onClick={() => handleToggle(p)} className="btn-secondary py-1.5 px-3 text-xs" title={p.enabled ? 'Disable' : 'Enable'}><Power className="h-3.5 w-3.5" /></button>
+                          <button disabled={!isAdmin || busy} onClick={() => handleDelete(p.id)} className="btn-secondary py-1.5 px-3 text-xs text-red-400" title="Delete"><Trash2 className="h-3.5 w-3.5" /></button>
                         </div>
                         {testResults[p.id] && testResults[p.id].status !== 'testing' && (
                           <div className={`text-[11px] mt-1 text-right ${testResults[p.id].status === 'connected' ? 'text-emerald-400' : 'text-red-400'}`}>
@@ -284,27 +292,23 @@ const Providers: React.FC = () => {
 
 
       {isAddOpen && (
-        <div className="modal-overlay">
-          <div className="modal-content">
-            <div className="flex items-center justify-between mb-6 pb-2 border-b border-[#221c32]">
-              <h3 className="text-lg font-bold text-white">{editing ? 'Edit Provider' : 'Add Provider'}</h3>
-              <button onClick={() => setIsAddOpen(false)} className="text-neutral-400 hover:text-white">✕</button>
-            </div>
+<Dialog title={editing ? "Edit Provider" : "Add Provider"} onClose={() => setIsAddOpen(false)}>
+
 
             <form onSubmit={handleSave} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">Provider Name</label>
-                <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Tavily, ONS" required />
+                <label htmlFor="field-providers-1" className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">Provider Name</label>
+                <input id="field-providers-1" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Tavily, ONS" required />
               </div>
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">Service Type</label>
-                <select value={form.service} onChange={(e) => setForm({ ...form, service: e.target.value as ServiceType })} disabled={!!editing}>
+                <label htmlFor="field-providers-2" className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">Service Type</label>
+                <select id="field-providers-2" value={form.service} onChange={(e) => setForm({ ...form, service: e.target.value as ServiceType })} disabled={!!editing}>
                   {serviceTypes.map((st) => <option key={st.id} value={st.id}>{st.label}</option>)}
                 </select>
               </div>
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">Provider</label>
-                <select value={form.providerId} onChange={(e) => {
+                <label htmlFor="field-providers-3" className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">Provider</label>
+                <select id="field-providers-3" value={form.providerId} onChange={(e) => {
                   const next = knownProviders.find((k) => k.id === e.target.value);
                   setForm({
                     ...form,
@@ -323,34 +327,33 @@ const Providers: React.FC = () => {
                 )}
               </div>
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">
+                <label htmlFor="field-providers-4" className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">
                   {credentialRequired ? 'API Key / Credential' : 'Credential'}
                 </label>
-                <input type="password" value={form.credential} onChange={(e) => setForm({ ...form, credential: e.target.value })}
+                <input id="field-providers-4" type="password" value={form.credential} onChange={(e) => setForm({ ...form, credential: e.target.value })}
                   placeholder={credentialRequired ? (editing ? 'Leave blank to keep existing key' : 'Required for this provider') : 'Not required'} required={!editing && credentialRequired} disabled={!credentialRequired} />
                 {!credentialRequired && (
                   <p className="text-[11px] text-neutral-500 mt-1.5">This official public API does not require a key.</p>
                 )}
               </div>
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">API Base URL (optional)</label>
-                <input value={form.baseUrl} onChange={(e) => setForm({ ...form, baseUrl: e.target.value })} placeholder="https://api.example.com" />
+                <label htmlFor="field-providers-5" className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">API Base URL (optional)</label>
+                <input id="field-providers-5" value={form.baseUrl} onChange={(e) => setForm({ ...form, baseUrl: e.target.value })} placeholder="https://api.example.com" />
               </div>
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">Priority</label>
-                <select value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value as any })}>
+                <label htmlFor="field-providers-6" className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">Priority</label>
+                <select id="field-providers-6" value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value as any })}>
                   <option value="">None</option>
                   <option value="primary">Primary</option>
                   <option value="fallback">Fallback</option>
                 </select>
               </div>
-              <div className="flex justify-end gap-3 pt-4 border-t border-[#221c32]">
+              <div className="flex justify-end gap-3 pt-4 border-t border-[var(--border)]">
                 <button type="button" onClick={() => setIsAddOpen(false)} className="btn-secondary">Cancel</button>
-                <button type="submit" className="btn-bold-primary">{editing ? 'Save Changes' : 'Add Provider'}</button>
+                <button disabled={!isAdmin || busy} type="submit" className="btn-bold-primary">{editing ? 'Save Changes' : 'Add Provider'}</button>
               </div>
             </form>
-          </div>
-        </div>
+          </Dialog>
       )}
     </div>
   );

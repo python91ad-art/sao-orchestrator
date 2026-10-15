@@ -382,12 +382,17 @@ export async function getGapByHash(dedupHash: string) {
   return results[0] || null;
 }
 
-export async function listGaps(limit = 50, skip = 0) {
+export async function getGapStatusCounts() {
+  const rows = await db.select({ status: schema.gaps.status, count: sql<number>`COUNT(*)` }).from(schema.gaps).where(sql`NOT EXISTS (SELECT 1 FROM discovery_archives WHERE gap_id=${schema.gaps.id})`).groupBy(schema.gaps.status);
+  return Object.fromEntries(rows.map(row => [row.status, Number(row.count)]));
+}
+
+export async function listGaps(limit = 50, skip = 0, filters: { status?: string; search?: string } = {}) {
   return db
     .select()
     .from(schema.gaps)
-    .where(sql`NOT EXISTS (SELECT 1 FROM discovery_archives WHERE gap_id=${schema.gaps.id})`)
-    .orderBy(desc(schema.gaps.createdAt))
+    .where(and(sql`NOT EXISTS (SELECT 1 FROM discovery_archives WHERE gap_id=${schema.gaps.id})`, filters.status ? sql`${schema.gaps.status}=${filters.status}` : undefined, filters.search ? sql`(${schema.gaps.knows} LIKE ${`%${filters.search}%`} OR ${schema.gaps.needs} LIKE ${`%${filters.search}%`})` : undefined))
+    .orderBy(desc(schema.gaps.createdAt), desc(schema.gaps.id))
     .limit(limit)
     .offset(skip);
 }

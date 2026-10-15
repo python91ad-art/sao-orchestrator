@@ -1,7 +1,9 @@
+import { Dialog } from '../../components/ui';
 import React, { useState, useEffect } from 'react';
 import { Play, Pause, Square, ShieldCheck, Eye, RefreshCw } from 'lucide-react';
 import { Deployment, trpc } from '../../lib/trpc';
 import CryptoPayments from './CryptoPayments';
+import { ErrorState } from '../../components/ui';
 
 const Deployments: React.FC = () => {
   const [loading, setLoading] = useState(true);
@@ -16,7 +18,9 @@ const Deployments: React.FC = () => {
   const stopMutation = trpc.deployments.stop.useMutation();
   const auditMutation = trpc.deployments.audit.useMutation();
   const stopAllMutation = trpc.deployments.stopAll.useMutation();
+  const maximumRevenue = deployments.reduce((maximum, deployment) => Math.max(maximum, deployment.revenue), 0);
   const resumeAllMutation = trpc.deployments.resumeAll.useMutation();
+  const busy = resumeMutation.isPending || pauseMutation.isPending || stopMutation.isPending || auditMutation.isPending || stopAllMutation.isPending || resumeAllMutation.isPending;
 
   useEffect(() => {
     const data = deploymentsQuery.data ?? [];
@@ -45,6 +49,7 @@ const Deployments: React.FC = () => {
   };
 
   const handleTogglePause = async (id: string) => {
+    if (busy) return;
     try {
       const deployment = deployments.find(d => d.id === id);
       if (!deployment) return;
@@ -55,13 +60,7 @@ const Deployments: React.FC = () => {
         await pauseMutation.mutateAsync(id);
       }
 
-      setDeployments(prev =>
-        prev.map(d =>
-          d.id === id
-            ? { ...d, status: d.status === 'paused' ? 'active' : 'paused' }
-            : d
-        )
-      );
+      await deploymentsQuery.refetch();
     } catch (error) {
       console.error('[Deployments] Failed to toggle deployment:', error);
       alert('Failed to change deployment status.');
@@ -69,12 +68,11 @@ const Deployments: React.FC = () => {
   };
 
   const handleStop = async (id: string) => {
-    if (confirm('Are you sure you want to stop this micro-worker deployment permanently? This will tear down all serverless instances.')) {
+    if (busy) return;
+    if (confirm('Mark this deployment stopped in SAO? Provider resources and records are not deleted. Governed lifecycle checks still apply.')) {
       try {
         await stopMutation.mutateAsync(id);
-        setDeployments(prev =>
-          prev.map(d => d.id === id ? { ...d, status: 'stopped' } : d)
-        );
+        await deploymentsQuery.refetch();
       } catch (error) {
         console.error('[Deployments] Failed to stop deployment:', error);
         alert('Failed to stop deployment.');
@@ -83,6 +81,7 @@ const Deployments: React.FC = () => {
   };
 
   const handleAudit = async (id: string) => {
+    if (busy) return;
     try {
       await auditMutation.mutateAsync(id);
       alert('Deployment audit triggered successfully.');
@@ -93,12 +92,11 @@ const Deployments: React.FC = () => {
   };
 
   const handleStopAll = async () => {
-    if (confirm('EMERGENCY SHUTDOWN: Are you sure you want to tear down all active deployments?')) {
+    if (busy) return;
+    if (confirm('Mark all eligible active deployments stopped in SAO? Provider resources are preserved. Lifecycle policies may block individual changes.')) {
       try {
         await stopAllMutation.mutateAsync();
-        setDeployments(prev =>
-          prev.map(d => d.status === 'active' ? { ...d, status: 'stopped' } : d)
-        );
+        await deploymentsQuery.refetch();
       } catch (error) {
         console.error('[Deployments] Emergency shutdown failed:', error);
         alert('Emergency shutdown failed.');
@@ -107,11 +105,10 @@ const Deployments: React.FC = () => {
   };
 
   const handleResumeAll = async () => {
+    if (busy || !confirm('Request resumption of eligible paused deployments? Existing lifecycle and authorization checks remain mandatory.')) return;
     try {
       await resumeAllMutation.mutateAsync();
-      setDeployments(prev =>
-        prev.map(d => d.status === 'paused' ? { ...d, status: 'active' } : d)
-      );
+      await deploymentsQuery.refetch();
     } catch (error) {
       console.error('[Deployments] Failed to resume deployments:', error);
       alert('Failed to resume deployments.');
@@ -123,6 +120,7 @@ const Deployments: React.FC = () => {
     setIsPlanModalOpen(true);
   };
 
+  if (deploymentsQuery.error) return <ErrorState message={deploymentsQuery.error.message} retry={loadData} />;
   if (loading) {
     return (
       <div className="flex justify-center items-center h-[50vh]">
@@ -144,11 +142,11 @@ const Deployments: React.FC = () => {
             <RefreshCw className="h-4 w-4" />
             <span>Reload</span>
           </button>
-          <button onClick={handleResumeAll} className="btn-secondary">
+          <button onClick={handleResumeAll} disabled={busy} className="btn-secondary">
             <Play className="h-4 w-4" />
             <span>Resume All</span>
           </button>
-          <button onClick={handleStopAll} className="btn-danger">
+          <button onClick={handleStopAll} disabled={busy} className="btn-danger">
             <Square className="h-4 w-4 fill-white" />
             <span>Emergency Stop All</span>
           </button>
@@ -235,6 +233,7 @@ const Deployments: React.FC = () => {
                     <div className="flex items-center justify-end gap-1.5">
                       <button
                         onClick={() => handleTogglePause(dep.id)}
+                        disabled={busy}
                         className="btn-secondary p-1.5"
                         title={dep.status === 'paused' ? 'Resume microservice' : 'Pause microservice'}
                       >
@@ -242,6 +241,7 @@ const Deployments: React.FC = () => {
                       </button>
                       <button
                         onClick={() => handleAudit(dep.id)}
+                        disabled={busy}
                         className="btn-secondary p-1.5"
                         title="Audit safety policies"
                       >
@@ -249,6 +249,7 @@ const Deployments: React.FC = () => {
                       </button>
                       <button
                         onClick={() => handleStop(dep.id)}
+                        disabled={busy}
                         className="btn-danger p-1.5"
                         title="Stop & teardown micro-worker"
                       >
@@ -265,7 +266,7 @@ const Deployments: React.FC = () => {
 
       {/* Pure CSS Bar Chart for Revenue Visualization */}
       <div className="card-bold">
-        <h3 className="text-base font-bold text-white mb-4 pb-2 border-b border-[#221c32]">
+        <h3 className="text-base font-bold text-white mb-4 pb-2 border-b border-[var(--border)]">
           Deployments by Lifetime Revenue Yield
         </h3>
         {deployments.length === 0 ? (
@@ -274,14 +275,14 @@ const Deployments: React.FC = () => {
           <div className="space-y-4 pt-2">
             {deployments.map((dep) => {
               // Calculate percent based on top deployment (dep-3 has 10650)
-              const percentage = Math.min(100, Math.max(10, (dep.revenue / 10650) * 100));
+              const percentage = maximumRevenue > 0 ? Math.max(0, dep.revenue) / maximumRevenue * 100 : 0;
               return (
                 <div key={dep.id} className="space-y-1.5">
                   <div className="flex justify-between text-xs">
                     <span className="font-mono text-neutral-300">{dep.id} ({dep.banRisk} risk)</span>
                     <span className="font-bold text-white">${dep.revenue.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
                   </div>
-                  <div className="h-3 bg-[#171424] border border-[#221c32] rounded-full overflow-hidden">
+                  <div className="h-3 bg-[var(--muted)] border border-[var(--border)] rounded-full overflow-hidden">
                     <div
                       className="h-full bg-gradient-to-r from-purple-600 via-pink-500 to-amber-400 rounded-full transition-all duration-500"
                       style={{ width: `${percentage}%` }}
@@ -299,13 +300,9 @@ const Deployments: React.FC = () => {
 
       {/* Business Plan Modal */}
       {isPlanModalOpen && (
-        <div className="modal-overlay">
-          <div className="modal-content">
-            <div className="flex items-center justify-between mb-6 pb-2 border-b border-[#221c32]">
-              <h3 className="text-lg font-bold text-white">Asymmetric Business Plan</h3>
-              <button onClick={() => setIsPlanModalOpen(false)} className="text-neutral-400 hover:text-white">✕</button>
-            </div>
-            <div className="bg-[#0c0a12] p-4 rounded-xl border border-[#221c32] text-sm text-neutral-200 font-medium leading-relaxed">
+<Dialog title="Asymmetric Business Plan" onClose={() => setIsPlanModalOpen(false)}>
+
+            <div className="bg-[var(--sidebar)] p-4 rounded-xl border border-[var(--border)] text-sm text-neutral-200 font-medium leading-relaxed">
               {selectedPlan}
             </div>
             <div className="flex justify-end mt-6">
@@ -313,8 +310,7 @@ const Deployments: React.FC = () => {
                 Close Plan
               </button>
             </div>
-          </div>
-        </div>
+          </Dialog>
       )}
     </div>
   );

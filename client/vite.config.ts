@@ -18,7 +18,7 @@ export default defineConfig({
     },
   }],
   root: '.',
-  build: { outDir: '../dist/client' },
+  build: { outDir: '../dist/client', emptyOutDir: true },
   server: { proxy: { '/api': 'http://localhost:3000' } },
   resolve: { alias: { '@': path.resolve(__dirname, './src') } }
 })

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import WorkflowControls from './WorkflowControls';
 import { trpc } from '../../lib/trpc';
 
@@ -56,9 +56,12 @@ export default function Operations() {
   const prepare = trpc.operations.prepareReset.useMutation();
   const execute = trpc.operations.executeReset.useMutation();
   const [busy, setBusy] = useState(false);
+  const executing = useRef(false);
   async function perform(operation: () => Promise<unknown>) {
+    if (executing.current) return;
+    executing.current = true;
     setBusy(true);
-    try { await operation(); await Promise.all([workspace.refetch(), board.refetch(), counts.refetch(), gapId ? evidence.refetch() : Promise.resolve()]); setMessage('Operation completed and persisted.'); } catch (error: any) { setMessage(error.message); } finally { setBusy(false); }
+    try { await operation(); await Promise.all([workspace.refetch(), board.refetch(), counts.refetch(), gapId ? evidence.refetch() : Promise.resolve()]); setMessage('Operation completed and persisted.'); } catch (error: any) { setMessage(error.message); } finally { executing.current = false; setBusy(false); }
   }
   const records: Record<string, string[]> = { Approvals: ['approvals'], Agents: ['executions'], Releases: ['releases'], Pricing: ['prices'], Advertising: ['campaigns'], Finance: ['accounting', 'periods', 'settlements'], Lifecycle: ['lifecycle', 'lifecycleEvents', 'extensions'], Activity: ['events'], Maintenance: ['resetHistory'] };
   return <div className="space-y-6"><header><h2 className="text-2xl font-bold">Business Operations</h2><p className="text-neutral-400">Verified workflow evidence, approvals and operational controls</p></header><nav aria-label="Operations sections" className="flex flex-wrap gap-2">{['Discovery', 'Approvals', 'Agents', 'Specifications', 'Releases', 'Pricing', 'Advertising', 'Finance', 'Lifecycle', 'Activity', 'Maintenance'].map(item => <button key={item} className={tab === item ? 'btn-bold-primary' : 'btn-secondary'} onClick={() => setTab(item)}>{item}</button>)}</nav>{message && <p role="status" className="card-bold">{message}</p>}{workspace.error && <p role="alert">{workspace.error.message}</p>}{workspace.isLoading && <p role="status">Loading operations…</p>}

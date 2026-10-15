@@ -1,16 +1,19 @@
+import { Dialog } from '../../components/ui';
 import React, { useState, useEffect } from 'react';
 import { RefreshCw, Eye } from 'lucide-react';
 import { AuditLog, trpc } from '../../lib/trpc';
+import { ErrorState } from '../../components/ui';
 
 const AuditLogPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [selectedLog, setSelectedLog] = useState<AuditLog | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [offset, setOffset] = useState(0);
 
   const auditQuery = trpc.audit.list.useQuery({
-    limit: 100,
-    skip: 0,
+    limit: 50,
+    skip: offset,
   });
 
   useEffect(() => {
@@ -44,6 +47,7 @@ const AuditLogPage: React.FC = () => {
     setIsModalOpen(true);
   };
 
+  if (auditQuery.error) return <ErrorState message={auditQuery.error.message} retry={loadData} />;
   if (loading) {
     return (
       <div className="flex justify-center items-center h-[50vh]">
@@ -81,6 +85,7 @@ const AuditLogPage: React.FC = () => {
               </tr>
             </thead>
             <tbody>
+              {logs.length === 0 && <tr><td colSpan={6} className="text-center text-neutral-400 py-10">No audit events on this page.</td></tr>}
               {logs.map((log) => (
                 <tr key={log.id}>
                   <td className="text-xs text-neutral-400">
@@ -136,13 +141,10 @@ const AuditLogPage: React.FC = () => {
       </div>
 
       {/* Reasoning Inspection Modal */}
+      <nav aria-label="Audit history pages" className="flex items-center justify-between gap-3"><button type="button" className="btn-secondary" disabled={offset === 0 || auditQuery.isFetching} onClick={() => setOffset(current => Math.max(0, current - 50))}>Previous</button><span className="text-xs text-neutral-400">History page {Math.floor(offset / 50) + 1}</span><button type="button" className="btn-secondary" disabled={logs.length < 50 || auditQuery.isFetching} onClick={() => setOffset(current => current + 50)}>Next</button></nav>
       {isModalOpen && selectedLog && (
-        <div className="modal-overlay">
-          <div className="modal-content max-w-xl">
-            <div className="flex items-center justify-between mb-6 pb-2 border-b border-[#221c32]">
-              <h3 className="text-lg font-bold text-white">Orchestrator Decision Reasoning</h3>
-              <button onClick={() => setIsModalOpen(false)} className="text-neutral-400 hover:text-white">✕</button>
-            </div>
+<Dialog title="Orchestrator Decision Reasoning" onClose={() => setIsModalOpen(false)}>
+
 
             <div className="space-y-4">
               <div className="flex items-center gap-3">
@@ -157,14 +159,14 @@ const AuditLogPage: React.FC = () => {
 
               <div>
                 <h4 className="text-xs font-bold uppercase tracking-wider text-purple-400 mb-1">Telemetry Summary</h4>
-                <p className="text-sm text-neutral-200 bg-[#0c0a12] p-3.5 rounded-lg border border-[#221c32]">
+                <p className="text-sm text-neutral-200 bg-[var(--sidebar)] p-3.5 rounded-lg border border-[var(--border)]">
                   {selectedLog.explanation}
                 </p>
               </div>
 
               <div>
                 <h4 className="text-xs font-bold uppercase tracking-wider text-purple-400 mb-1">Safety Rule Diagnostics</h4>
-                <div className="text-sm text-neutral-400 bg-[#0c0a12] p-3.5 rounded-lg border border-[#221c32] font-mono leading-relaxed">
+                <div className="text-sm text-neutral-400 bg-[var(--sidebar)] p-3.5 rounded-lg border border-[var(--border)] font-mono leading-relaxed">
                   {selectedLog.reasoning}
                 </div>
               </div>
@@ -174,13 +176,12 @@ const AuditLogPage: React.FC = () => {
               </div>
             </div>
 
-            <div className="flex justify-end mt-6 pt-4 border-t border-[#221c32]">
+            <div className="flex justify-end mt-6 pt-4 border-t border-[var(--border)]">
               <button onClick={() => setIsModalOpen(false)} className="btn-secondary">
                 Acknowledge & Close
               </button>
             </div>
-          </div>
-        </div>
+          </Dialog>
       )}
     </div>
   );

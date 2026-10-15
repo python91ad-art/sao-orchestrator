@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { RefreshCw, Plus, ShieldAlert } from 'lucide-react';
 import { trpc } from '../../lib/trpc';
+import { useAuth } from '../../hooks/useAuth';
+import { Dialog } from '../../components/ui';
 
 const tabs = [
   { id: 'evidence', label: 'Evidence' },
@@ -16,7 +18,7 @@ const tabs = [
 ];
 
 function EmptyState({ text }: { text: string }) {
-  return <div className="rounded-lg border border-[#221c32] bg-[#0c0a12] p-4 text-sm text-neutral-400">{text}</div>;
+  return <div className="rounded-lg border border-[var(--border)] bg-[var(--sidebar)] p-4 text-sm text-neutral-400">{text}</div>;
 }
 
 function PolicyBadge({ value = 'POLICY_NOT_CONFIGURED' }: { value?: string | null }) {
@@ -44,6 +46,12 @@ function RowList({ rows, render }: { rows: any[] | undefined; render: (row: any)
 }
 
 const Infrastructure: React.FC = () => {
+  const { user } = useAuth();
+  const canManage = user?.role === 'admin';
+  const [working, setWorking] = useState(false);
+  const executing = useRef(false);
+  const [evidenceOpen, setEvidenceOpen] = useState(false);
+  const [evidenceDraft, setEvidenceDraft] = useState({ title: '', sourceUrl: '', summary: '' });
   const [tab, setTab] = useState('evidence');
   const [message, setMessage] = useState<string | null>(null);
   const utils = trpc.useContext();
@@ -78,6 +86,9 @@ const Infrastructure: React.FC = () => {
   };
 
   const run = async (action: () => Promise<unknown>, label: string) => {
+    if (!canManage || executing.current) return;
+    executing.current = true;
+    setWorking(true);
     setMessage(null);
     try {
       await action();
@@ -85,6 +96,9 @@ const Infrastructure: React.FC = () => {
       setMessage(`${label} completed.`);
     } catch (error: any) {
       setMessage(error?.message || `${label} failed.`);
+    } finally {
+      executing.current = false;
+      setWorking(false);
     }
   };
 
@@ -93,7 +107,7 @@ const Infrastructure: React.FC = () => {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-2xl font-bold tracking-tight text-white">Lifecycle Infrastructure</h2>
-          <p className="text-sm text-neutral-400">Policy-neutral foundation for evidence, specs, agents, builds, QC, sales, finance and lifecycle tracking.</p>
+          <p className="text-sm text-neutral-400">Traceable evidence, specifications and lifecycle records. Draft records are not verified outcomes.</p>
         </div>
         <button onClick={refreshAll} className="btn-secondary">
           <RefreshCw className="h-4 w-4" />
@@ -101,12 +115,12 @@ const Infrastructure: React.FC = () => {
         </button>
       </div>
 
-      {message && <div className="rounded border border-purple-500/20 bg-purple-500/10 px-3 py-2 text-sm text-purple-100">{message}</div>}
+      {message && <div role="status" className="rounded border border-purple-500/20 bg-purple-500/10 px-3 py-2 text-sm text-purple-100">{message}</div>}
       {queryErrors.length > 0 && <div role="alert" className="rounded border border-red-500/30 p-3 text-red-200"><p>Infrastructure records could not be loaded. Check server availability, schema readiness and access permissions.</p>{Array.from(new Set(queryErrors)).map(error => <p key={error}>{error}</p>)}</div>}
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
         {Object.entries(overview.data || {}).filter(([key]) => key !== 'policyStatus').map(([key, value]) => (
-          <div key={key} className="rounded-lg border border-[#221c32] bg-[#0c0a12] p-3">
+          <div key={key} className="rounded-lg border border-[var(--border)] bg-[var(--sidebar)] p-3">
             <div className="text-[11px] uppercase tracking-wide text-neutral-500">{key}</div>
             <div className="mt-1 text-xl font-black text-white">{String(value)}</div>
           </div>
@@ -123,21 +137,15 @@ const Infrastructure: React.FC = () => {
 
       {tab === 'evidence' && (
         <Card title="Evidence Storage">
-          <button
+          <button disabled={!canManage || working}
             className="btn-bold-primary"
-            onClick={() => run(() => createEvidence.mutateAsync({
-              provider: 'manual',
-              category: 'market_context',
-              title: 'Manual evidence placeholder',
-              summary: 'Operator-created evidence record for infrastructure verification.',
-              caveats: ['Manual evidence does not verify market demand.'],
-            }), 'Create evidence')}
+            onClick={() => setEvidenceOpen(true)}
           >
             <Plus className="h-4 w-4" />
-            <span>Create Evidence</span>
+            <span>Record Evidence</span>
           </button>
           <RowList rows={evidence.data} render={(row) => (
-            <div key={row.id} className="rounded-lg border border-[#221c32] bg-[#100e17] p-3 text-sm">
+            <div key={row.id} className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-sm">
               <div className="font-semibold text-white">{row.title || row.category}</div>
               <div className="text-neutral-400">{row.provider} · {row.status} · {row.retrievedAt ? new Date(row.retrievedAt).toLocaleString() : 'retrieved'}</div>
               {row.sourceUrl && <a className="text-purple-300" href={row.sourceUrl} target="_blank" rel="noreferrer">Source</a>}
@@ -148,7 +156,7 @@ const Infrastructure: React.FC = () => {
 
       {tab === 'specs' && (
         <Card title="Master Business Specifications">
-          <button
+          <button disabled={!canManage || working}
             className="btn-bold-primary"
             onClick={() => run(() => createSpec.mutateAsync({ title: 'Draft specification', sections: { objectives: [], dependencies: [] } }), 'Create draft specification')}
           >
@@ -156,7 +164,7 @@ const Infrastructure: React.FC = () => {
             <span>Create Draft</span>
           </button>
           <RowList rows={specs.data} render={(row) => (
-            <div key={row.id} className="rounded-lg border border-[#221c32] bg-[#100e17] p-3 text-sm">
+            <div key={row.id} className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-sm">
               <div className="font-semibold text-white">{row.title}</div>
               <div className="text-neutral-400">{row.status}</div>
               <PolicyBadge value={row.approvalState} />
@@ -167,12 +175,12 @@ const Infrastructure: React.FC = () => {
 
       {tab === 'agents' && (
         <Card title="Agent Registry">
-          <button className="btn-bold-primary" onClick={() => run(() => ensureAgents.mutateAsync(), 'Ensure default agents')}>
+          <button disabled={!canManage || working} className="btn-bold-primary" onClick={() => run(() => ensureAgents.mutateAsync(), 'Ensure default agents')}>
             <Plus className="h-4 w-4" />
             <span>Ensure Defaults</span>
           </button>
           <RowList rows={agents.data} render={(row) => (
-            <div key={row.id} className="rounded-lg border border-[#221c32] bg-[#100e17] p-3 text-sm">
+            <div key={row.id} className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-sm">
               <div className="font-semibold text-white">{row.name}</div>
               <div className="text-neutral-400">{row.role} · {row.availability} · {row.implementationStatus}</div>
             </div>
@@ -182,12 +190,12 @@ const Infrastructure: React.FC = () => {
 
       {tab === 'tasks' && (
         <Card title="Supervisor Task Coordination">
-          <button className="btn-bold-primary" onClick={() => run(() => createTask.mutateAsync({ taskType: 'manual_review', title: 'Policy-blocked infrastructure task' }), 'Create task')}>
+          <button disabled={!canManage || working} className="btn-bold-primary" onClick={() => run(() => createTask.mutateAsync({ taskType: 'manual_review', title: 'Policy-blocked infrastructure task' }), 'Create task')}>
             <Plus className="h-4 w-4" />
             <span>Create Task</span>
           </button>
           <RowList rows={tasks.data} render={(row) => (
-            <div key={row.id} className="rounded-lg border border-[#221c32] bg-[#100e17] p-3 text-sm">
+            <div key={row.id} className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-sm">
               <div className="font-semibold text-white">{row.title}</div>
               <div className="text-neutral-400">{row.taskType} · {row.state}</div>
               <PolicyBadge value={row.policyStatus} />
@@ -198,12 +206,12 @@ const Infrastructure: React.FC = () => {
 
       {tab === 'builder' && (
         <Card title="Business Builder Projects">
-          <button className="btn-bold-primary" onClick={() => run(() => createBuild.mutateAsync({ projectType: 'software', architecture: { status: 'draft' } }), 'Create build project')}>
+          <button disabled={!canManage || working} className="btn-bold-primary" onClick={() => run(() => createBuild.mutateAsync({ projectType: 'software', architecture: { status: 'draft' } }), 'Create build project')}>
             <Plus className="h-4 w-4" />
             <span>Create Project</span>
           </button>
           <RowList rows={builds.data} render={(row) => (
-            <div key={row.id} className="rounded-lg border border-[#221c32] bg-[#100e17] p-3 text-sm">
+            <div key={row.id} className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-sm">
               <div className="font-semibold text-white">{row.projectType}</div>
               <div className="text-neutral-400">{row.status}</div>
               <PolicyBadge value={row.policyStatus} />
@@ -214,12 +222,12 @@ const Infrastructure: React.FC = () => {
 
       {tab === 'qc' && (
         <Card title="Independent QC">
-          <button className="btn-bold-primary" onClick={() => run(() => createQc.mutateAsync({ summary: 'Manual QC job' }), 'Create QC job')}>
+          <button disabled={!canManage || working} className="btn-bold-primary" onClick={() => run(() => createQc.mutateAsync({ summary: 'Manual QC job' }), 'Create QC job')}>
             <Plus className="h-4 w-4" />
             <span>Create QC Job</span>
           </button>
           <RowList rows={qc.data} render={(row) => (
-            <div key={row.id} className="rounded-lg border border-[#221c32] bg-[#100e17] p-3 text-sm">
+            <div key={row.id} className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-sm">
               <div className="font-semibold text-white">QC {row.id.slice(0, 8)}</div>
               <div className="text-neutral-400">{row.status}</div>
               <PolicyBadge value={row.releaseDecision} />
@@ -230,38 +238,38 @@ const Infrastructure: React.FC = () => {
 
       {tab === 'sales' && (
         <Card title="Sales and Customers">
-          <button className="btn-bold-primary" onClick={() => run(() => createLead.mutateAsync({ source: 'manual', name: 'Manual lead' }), 'Create lead')}>
+          <button disabled={!canManage || working} className="btn-bold-primary" onClick={() => run(() => createLead.mutateAsync({ source: 'manual', name: 'Manual lead' }), 'Create lead')}>
             <Plus className="h-4 w-4" />
             <span>Create Lead</span>
           </button>
           <div className="grid gap-4 md:grid-cols-2">
-            <RowList rows={leads.data} render={(row) => <div key={row.id} className="rounded-lg border border-[#221c32] bg-[#100e17] p-3 text-sm text-white">{row.name || row.source} · {row.status}</div>} />
-            <RowList rows={customers.data} render={(row) => <div key={row.id} className="rounded-lg border border-[#221c32] bg-[#100e17] p-3 text-sm text-white">{row.name || row.company || row.id} · {row.status}</div>} />
+            <RowList rows={leads.data} render={(row) => <div key={row.id} className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-sm text-white">{row.name || row.source} · {row.status}</div>} />
+            <RowList rows={customers.data} render={(row) => <div key={row.id} className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-sm text-white">{row.name || row.company || row.id} · {row.status}</div>} />
           </div>
         </Card>
       )}
 
       {tab === 'finance' && (
         <Card title="Revenue and Settlement Infrastructure">
-          <button className="btn-bold-primary" onClick={() => run(() => createAccount.mutateAsync({ accountType: 'platform_revenue_share_pending' }), 'Create revenue account')}>
+          <button disabled={!canManage || working} className="btn-bold-primary" onClick={() => run(() => createAccount.mutateAsync({ accountType: 'platform_revenue_share_pending' }), 'Create revenue account')}>
             <Plus className="h-4 w-4" />
             <span>Create Account</span>
           </button>
           <div className="grid gap-4 md:grid-cols-2">
-            <RowList rows={revenue.data} render={(row) => <div key={row.id} className="rounded-lg border border-[#221c32] bg-[#100e17] p-3 text-sm text-white">{row.transactionType} · {row.amount} {row.currency}</div>} />
-            <RowList rows={settlements.data} render={(row) => <div key={row.id} className="rounded-lg border border-[#221c32] bg-[#100e17] p-3 text-sm text-white">{row.settlementType} · <PolicyBadge value={row.status} /></div>} />
+            <RowList rows={revenue.data} render={(row) => <div key={row.id} className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-sm text-white">{row.transactionType} · {row.amount} {row.currency}</div>} />
+            <RowList rows={settlements.data} render={(row) => <div key={row.id} className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-sm text-white">{row.settlementType} · <PolicyBadge value={row.status} /></div>} />
           </div>
         </Card>
       )}
 
       {tab === 'lifecycle' && (
         <Card title="Business Lifecycle Monitoring">
-          <button className="btn-bold-primary" onClick={() => run(() => createLifecycle.mutateAsync({ state: 'monitoring' }), 'Create lifecycle record')}>
+          <button disabled={!canManage || working} className="btn-bold-primary" onClick={() => run(() => createLifecycle.mutateAsync({ state: 'monitoring' }), 'Create lifecycle record')}>
             <Plus className="h-4 w-4" />
             <span>Create Lifecycle</span>
           </button>
           <RowList rows={lifecycle.data} render={(row) => (
-            <div key={row.id} className="rounded-lg border border-[#221c32] bg-[#100e17] p-3 text-sm">
+            <div key={row.id} className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-sm">
               <div className="font-semibold text-white">{row.state}</div>
               <div className="mt-2 flex flex-wrap gap-2">
                 <PolicyBadge value={row.deadlinePolicyStatus} />
@@ -275,11 +283,12 @@ const Infrastructure: React.FC = () => {
 
       {tab === 'trace' && (
         <Card title="Unified Business Trace">
-          <pre className="max-h-[560px] overflow-auto rounded-lg border border-[#221c32] bg-[#0c0a12] p-4 text-xs text-neutral-200">
+          <pre className="max-h-[560px] overflow-auto rounded-lg border border-[var(--border)] bg-[var(--sidebar)] p-4 text-xs text-neutral-200">
             {JSON.stringify(trace.data || {}, null, 2)}
           </pre>
         </Card>
       )}
+      {evidenceOpen && <Dialog title="Record evidence" onClose={() => { if (!working) setEvidenceOpen(false); }}><form className="space-y-4" onSubmit={event => { event.preventDefault(); void run(async () => { await createEvidence.mutateAsync({ ...evidenceDraft, provider: 'manual', category: 'market_context', caveats: ['Operator-supplied evidence requires independent verification.'] }); setEvidenceOpen(false); setEvidenceDraft({ title: '', sourceUrl: '', summary: '' }); }, 'Record evidence'); }}><p>Record an actual source and findings. This does not grant legal clearance or verify demand.</p><label className="block">Evidence title<input required value={evidenceDraft.title} onChange={event => setEvidenceDraft(current => ({ ...current, title: event.target.value }))} /></label><label className="block">Source URL<input required type="url" value={evidenceDraft.sourceUrl} onChange={event => setEvidenceDraft(current => ({ ...current, sourceUrl: event.target.value }))} /></label><label className="block">Evidence findings<textarea required value={evidenceDraft.summary} onChange={event => setEvidenceDraft(current => ({ ...current, summary: event.target.value }))} /></label><button type="submit" className="btn-bold-primary" disabled={!canManage || working}>Save source evidence</button></form></Dialog>}
     </div>
   );
 };

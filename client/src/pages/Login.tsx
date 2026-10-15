@@ -45,12 +45,10 @@ const Login: React.FC = () => {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#100e17] px-4 py-12 sm:px-6 lg:px-8">
+    <div className="auth-screen flex min-h-screen items-center justify-center px-4 py-12 sm:px-6 lg:px-8">
       <div className="w-full max-w-md space-y-8">
         <div className="text-center">
-          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-tr from-[#a855f7] via-[#f43f5e] to-[#eab308] shadow-lg shadow-purple-500/20">
-            <span className="text-2xl font-black text-white">SAO</span>
-          </div>
+          <div className="auth-brand"><span className="brand-mark">SAO</span><div className="text-left"><strong>SAO COMMAND CENTRE</strong><p>Autonomous business intelligence</p></div></div>
           <h2 className="mt-6 text-3xl font-extrabold tracking-tight text-white">
             {isResetConfirmMode
               ? 'Enter Reset Code'
@@ -63,7 +61,7 @@ const Login: React.FC = () => {
               ? 'Check your inbox for a 6‑digit confirmation code'
               : isResetMode
               ? 'We will send you an OTP to reset your password'
-              : 'Orchestrate asymmetric market opportunities'}
+              : 'Discover opportunity. Coordinate intelligence. Build with control.'}
           </p>
           {!isResetMode && !isResetConfirmMode && (
             <p className="mt-1 text-xs text-neutral-500">
@@ -75,12 +73,12 @@ const Login: React.FC = () => {
         <div className="card-bold">
           <form className="space-y-6" onSubmit={handleSubmit}>
             {error && (
-              <div className="rounded-lg bg-red-500/10 border border-red-500/30 p-3 text-sm text-red-400">
+              <div role="alert" className="rounded-lg bg-red-500/10 border border-red-500/30 p-3 text-sm text-red-300">
                 {error}
               </div>
             )}
             {success && (
-              <div className="rounded-lg bg-green-500/10 border border-green-500/30 p-3 text-sm text-green-400">
+              <div role="status" className="rounded-lg bg-green-500/10 border border-green-500/30 p-3 text-sm text-green-300">
                 {success}
               </div>
             )}
@@ -105,10 +103,10 @@ const Login: React.FC = () => {
               {isResetConfirmMode && (
                 <>
                   <div>
-                    <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">
+                    <label htmlFor="field-login-1" className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">
                       6-Digit Code
                     </label>
-                    <input
+                    <input id="field-login-1"
                       type="text"
                       maxLength={6}
                       required
@@ -119,10 +117,10 @@ const Login: React.FC = () => {
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">
+                    <label htmlFor="field-login-2" className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">
                       New Password
                     </label>
-                    <input
+                    <input id="field-login-2"
                       type="password"
                       required
                       value={newPassword}

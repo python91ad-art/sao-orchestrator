@@ -10,6 +10,7 @@ const RegistrationAccess: React.FC = () => {
   const [expiresAt, setExpiresAt] = useState('');
   const [createdInviteUrl, setCreatedInviteUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState('');
 
   // Queries & mutations
   const utils = trpc.useContext();
@@ -40,11 +41,11 @@ const RegistrationAccess: React.FC = () => {
     });
   };
 
-  const handleCopy = () => {
+  const handleCopy = async () => {
     if (createdInviteUrl) {
-      navigator.clipboard.writeText(createdInviteUrl);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2500);
+      setCopyError('');
+      try { await navigator.clipboard.writeText(createdInviteUrl); setCopied(true); }
+      catch { setCopied(false); setCopyError('Clipboard access was denied. Select and copy the invitation link manually.'); }
     }
   };
 
@@ -72,15 +73,16 @@ const RegistrationAccess: React.FC = () => {
         </p>
       </div>
 
+      {copyError && <p role="alert" className="text-red-300">{copyError}</p>}
       {/* Create Invitation Form */}
       <div className="card-bold">
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">
+              <label htmlFor="field-registrationaccess-1" className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">
                 Email
               </label>
-              <input
+              <input id="field-registrationaccess-1"
                 type="email"
                 required
                 value={email}
@@ -90,10 +92,10 @@ const RegistrationAccess: React.FC = () => {
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">
+              <label htmlFor="field-registrationaccess-2" className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">
                 Role
               </label>
-              <select
+              <select id="field-registrationaccess-2"
                 value={role}
                 onChange={(e) => setRole(e.target.value as 'admin' | 'user')}
                 className="w-full"
@@ -103,10 +105,10 @@ const RegistrationAccess: React.FC = () => {
               </select>
             </div>
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">
+              <label htmlFor="field-registrationaccess-3" className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">
                 Expires At (optional)
               </label>
-              <input
+              <input id="field-registrationaccess-3"
                 type="datetime-local"
                 value={expiresAt}
                 onChange={(e) => setExpiresAt(e.target.value)}

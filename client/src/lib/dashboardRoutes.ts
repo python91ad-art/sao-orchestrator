@@ -7,5 +7,5 @@ export function dashboardPage(location: Pick<Location, 'pathname' | 'search'>, s
 }
 
 export function requiresAdministrator(page: string) {
-  return ['operations', 'policies', 'registration-access'].includes(page);
+  return ['operations', 'policies', 'registration-access', 'gaps', 'queue', 'deployments', 'audit-log', 'settings'].includes(page);
 }

@@ -1,11 +1,17 @@
+import { Dialog } from '../../components/ui';
 import React, { useState, useEffect } from 'react';
 import { Plus, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
 import { Gap, trpc } from '../../lib/trpc';
+import { ErrorState, LoadingState } from '../../components/ui';
 
 const Gaps: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [gaps, setGaps] = useState<Gap[]>([]);
   const [filter, setFilter] = useState<string>('all');
+  const [offset, setOffset] = useState(0);
+  const [search, setSearch] = useState('');
+  const [query, setQuery] = useState('');
+  useEffect(() => { const timer = setTimeout(() => setQuery(search.trim()), 250); return () => clearTimeout(timer); }, [search]);
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
 
   // Modal State
@@ -17,7 +23,7 @@ const Gaps: React.FC = () => {
   const [source, setSource] = useState('manual');
   const [priority, setPriority] = useState<number>(5);
 
-  const gapsQuery = trpc.gaps.list.useQuery({ limit: 100, skip: 0 });
+  const gapsQuery = trpc.gaps.list.useQuery({ limit: 50, skip: offset, search: query || undefined, status: filter === 'all' ? undefined : filter as 'pending' | 'deployed' | 'safe' | 'unsafe' | 'gray' }, { placeholderData: previous => previous });
 
   const createMutation = trpc.gaps.create.useMutation();
   const retryMutation = trpc.gaps.retry.useMutation();
@@ -42,6 +48,7 @@ const Gaps: React.FC = () => {
 
   const handleAddGap = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (createMutation.isPending) return;
     try {
       const created = await createMutation.mutateAsync({
         knows,
@@ -53,6 +60,7 @@ const Gaps: React.FC = () => {
       });
 
       setGaps(prev => [created, ...prev]);
+      await gapsQuery.refetch();
       setIsAddModalOpen(false);
     } catch (error) {
       console.error('[Gaps] Failed to create gap:', error);
@@ -67,11 +75,10 @@ const Gaps: React.FC = () => {
   };
 
   const handleRetry = async (id: string) => {
+    if (retryMutation.isPending) return;
     try {
       await retryMutation.mutateAsync(id);
-      setGaps(prev =>
-        prev.map(g => g.id === id ? { ...g, status: 'pending' } : g)
-      );
+      await gapsQuery.refetch();
     } catch (error) {
       console.error('[Gaps] Failed to retry gap:', error);
       alert('Failed to retry gap.');
@@ -84,16 +91,12 @@ const Gaps: React.FC = () => {
 
   const filteredGaps = filter === 'all' ? gaps : gaps.filter(g => g.status === filter);
 
-  if (loading) {
-    return (
-      <div className="flex justify-center items-center h-[50vh]">
-        <div className="spinner"></div>
-      </div>
-    );
-  }
+  if (loading && !gapsQuery.data) return <LoadingState label="Loading discovered opportunities…" />;
+  if (gapsQuery.error) return <ErrorState message={gapsQuery.error.message} retry={loadData} />;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" aria-busy={gapsQuery.isFetching || search.trim() !== query}>
+      {(gapsQuery.isFetching || search.trim() !== query) && <p role="status">Updating opportunity results…</p>}
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
@@ -109,11 +112,12 @@ const Gaps: React.FC = () => {
       {/* Filter / Search Bar */}
       <div className="card-bold p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <label className="text-xs font-semibold uppercase tracking-wider text-neutral-400">Filter Status:</label>
-          <select
+          <label htmlFor="gap-status" className="text-xs font-semibold uppercase tracking-wider text-neutral-400">Filter Status:</label>
+          <input id="field-gaps-1" type="search" aria-label="Search gaps" placeholder="Search knowledge or unmet needs…" maxLength={200} value={search} onChange={event => { setSearch(event.target.value); setOffset(0); }} />
+          <select id="gap-status" aria-label="Gap status"
             value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            className="w-48 bg-[#181524] border-neutral-800 text-sm py-1.5 px-3 rounded-lg text-white"
+            onChange={(e) => { setFilter(e.target.value); setOffset(0); }}
+            className="w-48 bg-[var(--muted)] border-neutral-800 text-sm py-1.5 px-3 rounded-lg text-white"
           >
             <option value="all">All Gaps</option>
             <option value="pending">Pending Audit</option>
@@ -123,7 +127,7 @@ const Gaps: React.FC = () => {
             <option value="gray">Review / Gray</option>
           </select>
         </div>
-        <button onClick={loadData} className="btn-secondary py-1.5 px-3">
+        <button onClick={loadData} disabled={gapsQuery.isFetching} className="btn-secondary py-1.5 px-3">
           <RefreshCw className="h-3.5 w-3.5" />
           <span>Reload</span>
         </button>
@@ -143,6 +147,7 @@ const Gaps: React.FC = () => {
               </tr>
             </thead>
             <tbody>
+              {filteredGaps.length === 0 && <tr><td colSpan={5} className="text-center text-neutral-400 py-10">No opportunities match this page or filter.</td></tr>}
               {filteredGaps.map((gap) => {
                 const isExpanded = expandedRow === gap.id;
                 return (
@@ -186,6 +191,7 @@ const Gaps: React.FC = () => {
                           {gap.status === 'unsafe' && (
                             <button
                               onClick={() => handleRetry(gap.id)}
+                            disabled={retryMutation.isPending}
                               className="btn-bold-primary py-1.5 px-3"
                             >
                               <span>Retry Audit</span>
@@ -198,14 +204,14 @@ const Gaps: React.FC = () => {
                     {/* Expandable Panel */}
                     {isExpanded && (
                       <tr>
-                        <td colSpan={5} className="bg-[#141220]/60 p-6 border-b border-[#221c32]">
+                        <td colSpan={5} className="bg-[var(--sidebar)]/60 p-6 border-b border-[var(--border)]">
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div className="space-y-4">
                               <div>
                                 <h4 className="text-xs font-bold uppercase tracking-wider text-purple-400 mb-1">
                                   Who Has Knowledge/Resource? (Knows)
                                 </h4>
-                                <p className="text-sm text-white bg-[#0e0c15] p-3 rounded-lg border border-neutral-800">
+                                <p className="text-sm text-white bg-[var(--sidebar)] p-3 rounded-lg border border-neutral-800">
                                   {gap.knows}
                                 </p>
                               </div>
@@ -213,7 +219,7 @@ const Gaps: React.FC = () => {
                                 <h4 className="text-xs font-bold uppercase tracking-wider text-purple-400 mb-1">
                                   Who Controls Platform/Gatekeeper? (Controls Access)
                                 </h4>
-                                <p className="text-sm text-white bg-[#0e0c15] p-3 rounded-lg border border-neutral-800">
+                                <p className="text-sm text-white bg-[var(--sidebar)] p-3 rounded-lg border border-neutral-800">
                                   {gap.controlsAccess || 'N/A / Open platform'}
                                 </p>
                               </div>
@@ -224,7 +230,7 @@ const Gaps: React.FC = () => {
                                 <h4 className="text-xs font-bold uppercase tracking-wider text-purple-400 mb-1">
                                   Who Needs What They Lack? (Needs)
                                 </h4>
-                                <p className="text-sm text-white bg-[#0e0c15] p-3 rounded-lg border border-neutral-800">
+                                <p className="text-sm text-white bg-[var(--sidebar)] p-3 rounded-lg border border-neutral-800">
                                   {gap.needs}
                                 </p>
                               </div>
@@ -232,7 +238,7 @@ const Gaps: React.FC = () => {
                                 <h4 className="text-xs font-bold uppercase tracking-wider text-purple-400 mb-1">
                                   Who Underestimates Value?
                                 </h4>
-                                <p className="text-sm text-white bg-[#0e0c15] p-3 rounded-lg border border-neutral-800">
+                                <p className="text-sm text-white bg-[var(--sidebar)] p-3 rounded-lg border border-neutral-800">
                                   {gap.underestimatesValue || 'Not specified'}
                                 </p>
                               </div>
@@ -254,20 +260,17 @@ const Gaps: React.FC = () => {
       </div>
 
       {/* Add Gap Modal */}
+      <nav aria-label="Opportunity pages" className="flex items-center justify-between gap-3"><button type="button" className="btn-secondary" disabled={offset === 0 || gapsQuery.isFetching || search.trim() !== query} onClick={() => setOffset(current => Math.max(0, current - 50))}>Previous</button><span className="text-xs text-neutral-400">Page {Math.floor(offset / 50) + 1} · {gaps.length} results</span><button type="button" className="btn-secondary" disabled={gaps.length < 50 || gapsQuery.isFetching || search.trim() !== query} onClick={() => setOffset(current => current + 50)}>Next</button></nav>
       {isAddModalOpen && (
-        <div className="modal-overlay">
-          <div className="modal-content max-w-2xl">
-            <div className="flex items-center justify-between mb-6 pb-2 border-b border-[#221c32]">
-              <h3 className="text-lg font-bold text-white">Add Asymmetric Gap</h3>
-              <button onClick={() => setIsAddModalOpen(false)} className="text-neutral-400 hover:text-white">✕</button>
-            </div>
+<Dialog title="Add Asymmetric Gap" onClose={() => setIsAddModalOpen(false)}>
+
 
             <form onSubmit={handleAddGap} className="space-y-5">
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">
+                <label htmlFor="field-gaps-2" className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">
                   Who has this knowledge/resource/access? (Knows)
                 </label>
-                <textarea
+                <textarea id="field-gaps-2"
                   required
                   rows={2}
                   value={knows}
@@ -277,10 +280,10 @@ const Gaps: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">
+                <label htmlFor="field-gaps-3" className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">
                   Who needs what they don't have? (Needs)
                 </label>
-                <textarea
+                <textarea id="field-gaps-3"
                   required
                   rows={2}
                   value={needs}
@@ -291,10 +294,10 @@ const Gaps: React.FC = () => {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">
+                  <label htmlFor="field-gaps-4" className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">
                     Who controls the gatekeeper/platform?
                   </label>
-                  <input
+                  <input id="field-gaps-4"
                     type="text"
                     required
                     value={controlsAccess}
@@ -303,10 +306,10 @@ const Gaps: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">
+                  <label htmlFor="field-gaps-5" className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">
                     Who doesn't realize their hidden value?
                   </label>
-                  <input
+                  <input id="field-gaps-5"
                     type="text"
                     required
                     value={underestimatesValue}
@@ -318,10 +321,10 @@ const Gaps: React.FC = () => {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">
+                  <label htmlFor="field-gaps-6" className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">
                     Source
                   </label>
-                  <input
+                  <input id="field-gaps-6"
                     type="text"
                     value={source}
                     onChange={(e) => setSource(e.target.value)}
@@ -329,10 +332,10 @@ const Gaps: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">
+                  <label htmlFor="field-gaps-7" className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">
                     Priority
                   </label>
-                  <select
+                  <select id="field-gaps-7"
                     value={priority}
                     onChange={(e) => setPriority(e.target.value as any)}
                     className="w-full"
@@ -345,17 +348,16 @@ const Gaps: React.FC = () => {
                 </div>
               </div>
 
-              <div className="flex justify-end gap-3 pt-4 border-t border-[#221c32]">
+              <div className="flex justify-end gap-3 pt-4 border-t border-[var(--border)]">
                 <button type="button" onClick={() => setIsAddModalOpen(false)} className="btn-secondary">
                   Cancel
                 </button>
-                <button type="submit" className="btn-bold-primary">
+                <button type="submit" disabled={createMutation.isPending} className="btn-bold-primary">
                   Synthesize & Orchestrate
                 </button>
               </div>
             </form>
-          </div>
-        </div>
+          </Dialog>
       )}
     </div>
   );

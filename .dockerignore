@@ -9,5 +9,6 @@ mysql_data/
 .codex/
 .agents/
 .sao-backups/
+sao-backups/
 test-results/
 playwright-report/

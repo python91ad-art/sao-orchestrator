@@ -330,6 +330,14 @@ export async function assertOperationalWorkflows(adminId: string) {
   await assert.rejects(settingsCaller.coreLoop.start(), /Emergency stop/);
   assert.equal((await database.getCoreLoopState())!.isRunning, false);
   await saveSystemSetting(admin, 'emergencyStop', false, 1);
+  const countsBefore = await database.getGapStatusCounts();
+  const totalBefore = Object.values(countsBefore).reduce((total, count) => total + count, 0);
+  await database.db.insert(schema.gaps).values(Array.from({ length: 1005 }, (_, index) => ({ id: `large-source-audit-${index}`, dedupHash: `large-source-audit-${index}`, knows: `Large source audit ${index}`, needs: 'Isolated pagination and count verification', controlsAccess: 'Disposable records', underestimatesValue: 'Unverified fixture', source: 'large-source-audit', status: 'pending' as const })));
+  const countsAfter = await database.getGapStatusCounts();
+  assert.equal(countsAfter.pending - (countsBefore.pending || 0), 1005);
+  assert.equal((await settingsCaller.analytics.overview()).totalGaps, totalBefore + 1005);
+  assert.equal((await database.listGaps(50, 1000, { search: 'Large source audit' })).length, 5);
+  assert.equal((await database.listGaps(50, 0, { search: 'Large source audit', status: 'safe' })).length, 0);
   setProvidersForTest(null);
   console.log('PASS real artifact QC, tamper/failed QC denial, verified/revoked agent scopes, owner consent, persisted weekly accounting, idempotent settlement, pricing collaboration/approval/rollback, deadlines, suspension, safe reset/backup/provider preservation and fresh discovery');
 }

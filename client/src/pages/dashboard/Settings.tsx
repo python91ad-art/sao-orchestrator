@@ -241,15 +241,15 @@ const Settings: React.FC = () => {
         <div className="space-y-6">
           {/* Core Loop Settings */}
           <div hidden={section !== 'Core Loop & Automation'} className="card-bold space-y-4">
-            <div className="flex items-center gap-3 border-b border-[#221c32] pb-2">
+            <div className="flex items-center gap-3 border-b border-[var(--border)] pb-2">
               <ShieldCheck className="h-5 w-5 text-purple-400" />
               <h3 className="text-base font-bold text-white">Orchestrator Execution Loop</h3>
             </div>
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">
+              <label htmlFor="field-settings-1" className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">
                 Processing Interval (milliseconds)
               </label>
-              <input
+              <input id="field-settings-1"
                 type="number"
                 value={intervalMs}
                 onChange={(e) => setIntervalMs(Number(e.target.value))}
@@ -263,16 +263,16 @@ const Settings: React.FC = () => {
 
           {/* Budget Limits */}
           <div hidden={section !== 'Budgets & Financial Controls'} className="card-bold space-y-4">
-            <div className="flex items-center gap-3 border-b border-[#221c32] pb-2">
+            <div className="flex items-center gap-3 border-b border-[var(--border)] pb-2">
               <DollarSign className="h-5 w-5 text-purple-400" />
               <h3 className="text-base font-bold text-white">Budget Limits</h3>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">
+                <label htmlFor="field-settings-2" className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">
                   Max Cost per Day ($)
                 </label>
-                <input
+                <input id="field-settings-2"
                   type="number"
                   step="0.01"
                   value={maxCost}
@@ -281,10 +281,10 @@ const Settings: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">
+                <label htmlFor="field-settings-3" className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">
                   Max Active Deployments
                 </label>
-                <input
+                <input id="field-settings-3"
                   type="number"
                   value={maxDeployments}
                   onChange={(e) => setMaxDeployments(parseInt(e.target.value) || 10)}
@@ -308,22 +308,22 @@ const Settings: React.FC = () => {
 
           {/* Retry & Queue Settings */}
           <div hidden={section !== 'Queue & Workers'} className="card-bold space-y-4">
-            <div className="flex items-center gap-3 border-b border-[#221c32] pb-2">
+            <div className="flex items-center gap-3 border-b border-[var(--border)] pb-2">
               <RotateCcw className="h-5 w-5 text-purple-400" />
               <h3 className="text-base font-bold text-white">Retry & Queue Configuration</h3>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">Max Attempts</label>
-                <input type="number" min="1" max="10" value={maxAttempts} data-settings-group="retry" onChange={(e) => setMaxAttempts(Number(e.target.value))} />
+                <label htmlFor="field-settings-4" className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">Max Attempts</label>
+                <input id="field-settings-4" type="number" min="1" max="10" value={maxAttempts} data-settings-group="retry" onChange={(e) => setMaxAttempts(Number(e.target.value))} />
               </div>
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">Backoff Multiplier</label>
-                <input type="number" step="0.1" min="1" max="3" value={backoffMultiplier} data-settings-group="retry" onChange={(e) => setBackoffMultiplier(Number(e.target.value))} />
+                <label htmlFor="field-settings-5" className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">Backoff Multiplier</label>
+                <input id="field-settings-5" type="number" step="0.1" min="1" max="3" value={backoffMultiplier} data-settings-group="retry" onChange={(e) => setBackoffMultiplier(Number(e.target.value))} />
               </div>
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">Base Delay (ms)</label>
-                <input type="number" min="1000" max="60000" step="500" value={baseDelayMs} data-settings-group="retry" onChange={(e) => setBaseDelayMs(Number(e.target.value))} />
+                <label htmlFor="field-settings-6" className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">Base Delay (ms)</label>
+                <input id="field-settings-6" type="number" min="1000" max="60000" step="500" value={baseDelayMs} data-settings-group="retry" onChange={(e) => setBaseDelayMs(Number(e.target.value))} />
               </div>
             </div>
             <button
@@ -358,18 +358,18 @@ const Settings: React.FC = () => {
 
           {/* Queue Limits */}
           <div hidden={section !== 'Queue & Workers'} className="card-bold space-y-4">
-            <div className="flex items-center gap-3 border-b border-[#221c32] pb-2">
+            <div className="flex items-center gap-3 border-b border-[var(--border)] pb-2">
               <Key className="h-5 w-5 text-purple-400" />
               <h3 className="text-base font-bold text-white">Queue Limits</h3>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">Max Queue Size</label>
-                <input type="number" min="100" max="10000" value={queueMaxSize} data-settings-group="queue" onChange={(e) => setQueueMaxSize(Number(e.target.value))} />
+                <label htmlFor="field-settings-7" className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">Max Queue Size</label>
+                <input id="field-settings-7" type="number" min="100" max="10000" value={queueMaxSize} data-settings-group="queue" onChange={(e) => setQueueMaxSize(Number(e.target.value))} />
               </div>
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">Expiration (hours)</label>
-                <input type="number" min="1" max="168" value={queueExpirationHours} data-settings-group="queue" onChange={(e) => setQueueExpirationHours(Number(e.target.value))} />
+                <label htmlFor="field-settings-8" className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">Expiration (hours)</label>
+                <input id="field-settings-8" type="number" min="1" max="168" value={queueExpirationHours} data-settings-group="queue" onChange={(e) => setQueueExpirationHours(Number(e.target.value))} />
               </div>
             </div>
             <button
@@ -405,16 +405,16 @@ const Settings: React.FC = () => {
         <div className="space-y-6">
           {/* Concurrency */}
           <div hidden={section !== 'Queue & Workers'} className="card-bold space-y-4">
-            <div className="flex items-center gap-3 border-b border-[#221c32] pb-2">
+            <div className="flex items-center gap-3 border-b border-[var(--border)] pb-2">
               <Key className="h-5 w-5 text-purple-400" />
               <h3 className="text-base font-bold text-white">Worker Pool Concurrency</h3>
             </div>
             <div className="flex items-end gap-4">
               <div className="flex-1">
-                <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">
+                <label htmlFor="field-settings-9" className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">
                   Concurrency Level (1-10)
                 </label>
-                <input
+                <input id="field-settings-9"
                   type="number"
                   min={1}
                   max={10}
@@ -458,7 +458,7 @@ const Settings: React.FC = () => {
 
           {/* Notifications */}
           <div hidden={section !== 'Notifications'} className="card-bold space-y-4">
-            <div className="flex items-center gap-3 border-b border-[#221c32] pb-2">
+            <div className="flex items-center gap-3 border-b border-[var(--border)] pb-2">
               <Bell className="h-5 w-5 text-purple-400" />
               <h3 className="text-base font-bold text-white">Notifications</h3>
             </div>
