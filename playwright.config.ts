@@ -17,7 +17,7 @@ export default defineConfig({
   ],
 
   webServer: {
-    command: 'cd client && pnpm exec vite preview --host 127.0.0.1 --port 3100',
+    command: 'cd client && ../node_modules/.bin/vite preview --host 127.0.0.1 --port 3100',
     url: 'http://127.0.0.1:3100',
     reuseExistingServer: false,
     timeout: 30_000,

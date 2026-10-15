@@ -22,6 +22,12 @@ import { eq, asc, sql, inArray } from 'drizzle-orm';
 import { createCryptoPayment, toSafePaymentView } from './services/crypto';
 import { hasNowPaymentsApiKeyAsync, getNowPaymentsConfigAsync } from './services/nowpayments';
 import * as providerRegistry from './services/providerRegistry';
+import * as infrastructure from './services/infrastructure';
+import { operationsRouter } from './operationsRouter';
+import * as policyEngine from './services/policyEngine';
+import { policyCategories } from '../shared/policyContracts';
+import { discoveryResetPreview } from './services/discoveryReset';
+import { gapReviewInput, recordGapReview, gapPolicyAssessment, discoveryBoard, reviewDiscoveryEvidence } from './services/discoveryPolicy';
 
 // ==========================================
 // RESEND EMAIL CONFIGURATION
@@ -373,8 +379,7 @@ const gapsRouter = router({
       priority: z.number().min(1).max(10).default(5),
     }))
     .mutation(async ({ input }) => {
-      const concatenated = input.knows + input.needs + input.controlsAccess + input.underestimatesValue + input.source;
-      const dedupHash = crypto.createHash('sha256').update(concatenated).digest('hex');
+      const dedupHash = infrastructure.computeGapDedupHash(input as any);
 
       const existing = await db.getGapByHash(dedupHash);
       if (existing) {
@@ -691,27 +696,43 @@ const auditRouter = router({
 // POLICIES ROUTER
 // ==========================================
 const policiesRouter = router({
-  list: protectedProcedure
-    .query(async () => {
+  discoveryBoard: adminProcedure.input(z.object({ offset: z.number().int().min(0).default(0), limit: z.number().int().min(1).max(100).default(50), legalState: z.enum(['legal', 'illegal', 'pending_review']).optional() })).query(({ ctx, input }) => discoveryBoard(ctx.user, input.offset, input.limit, input.legalState)),
+  reviewEvidence: adminProcedure.input(z.object({ id: z.string(), reliable: z.boolean(), rationale: z.string().min(1), publisher: z.string().min(1) })).mutation(({ ctx, input }) => reviewDiscoveryEvidence(ctx.user, input.id!, input.reliable!, input.rationale!, input.publisher!)),
+  reviewGap: adminProcedure.input(gapReviewInput).mutation(({ ctx, input }) => recordGapReview(ctx.user, input)),
+  gapAssessment: adminProcedure.input(z.string()).query(({ input }) => gapPolicyAssessment(input)),
+  overview: adminProcedure.query(({ ctx }) => policyEngine.policyOverview(ctx.user)),
+  history: adminProcedure.input(z.object({ category: z.enum(policyCategories as [typeof policyCategories[number], ...typeof policyCategories[number][]]), offset: z.number().int().min(0).default(0) })).query(({ ctx, input }) => policyEngine.policyHistory(ctx.user, input.category, input.offset)),
+  saveDraft: adminProcedure.input(z.object({ category: z.enum(policyCategories as [typeof policyCategories[number], ...typeof policyCategories[number][]]), config: z.record(z.unknown()), reason: z.string().trim().min(1).max(2000), restoreId: z.string().optional() })).mutation(({ ctx, input }) => policyEngine.savePolicyDraft(ctx.user, { category: input.category!, config: input.config, reason: input.reason!, restoreId: input.restoreId })),
+  validateDraft: adminProcedure.input(z.string()).mutation(({ ctx, input }) => policyEngine.validatePolicyDraft(ctx.user, input)),
+  activate: adminProcedure.input(z.string()).mutation(({ ctx, input }) => policyEngine.activatePolicy(ctx.user, input)),
+  impact: adminProcedure.input(z.enum(policyCategories as [typeof policyCategories[number], ...typeof policyCategories[number][]])).query(({ ctx, input }) => policyEngine.policyImpact(ctx.user, input)),
+  activity: adminProcedure.input(z.object({ category: z.enum(policyCategories as [typeof policyCategories[number], ...typeof policyCategories[number][]]), offset: z.number().int().min(0).default(0) })).query(({ ctx, input }) => policyEngine.policyActivity(ctx.user, input.category, input.offset)),
+  discoveryResetPreview: adminProcedure.query(({ ctx }) => discoveryResetPreview(ctx.user)),
+  list: adminProcedure
+    .query(async ({ ctx }) => {
+      await policyEngine.requirePolicyPermission(ctx.user, 'policies.view');
       return db.listPolicies();
     }),
 
   create: adminProcedure
-    .input(z.object({ ruleText: z.string() }))
-    .mutation(async ({ input }) => {
+    .input(z.object({ ruleText: z.string().trim().min(1).max(10000) }))
+    .mutation(async ({ ctx, input }) => {
+      await policyEngine.requirePolicyPermission(ctx.user);
       return db.createPolicy(input.ruleText);
     }),
 
   acknowledge: adminProcedure
     .input(z.string())
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      await policyEngine.requirePolicyPermission(ctx.user);
       await db.updatePolicyAcknowledged(input);
       return { success: true };
     }),
 
   delete: adminProcedure
     .input(z.string())
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      await policyEngine.requirePolicyPermission(ctx.user);
       await db.deletePolicy(input);
       return { success: true };
     }),
@@ -720,43 +741,46 @@ const policiesRouter = router({
 // ==========================================
 // CORE LOOP ROUTER
 // ==========================================
+const runtimeProcedure = adminProcedure.use(async ({ ctx, next, path }) => {
+  await policyEngine.requirePolicyPermission(ctx.user, 'settings.manage');
+  const result = await next();
+  if (result.ok) {
+    const { auditOperation } = await import('./services/execution');
+    await auditOperation(ctx.user.id, 'runtime_control', path, { persistedState: await db.getCoreLoopState() });
+  }
+  return result;
+});
 const coreLoopRouter = router({
   resetOperationalData: adminProcedure
     .mutation(async () => {
-      await stopCoreLoop();
-      await db.resetOperationalData();
-
-      return {
-        success: true,
-        message: 'Operational data reset successfully',
-      };
+      throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'Full operational reset is unavailable. Use the scoped discovery maintenance preview.' });
     }),
 
-  start: adminProcedure
+  start: runtimeProcedure
     .mutation(async () => {
       await startCoreLoop();
       return { success: true, message: 'Core loop started' };
     }),
 
-  stop: adminProcedure
+  stop: runtimeProcedure
     .mutation(async () => {
       await stopCoreLoop();
       return { success: true, message: 'Core loop stopped' };
     }),
 
-  runOnce: adminProcedure
+  runOnce: runtimeProcedure
     .mutation(async () => {
       const result = await processOneGap();
       return result || { success: false, message: 'No gaps in queue' };
     }),
 
-  runAudit: adminProcedure
+  runAudit: runtimeProcedure
     .mutation(async () => {
       await auditAllActiveDeployments();
       return { success: true, message: 'Audit triggered for all active deployments' };
     }),
 
-  updateInterval: adminProcedure
+  updateInterval: runtimeProcedure
     .input(z.object({
       intervalMs: z.number().min(60000),
     }))
@@ -919,8 +943,7 @@ const discoveryRouter = router({
       const gaps = await crawlAndExtract(input.url);
       // Auto-create gaps and queue items
       for (const g of gaps) {
-        const concatenated = g.knows + g.needs + g.controlsAccess + g.underestimatesValue + g.source;
-        const dedupHash = crypto.createHash('sha256').update(concatenated).digest('hex');
+        const dedupHash = infrastructure.computeGapDedupHash(g);
         const existing = await db.getGapByHash(dedupHash);
         if (!existing) {
           const gap = await db.createGap({
@@ -947,8 +970,7 @@ const discoveryRouter = router({
       const gaps = await searchForGaps(input.query);
       // Auto-create gaps and queue items
       for (const g of gaps) {
-        const concatenated = g.knows + g.needs + g.controlsAccess + g.underestimatesValue + g.source;
-        const dedupHash = crypto.createHash('sha256').update(concatenated).digest('hex');
+        const dedupHash = infrastructure.computeGapDedupHash(g);
         const existing = await db.getGapByHash(dedupHash);
         if (!existing) {
           const gap = await db.createGap({
@@ -993,7 +1015,7 @@ const discoveryRouter = router({
       const coreLoopState = await db.getCoreLoopState();
       
       const [gapCount, queueCount] = await Promise.all([
-        db.db.select({ count: sql<number>`count(*)` }).from(gaps).then(r => r[0]?.count || 0),
+        db.db.select({ count: sql<number>`count(*)` }).from(gaps).where(sql`NOT EXISTS(SELECT 1 FROM discovery_archives WHERE gap_id=${gaps.id})`).then(r => r[0]?.count || 0),
         db.db.select({ count: sql<number>`count(*)` }).from(queueItems).then(r => r[0]?.count || 0),
       ]);
 
@@ -1229,12 +1251,21 @@ const paymentsRouter = router({
 // ==========================================
 // SETTINGS ROUTER
 // ==========================================
+const settingsProcedure = adminProcedure.use(async ({ ctx, next, path, type }) => {
+  await policyEngine.requirePolicyPermission(ctx.user, 'settings.manage');
+  const result = await next();
+  if (type === 'mutation' && result.ok) {
+    const { auditOperation } = await import('./services/execution');
+    await auditOperation(ctx.user.id, 'runtime_setting_changed', path, { savedState: await db.getCoreLoopState() });
+  }
+  return result;
+});
 const settingsRouter = router({
-  save: adminProcedure
+  save: settingsProcedure
     .input(z.object({
-      intervalMs: z.number().min(60000).optional(),
-      maxCostPerDay: z.number().optional(),
-      maxDeployments: z.number().optional(),
+      intervalMs: z.number().int().min(60000).max(86400000).optional(),
+      maxCostPerDay: z.number().finite().min(0).optional(),
+      maxDeployments: z.number().int().min(0).optional(),
       autoPauseOnHighBanRisk: z.boolean().optional(),
       emailNotifications: z.boolean().optional(),
       slackNotifications: z.boolean().optional(),
@@ -1278,7 +1309,7 @@ const settingsRouter = router({
       return { success: true };
     }),
 
-  testConnection: adminProcedure
+  testConnection: settingsProcedure
     .input(z.object({
       service: z.enum(['groq', 'google-search', 'github', 'slack', 'resend', 'stripe']),
     }))
@@ -1306,11 +1337,11 @@ const settingsRouter = router({
     }),
 
   // Retry Configuration
-  retryConfig: adminProcedure
+  retryConfig: settingsProcedure
     .input(z.object({
-      maxAttempts: z.number().min(1).max(10),
+      maxAttempts: z.number().int().min(1).max(10),
       backoffMultiplier: z.number().min(1).max(3),
-      baseDelayMs: z.number().min(1000).max(60000),
+      baseDelayMs: z.number().int().min(1000).max(60000),
     }))
     .mutation(async ({ input }) => {
       await db.updateCoreLoopState({
@@ -1321,7 +1352,7 @@ const settingsRouter = router({
       return { success: true };
     }),
 
-  getRetryConfig: adminProcedure
+  getRetryConfig: settingsProcedure
     .query(async () => {
       const state = await db.getCoreLoopState();
       return {
@@ -1332,10 +1363,10 @@ const settingsRouter = router({
     }),
 
   // Queue Limits
-  queueLimits: adminProcedure
+  queueLimits: settingsProcedure
     .input(z.object({
-      maxSize: z.number().min(100).max(10000),
-      expirationHours: z.number().min(1).max(168),
+      maxSize: z.number().int().min(100).max(10000),
+      expirationHours: z.number().int().min(1).max(168),
     }))
     .mutation(async ({ input }) => {
       await db.updateCoreLoopState({
@@ -1345,7 +1376,7 @@ const settingsRouter = router({
       return { success: true };
     }),
 
-  getQueueLimits: adminProcedure
+  getQueueLimits: settingsProcedure
     .query(async () => {
       const state = await db.getCoreLoopState();
       return {
@@ -1355,23 +1386,23 @@ const settingsRouter = router({
     }),
 
   // Worker Pool Concurrency
-  setConcurrency: adminProcedure
+  setConcurrency: settingsProcedure
     .input(z.object({
-      level: z.number().min(1).max(10),
+      level: z.number().int().min(1).max(10),
     }))
     .mutation(async ({ input }) => {
       await setConcurrency(input.level);
       return { success: true, concurrency: input.level };
     }),
 
-  getConcurrency: adminProcedure
+  getConcurrency: settingsProcedure
     .query(async () => {
       const state = await db.getCoreLoopState();
       return { concurrency: state?.concurrency || 1 };
     }),
 
   // Notification Settings
-  saveNotificationSettings: adminProcedure
+  saveNotificationSettings: settingsProcedure
     .input(z.object({
       emailNotifications: z.boolean(),
       slackNotifications: z.boolean(),
@@ -1385,7 +1416,7 @@ const settingsRouter = router({
     }),
 
   // Operational Limits
-  saveOperationalLimits: adminProcedure
+  saveOperationalLimits: settingsProcedure
     .input(z.object({
       maxCostPerDay: z.number().min(0),
       maxDeployments: z.number().min(0),
@@ -1401,9 +1432,9 @@ const settingsRouter = router({
     }),
 
   // Core Loop Interval
-  setInterval: adminProcedure
+  setInterval: settingsProcedure
     .input(z.object({
-      intervalMs: z.number().min(5000).max(86400000),
+      intervalMs: z.number().min(60000).max(86400000),
     }))
     .mutation(async ({ input }) => {
       await updateCoreLoopInterval(input.intervalMs);
@@ -1885,6 +1916,7 @@ const providersRouter = router({
         name: p.name,
         serviceType: p.serviceType,
         credentialType: p.credentialType,
+        credentialRequired: p.credentialRequired !== false,
         envConfigured: p.envConfigured(),
       }));
     }),
@@ -1902,7 +1934,7 @@ const providersRouter = router({
       name: z.string().min(1),
       providerId: z.string().optional(),
       credentialType: z.string().optional(),
-      credential: z.string().min(1),
+      credential: z.string().optional(),
       baseUrl: z.string().optional(),
       config: z.any().optional(),
       priority: z.enum(['primary', 'fallback']).nullable().optional(),
@@ -1967,9 +1999,200 @@ const providersRouter = router({
 });
 
 // ==========================================
+// LIFECYCLE INFRASTRUCTURE ROUTERS
+// ==========================================
+const evidenceRouter = router({
+  list: protectedProcedure
+    .input(z.object({
+      gapId: z.string().optional(),
+      deploymentId: z.string().optional(),
+      provider: z.string().optional(),
+      status: z.string().optional(),
+      limit: z.number().min(1).max(200).optional(),
+      skip: z.number().min(0).optional(),
+    }).optional())
+    .query(({ input }) => infrastructure.listEvidence(input || {})),
+
+  create: adminProcedure
+    .input(z.object({
+      gapId: z.string().nullable().optional(),
+      deploymentId: z.string().nullable().optional(),
+      businessSpecId: z.string().nullable().optional(),
+      provider: z.string().min(1),
+      sourceUrl: z.string().url().nullable().optional(),
+      category: z.string().min(1),
+      title: z.string().nullable().optional(),
+      summary: z.string().min(1),
+      content: z.string().nullable().optional(),
+      geography: z.string().nullable().optional(),
+      reportingPeriod: z.string().nullable().optional(),
+      metadata: z.any().optional(),
+      reliability: z.any().optional(),
+      caveats: z.array(z.string()).optional(),
+      status: z.string().optional(),
+    }))
+    .mutation(({ input }) => infrastructure.createEvidence(input as any)),
+
+  recordProviderFailure: adminProcedure
+    .input(z.object({
+      gapId: z.string().nullable().optional(),
+      provider: z.string().min(1),
+      message: z.string().min(1),
+      metadata: z.any().optional(),
+    }))
+    .mutation(({ input }) => infrastructure.recordEvidenceEvent({
+      gapId: input.gapId || null,
+      provider: input.provider,
+      eventType: 'provider_unavailable',
+      message: input.message,
+      metadata: input.metadata,
+    })),
+});
+
+const specificationsRouter = router({
+  list: protectedProcedure
+    .input(z.object({ gapId: z.string().optional(), deploymentId: z.string().optional(), limit: z.number().min(1).max(200).optional(), skip: z.number().min(0).optional() }).optional())
+    .query(({ input }) => infrastructure.listBusinessSpecifications(input || {})),
+
+  get: protectedProcedure
+    .input(z.string())
+    .query(async ({ input }) => {
+      const spec = await infrastructure.getBusinessSpecification(input);
+      if (!spec) throw new TRPCError({ code: 'NOT_FOUND', message: 'Specification not found.' });
+      return spec;
+    }),
+
+  createDraft: adminProcedure
+    .input(z.object({
+      gapId: z.string().nullable().optional(),
+      deploymentId: z.string().nullable().optional(),
+      title: z.string().min(1),
+      legacyBusinessPlan: z.string().nullable().optional(),
+      sections: z.record(z.any()).optional(),
+    }))
+    .mutation(({ input, ctx }) => infrastructure.createBusinessSpecification({ ...(input as any), createdBy: ctx.user.id })),
+
+  createVersion: adminProcedure
+    .input(z.object({
+      specificationId: z.string(),
+      sections: z.record(z.any()),
+      changeSummary: z.string().optional(),
+    }))
+    .mutation(({ input, ctx }) => infrastructure.createBusinessSpecificationVersion({ ...(input as any), createdBy: ctx.user.id })),
+
+  recordEvent: adminProcedure
+    .input(z.object({
+      specificationId: z.string(),
+      versionId: z.string().nullable().optional(),
+      eventType: z.enum(['change_request', 'conflict', 'clarification', 'decision']),
+      title: z.string().min(1),
+      detail: z.string().min(1),
+      status: z.string().optional(),
+      metadata: z.any().optional(),
+    }))
+    .mutation(({ input, ctx }) => infrastructure.recordSpecificationEvent({ ...(input as any), createdBy: ctx.user.id })),
+});
+
+const agentsRouter = router({
+  list: protectedProcedure.query(() => infrastructure.listAgents()),
+  ensureDefaults: adminProcedure.mutation(() => infrastructure.ensureDefaultAgents()),
+  update: adminProcedure
+    .input(z.object({
+      id: z.string(),
+      availability: z.string().optional(),
+      capabilityJson: z.any().optional(),
+      toolMetadataJson: z.any().optional(),
+      healthStatus: z.string().optional(),
+      implementationStatus: z.string().optional(),
+    }))
+    .mutation(({ input }) => infrastructure.updateAgent(input.id, input)),
+  history: protectedProcedure
+    .input(z.object({ agentId: z.string().optional(), taskId: z.string().optional() }).optional())
+    .query(async ({ input }) => {
+      const rows = await db.db.select().from((await import('../drizzle/schema')).agentEvents)
+        .where(input?.agentId ? eq((await import('../drizzle/schema')).agentEvents.agentId, input.agentId) : input?.taskId ? eq((await import('../drizzle/schema')).agentEvents.taskId, input.taskId) : undefined)
+        .orderBy(sql`created_at desc`).limit(100);
+      return rows;
+    }),
+});
+
+const supervisorRouter = router({
+  tasks: protectedProcedure
+    .input(z.object({ state: z.string().optional(), agentId: z.string().optional(), deploymentId: z.string().optional(), limit: z.number().min(1).max(200).optional(), skip: z.number().min(0).optional() }).optional())
+    .query(({ input }) => infrastructure.listAgentTasks(input || {})),
+  createTask: adminProcedure
+    .input(z.object({
+      agentId: z.string().nullable().optional(),
+      parentTaskId: z.string().nullable().optional(),
+      gapId: z.string().nullable().optional(),
+      deploymentId: z.string().nullable().optional(),
+      specificationId: z.string().nullable().optional(),
+      buildProjectId: z.string().nullable().optional(),
+      taskType: z.string().min(1),
+      title: z.string().min(1),
+      input: z.any().optional(),
+      dependsOnTaskIds: z.array(z.string()).optional(),
+    }))
+    .mutation(({ input, ctx }) => infrastructure.createAgentTask({ ...(input as any), createdBy: ctx.user.id })),
+  updateTaskState: adminProcedure
+    .input(z.object({
+      id: z.string(),
+      state: z.enum(['pending', 'waiting_for_dependencies', 'ready', 'running', 'completed', 'failed', 'cancelled', 'blocked_by_policy']),
+      output: z.any().optional(),
+      errorMessage: z.string().nullable().optional(),
+      recoveryCheckpoint: z.any().optional(),
+    }))
+    .mutation(({ input }) => infrastructure.updateAgentTaskState(input.id, input.state, input)),
+});
+
+const builderRouter = router({
+  list: protectedProcedure.input(z.object({ deploymentId: z.string().optional(), status: z.string().optional(), limit: z.number().min(1).max(200).optional(), skip: z.number().min(0).optional() }).optional()).query(({ input }) => infrastructure.listBuildProjects(input || {})),
+  get: protectedProcedure.input(z.string()).query(({ input }) => infrastructure.getBuildProject(input)),
+  create: adminProcedure.input(z.object({ gapId: z.string().nullable().optional(), deploymentId: z.string().nullable().optional(), specificationId: z.string().nullable().optional(), projectType: z.string().optional(), architecture: z.any().optional() })).mutation(({ input }) => infrastructure.createBuildProject(input)),
+  addArtifact: adminProcedure.input(z.object({ buildProjectId: z.string(), artifactType: z.string(), name: z.string(), uri: z.string().nullable().optional(), metadata: z.any().optional() })).mutation(({ input }) => infrastructure.addBuildArtifact(input as any)),
+  addLog: adminProcedure.input(z.object({ buildProjectId: z.string(), level: z.string().optional(), message: z.string(), metadata: z.any().optional() })).mutation(({ input }) => infrastructure.addBuildLog(input as any)),
+});
+
+const qcRouter = router({
+  list: protectedProcedure.input(z.object({ status: z.string().optional(), buildProjectId: z.string().optional(), limit: z.number().min(1).max(200).optional(), skip: z.number().min(0).optional() }).optional()).query(({ input }) => infrastructure.listQcJobs(input || {})),
+  create: adminProcedure.input(z.object({ buildProjectId: z.string().nullable().optional(), artifactId: z.string().nullable().optional(), assignedAgentId: z.string().nullable().optional(), summary: z.string().nullable().optional() })).mutation(({ input }) => infrastructure.createQcJob(input)),
+  recordTest: adminProcedure.input(z.object({ qcJobId: z.string(), suiteName: z.string(), testName: z.string(), status: z.string(), evidence: z.any().optional(), output: z.string().nullable().optional() })).mutation(({ input }) => infrastructure.recordQcTestRun(input as any)),
+  createDefect: adminProcedure.input(z.object({ qcJobId: z.string().nullable().optional(), buildProjectId: z.string().nullable().optional(), severity: z.string().optional(), title: z.string(), detail: z.string() })).mutation(({ input }) => infrastructure.createDefectReport(input as any)),
+});
+
+const salesRouter = router({
+  leads: protectedProcedure.input(z.object({ deploymentId: z.string().optional(), status: z.string().optional(), limit: z.number().min(1).max(200).optional(), skip: z.number().min(0).optional() }).optional()).query(({ input }) => infrastructure.listLeads(input || {})),
+  createLead: adminProcedure.input(z.object({ deploymentId: z.string().nullable().optional(), source: z.string(), name: z.string().nullable().optional(), company: z.string().nullable().optional(), email: z.string().email().nullable().optional(), metadata: z.any().optional() })).mutation(({ input }) => infrastructure.createLead(input as any)),
+  customers: protectedProcedure.input(z.object({ deploymentId: z.string().optional(), limit: z.number().min(1).max(200).optional(), skip: z.number().min(0).optional() }).optional()).query(({ input }) => infrastructure.listCustomers(input || {})),
+  createCustomer: adminProcedure.input(z.object({ deploymentId: z.string().nullable().optional(), leadId: z.string().nullable().optional(), name: z.string().nullable().optional(), company: z.string().nullable().optional(), email: z.string().email().nullable().optional(), metadata: z.any().optional() })).mutation(({ input }) => infrastructure.createCustomer(input)),
+  activities: protectedProcedure.input(z.object({ deploymentId: z.string().optional(), leadId: z.string().optional(), customerId: z.string().optional(), limit: z.number().min(1).max(200).optional(), skip: z.number().min(0).optional() }).optional()).query(({ input }) => infrastructure.listSalesActivities(input || {})),
+  recordActivity: adminProcedure.input(z.object({ deploymentId: z.string().nullable().optional(), leadId: z.string().nullable().optional(), customerId: z.string().nullable().optional(), activityType: z.string(), status: z.string().optional(), notes: z.string().nullable().optional(), attribution: z.any().optional() })).mutation(({ input }) => infrastructure.recordSalesActivity(input as any)),
+});
+
+const financeRouter = router({
+  transactions: protectedProcedure.input(z.object({ deploymentId: z.string().optional(), paymentId: z.string().optional(), limit: z.number().min(1).max(200).optional(), skip: z.number().min(0).optional() }).optional()).query(({ input }) => infrastructure.listRevenueTransactions(input || {})),
+  recordTransaction: adminProcedure.input(z.object({ deploymentId: z.string().nullable().optional(), paymentId: z.string().nullable().optional(), customerId: z.string().nullable().optional(), accountId: z.string().nullable().optional(), transactionType: z.string(), amount: z.string(), currency: z.string().optional(), idempotencyKey: z.string(), metadata: z.any().optional() })).mutation(({ input }) => infrastructure.recordRevenueTransaction(input as any)),
+  createAccount: adminProcedure.input(z.object({ deploymentId: z.string().nullable().optional(), accountType: z.string(), currency: z.string().optional() })).mutation(({ input }) => infrastructure.createRevenueAccount(input as any)),
+  settlements: protectedProcedure.input(z.object({ deploymentId: z.string().optional(), status: z.string().optional(), limit: z.number().min(1).max(200).optional(), skip: z.number().min(0).optional() }).optional()).query(({ input }) => infrastructure.listSettlements(input || {})),
+  createSettlement: adminProcedure.input(z.object({ deploymentId: z.string().nullable().optional(), revenueTransactionId: z.string().nullable().optional(), settlementType: z.string(), amount: z.string().optional(), currency: z.string().optional(), metadata: z.any().optional() })).mutation(({ input }) => infrastructure.createSettlementRecord(input as any)),
+});
+
+const lifecycleRouter = router({
+  list: protectedProcedure.input(z.object({ deploymentId: z.string().optional(), state: z.string().optional(), limit: z.number().min(1).max(200).optional(), skip: z.number().min(0).optional() }).optional()).query(({ input }) => infrastructure.listLifecycleRecords(input || {})),
+  create: adminProcedure.input(z.object({ deploymentId: z.string().nullable().optional(), gapId: z.string().nullable().optional(), state: z.string().optional() })).mutation(({ input }) => infrastructure.createLifecycleRecord(input)),
+  recordEvent: adminProcedure.input(z.object({ lifecycleId: z.string(), eventType: z.string(), status: z.string().optional(), detail: z.string(), metadata: z.any().optional() })).mutation(({ input }) => infrastructure.recordLifecycleEvent(input as any)),
+});
+
+const infrastructureRouter = router({
+  overview: protectedProcedure.query(() => infrastructure.getInfrastructureOverview()),
+  businessTrace: protectedProcedure.input(z.object({ gapId: z.string().optional(), deploymentId: z.string().optional() })).query(({ input }) => infrastructure.getBusinessTrace(input)),
+});
+
+// ==========================================
 // ROOT ROUTER
 // ==========================================
 export const appRouter = router({
+  operations: operationsRouter,
   auth: authRouter,
   gaps: gapsRouter,
   queue: queueRouter,
@@ -1985,6 +2208,16 @@ export const appRouter = router({
   payments: paymentsRouter,
   advertising: advertisingRouter,
   providers: providersRouter,
+  evidence: evidenceRouter,
+  specifications: specificationsRouter,
+  agents: agentsRouter,
+  supervisor: supervisorRouter,
+  builder: builderRouter,
+  qc: qcRouter,
+  sales: salesRouter,
+  finance: financeRouter,
+  lifecycle: lifecycleRouter,
+  infrastructure: infrastructureRouter,
 });
 
 export type AppRouter = typeof appRouter;

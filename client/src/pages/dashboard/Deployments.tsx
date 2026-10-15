@@ -176,6 +176,7 @@ const Deployments: React.FC = () => {
                   <td>
                     <div className="font-bold text-white font-mono text-xs">{dep.id}</div>
                     <div className="text-[10px] text-neutral-500 font-mono mt-0.5">Gap ID: {dep.gapId}</div>
+                    <a className="text-xs text-purple-400" href={`/checkout?business=${encodeURIComponent(dep.id)}`}>Current customer price and checkout</a>
                   </td>
                   <td className="max-w-xs">
                     <div className="flex items-center gap-2">

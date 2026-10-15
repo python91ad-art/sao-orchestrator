@@ -5,8 +5,17 @@ import { sql } from 'drizzle-orm';
 import { queueItems } from '../drizzle/schema';
 import { broadcastEvent } from './websocket';
 import { detectEcommerceGaps, detectOperationalGaps, DetectedGap, getDiscoveryStatus, getExtractionMetrics } from './services/search';
-import crypto from 'crypto';
 import { decideGapAnalysis } from './services/gapAnalysis';
+import { PolicyEnforcementError } from './services/policyEngine';
+import { collectBusinessEvidenceForGap, formatEvidenceForPrompt } from './services/businessData';
+import {
+  syncEvidenceBundleForGap,
+  computeGapDedupHash,
+  createBusinessSpecification,
+  createBuildProject,
+  createLifecycleRecord,
+  createAgentTask,
+} from './services/infrastructure';
 
 let loopInterval: NodeJS.Timeout | null = null;
 let coreLoopTickRunning = false;
@@ -24,6 +33,15 @@ interface Worker {
 
 const workers = new Map<string, Worker>();
 let totalProcessedByWorkers = 0;
+let nextWorkerId = 0;
+
+function resizeWorkerPool(concurrency: number) {
+  while (workers.size < concurrency) spawnWorker(`worker-${++nextWorkerId}`);
+  for (const worker of workers.values()) {
+    if (workers.size <= concurrency) break;
+    if (!worker.busy) workers.delete(worker.id);
+  }
+}
 
 function spawnWorker(workerId: string): Worker {
   const worker: Worker = { id: workerId, busy: false, currentItem: null };
@@ -76,6 +94,11 @@ async function dispatchToWorker(worker: Worker, queueItem: any, queueType: Queue
     });
   } catch (error) {
     console.error(`[Worker ${worker.id}] Error processing ${queueType} item:`, error);
+    if (error instanceof PolicyEnforcementError) {
+      await db.updateQueueItem(queueItem.id, { status: 'paused', attempts: Math.max(0, queueItem.attempts - 1), lastError: error.message, workerId: null, nextRetryAt: null });
+      broadcastEvent({ type: 'queue:updated', data: { queueItemId: queueItem.id, status: 'paused' } });
+      return;
+    }
 
     const state = await getStatus();
     const maxAttempts = Math.max(
@@ -151,31 +174,14 @@ async function dispatchToWorker(worker: Worker, queueItem: any, queueType: Queue
   }
 }
 
-async function processWithWorkerPool(): Promise<number> {
+async function processWithWorkerPool(manual = false): Promise<number> {
   const state = await getStatus();
   const concurrency = Math.max(
     1,
     Math.min(10, Number((state as any).concurrency) || 1)
   );
 
-  // Create missing workers.
-  while (workers.size < concurrency) {
-    const workerId = `worker-${workers.size + 1}`;
-    spawnWorker(workerId);
-  }
-
-  // If concurrency was reduced, only remove IDLE workers.
-  // Busy workers are allowed to finish their current jobs.
-  if (workers.size > concurrency) {
-    const idleWorkers = Array.from(workers.values()).filter(
-      worker => !worker.busy
-    );
-
-    for (const worker of idleWorkers) {
-      if (workers.size <= concurrency) break;
-      workers.delete(worker.id);
-    }
-  }
+  resizeWorkerPool(concurrency);
 
   const availableWorkers = Array.from(workers.values()).filter(
     worker => !worker.busy
@@ -190,9 +196,16 @@ async function processWithWorkerPool(): Promise<number> {
   await Promise.all(
     availableWorkers.map(async worker => {
       while (true) {
-        const queueItem = await db.claimNextPendingQueueItem(worker.id);
+        const currentState = await getStatus();
+        const limit = Math.max(1, Math.min(10, currentState.concurrency));
+        resizeWorkerPool(limit);
+        if ((!manual && !currentState.isRunning) || !workers.has(worker.id) || worker.busy || getActiveWorkers() >= limit) break;
+        worker.busy = true;
+        let queueItem;
+        try { queueItem = await db.claimNextPendingQueueItem(worker.id); } catch (error) { worker.busy = false; throw error; }
 
         if (!queueItem) {
+          worker.busy = false;
           break;
         }
 
@@ -214,7 +227,7 @@ async function processWithWorkerPool(): Promise<number> {
 }
 
 export async function processQueueBatch(): Promise<number> {
-  return processWithWorkerPool();
+  return processWithWorkerPool(true);
 }
 
 // ==========================================
@@ -258,6 +271,13 @@ async function processSynthesisQueueItem(queueItem: any, _worker: Worker): Promi
   broadcastEvent({ type: 'audit:completed', data: { deploymentId: '', health: classification.classification } });
 
   if (classification.classification === 'safe') {
+    const { evaluateGapPromotion } = await import('./services/discoveryPolicy');
+    const policy = await evaluateGapPromotion(gap.id);
+    if (policy.decision !== 'ALLOW') {
+      await db.updateGapStatus(gap.id, 'gray');
+      await db.updateQueueItem(queueItem.id, { status: 'paused', lastError: `${policy.decision}: ${policy.reason}`, workerId: null, nextRetryAt: null });
+      return true;
+    }
     const existingDeployment = await db.getDeploymentByGapId(gap.id);
     if (existingDeployment) {
       await db.enqueueDeploymentQueueItem(gap.id);
@@ -289,6 +309,34 @@ async function processSynthesisQueueItem(queueItem: any, _worker: Worker): Promi
       businessPlan: plan,
       banRisk: classification.banRisk,
       health: 'healthy',
+    });
+    const spec = await createBusinessSpecification({
+      gapId: gap.id,
+      deploymentId: deployment.id,
+      title: `Specification for ${String(gap.needs || 'business opportunity').slice(0, 120)}`,
+      legacyBusinessPlan: plan,
+      sections: {
+        objectives: [],
+        targetCustomer: {},
+        productRequirements: [],
+        technicalRequirements: [],
+        operationalRequirements: [],
+        financialAssumptions: [],
+        marketingRequirements: [],
+        dependencies: [],
+      },
+      createdBy: adminUserId,
+    });
+    const build = await createBuildProject({ gapId: gap.id, deploymentId: deployment.id, specificationId: spec?.id, projectType: 'software' });
+    await createLifecycleRecord({ gapId: gap.id, deploymentId: deployment.id, state: 'monitoring' });
+    await createAgentTask({
+      deploymentId: deployment.id,
+      gapId: gap.id,
+      specificationId: spec?.id,
+      buildProjectId: build?.id,
+      taskType: 'business_build_preparation',
+      title: 'Prepare business build infrastructure',
+      input: { policyStatus: 'POLICY_NOT_CONFIGURED' },
     });
 
     broadcastEvent({ type: 'deployment:created', data: { deploymentId: deployment.id, gapId: gap.id } });
@@ -354,6 +402,14 @@ export async function deployApplication(
     throw new Error(`Deployment ${deploymentId} not found.`);
   }
 
+  const { ensureApprovedSpecification } = await import('./services/specificationGovernance');
+  const specification = await ensureApprovedSpecification(deploymentId);
+  const { runRequiredSpecialistReviews } = await import('./services/specialistReviews');
+  const specialists = await runRequiredSpecialistReviews(deploymentId);
+  const buildContext = { specificationId: specification.spec.id, specificationVersionId: specification.version.id, dependsOnTaskIds: specialists.reviews.map(review => review.taskId), reasoningLevel: specialists.reasoningLevel };
+  const { runAgent } = await import('./services/execution');
+  const { authorizeReleaseWithRepair, verifyReleaseForDeployment, recordPostDeployment } = await import('./services/releasePipeline');
+
   const gap = await db.getGapById(deployment.gapId);
   if (!gap) {
     throw new Error(`Gap ${deployment.gapId} not found for deployment ${deploymentId}.`);
@@ -370,6 +426,7 @@ export async function deployApplication(
   } = await import('./services/vercel');
 
   const restored = Boolean(opts.files && opts.files.length > 0);
+  let builderAgentId: string;
 
   let app: {
     files: { path: string; content: string }[];
@@ -384,11 +441,14 @@ export async function deployApplication(
       entryPoint: opts.files![0]?.path || 'index.html',
       framework: 'static',
     };
+    const restoredTask = await runAgent('developer', deploymentId, 'build', `restore:${JSON.stringify(opts.files)}`, async () => ({ restored: true }), buildContext);
+    builderAgentId = restoredTask.agentId;
     console.log(`[Deployment] Restoring ${opts.files!.length} last-known-good files for ${deploymentId}.`);
   } else {
     broadcastEvent({ type: 'application:generation_started', data: { deploymentId, gapId: gap.id } });
 
-    const genResult = await retryWithExponentialBackoff(
+    const built = await runAgent('developer', deploymentId, 'build', `build:${specification.version.id}:${opts.reason || 'initial'}:${deployment.lastGoodFiles ? db.generateId() : 'initial'}`, async () => {
+    const generated = await retryWithExponentialBackoff(
       () => generateApplication({
         gapId: gap.id,
         deploymentId,
@@ -396,11 +456,16 @@ export async function deployApplication(
         needs: gap.needs,
         controlsAccess: gap.controlsAccess,
         underestimatesValue: gap.underestimatesValue,
-        businessPlan: deployment.businessPlan || '',
+        businessPlan: `${deployment.businessPlan || ''}\nApproved shared specification: ${specification.version.sectionsJson}\nSpecialist assessments (advisory; do not override requirements): ${JSON.stringify(specialists.reviews)}`,
       }),
       2,
       3000
     );
+    if (!generated.success || !generated.application) throw new Error(generated.error || 'Application generation failed.');
+    return generated;
+    }, buildContext);
+    const genResult = built.value;
+    builderAgentId = built.agentId;
 
     if (!genResult.success || !genResult.application) {
       throw new Error(genResult.error || 'Application generation produced no output.');
@@ -411,6 +476,7 @@ export async function deployApplication(
   }
 
   // ---- Smoke test the application before deploying ----
+  if (!restored) { const { attachGovernedCheckout } = await import('./services/pricingLifecycle'); app = attachGovernedCheckout(app, deploymentId); }
   const smokeResult = smokeTestApplication(app as any);
   console.log(
     `[Deployment] Smoke test for ${deploymentId}: ${smokeResult.passed ? 'PASSED' : 'FAILED'} ` +
@@ -424,9 +490,14 @@ export async function deployApplication(
     console.warn(`[Deployment] ⚠️ Smoke test warnings for ${deploymentId}: ${smokeResult.warnings.join('; ')}`);
   }
 
+  const authorized = await authorizeReleaseWithRepair(deploymentId, { ...app, description: '' }, builderAgentId);
+  const release = authorized.release;
+  app = authorized.app;
+  if (!release.submittedDeployment) await verifyReleaseForDeployment(deploymentId, release.id, { ...app, description: '' });
+
   // ---- Create/reuse Vercel project ----
   const projectName = makeVercelProjectName(deploymentId);
-  const { projectId } = await retryWithExponentialBackoff(
+  const { projectId } = release.submittedDeployment || await retryWithExponentialBackoff(
     () => createVercelProject({ name: projectName, framework: mapFrameworkForVercel(app.framework) ?? undefined }),
     3,
     2000
@@ -434,8 +505,8 @@ export async function deployApplication(
 
   // ---- Deploy to Vercel ----
   const vercelFiles = app.files.map((f) => ({ file: f.path, data: f.content }));
-  const deployResult = await retryWithExponentialBackoff(
-    () => deployToVercel({ projectId, files: vercelFiles, name: `deploy-${Date.now()}`, target: 'production' }),
+  const deployResult = release.submittedDeployment || await retryWithExponentialBackoff(
+    () => deployToVercel({ projectId, releaseContext: { deploymentId, releaseId: release.id, entryPoint: app.entryPoint }, files: vercelFiles, name: `release-${release.id}`, target: 'production' }),
     3,
     3000
   );
@@ -449,9 +520,13 @@ export async function deployApplication(
   // ---- Resolve + verify the publicly reachable URL ----
   const publicUrl = await resolveVercelPublicUrl(readyState.alias || [], readyState.url);
   if (!publicUrl) {
+    await recordPostDeployment(deploymentId, release.id, false, 'unavailable');
     throw new Error(`No publicly reachable URL found for deployment ${deploymentId}.`);
   }
   console.log(`[Deployment] ✅ Public URL verified for ${deploymentId}: ${publicUrl}`);
+  await recordPostDeployment(deploymentId, release.id, true, publicUrl, { ...app, description: '' }, deployResult.deploymentId);
+  const { initializeLaunchedDeadline } = await import('./services/businessLifecycle');
+  await initializeLaunchedDeadline(deploymentId);
 
   // ---- Commit: supersede prior provider, activate the new one ----
   // Only reached after the new app is verified live, so a failed update
@@ -476,6 +551,7 @@ export async function deployApplication(
     `[Deployment] ${restored ? 'Restored' : 'Deployed'} ${deploymentId} to ${publicUrl} ` +
     `(provider ${provider.id})${opts.reason ? ` [${opts.reason}]` : ''}.`
   );
+
 
   return { publicUrl, providerId: provider.id, restored };
 }
@@ -615,6 +691,8 @@ export async function checkQueueAlerts(): Promise<void> {
 }
 
 async function sendSlackAlert(message: string): Promise<void> {
+  const notificationSettings = await getStatus();
+  if (!notificationSettings.slackNotifications || process.env.NODE_ENV === 'test') return;
   const slackToken = process.env.SLACK_BOT_TOKEN;
   const slackChannel = process.env.SLACK_CHANNEL || '#alerts';
   
@@ -638,6 +716,7 @@ async function sendSlackAlert(message: string): Promise<void> {
 // AI CLASSIFICATION PIPELINE (Groq LLM)
 // ==========================================
 async function classifyGap(gap: {
+  id?: string;
   knows: string;
   needs: string;
   controlsAccess: string;
@@ -660,6 +739,7 @@ async function classifyGap(gap: {
 
   const systemPrompt = `You are a gap classifier for the Situational Arbitrage Orchestrator. 
 Classify this market gap as: SAFE (legal, low ban risk, clear opportunity), UNSAFE (illegal, toxic, or clear policy violation), GRAY (unclear, needs human review), or FALSE (not a real gap or invalid).
+Use the ONS business-data evidence as supporting context only. Do not claim ONS data proves customer purchase intent, profitability or full legal compliance.
 You must respond with raw, valid JSON only, using this exact schema:
 {
   "classification": "safe" | "unsafe" | "gray" | "false",
@@ -668,41 +748,76 @@ You must respond with raw, valid JSON only, using this exact schema:
   "explanation": "Human readable explanation"
 }`;
 
+  let businessEvidence = 'UK business-data evidence unavailable.';
+  try {
+    const bundle = await collectBusinessEvidenceForGap(gap);
+    if (gap.id) {
+      await syncEvidenceBundleForGap(gap.id, bundle);
+    }
+    businessEvidence = formatEvidenceForPrompt(bundle);
+  } catch (error: any) {
+    businessEvidence = `UK business-data evidence unavailable: ${error?.message || error}`;
+  }
+
   const userPrompt = `Gap details:
 Knows: ${gap.knows}
 Needs: ${gap.needs}
 Controls Access: ${gap.controlsAccess}
 Underestimates Value: ${gap.underestimatesValue}
-Source: ${gap.source}`;
+Source: ${gap.source}
+
+Independent UK business-data evidence:
+${businessEvidence}`;
 
   const result = await callLLMJson(userPrompt, {
+    reasoningLevel: gap.id ? (await (await import('./services/discoveryPolicy')).gapPolicyAssessment(gap.id)).reasoningLevel as any : 'standard',
     model: MODEL_CLASSIFIER,
     systemPrompt,
     maxTokens: 1000,
     temperature: 0.3,
   });
 
-  return decideGapAnalysis(gap, {
+  const legacy = decideGapAnalysis(gap, {
     classification: result.classification || 'gray',
     reasoning: result.reasoning || 'No reasoning provided',
     banRisk: result.banRisk || 'medium',
     explanation: result.explanation || 'No explanation provided',
   });
+  if (result.classification === 'safe' && gap.id) {
+    const { evaluateGapPromotion, gapPolicyAssessment } = await import('./services/discoveryPolicy');
+    const policy = await evaluateGapPromotion(gap.id);
+    const assessment = await gapPolicyAssessment(gap.id);
+    return { ...legacy, classification: policy.decision === 'ALLOW' ? 'safe' : 'gray', qualified: policy.decision === 'ALLOW', score: assessment.score ?? legacy.score, reasoning: `${legacy.reasoning}\nConfigured policy: ${policy.decision}; ${policy.reason}; version=${policy.versionId || 'unconfigured'}.` };
+  }
+  return legacy;
 }
 
 // ==========================================
 // BUSINESS PLAN GENERATION (Groq LLM)
 // ==========================================
 async function generateBusinessPlan(gap: {
+  id?: string;
   knows: string;
   needs: string;
   controlsAccess: string;
   underestimatesValue: string;
+  source?: string;
 }): Promise<string> {
   const hasToken = await aiRateLimiter.waitForTokens(1, 5000);
   if (!hasToken) {
     console.warn('[Rate Limiter] AI rate limit reached for business plan generation, waiting...');
     await new Promise(resolve => setTimeout(resolve, 1000));
+  }
+
+  let businessEvidence = 'UK business-data evidence unavailable.';
+  try {
+    const bundle = await collectBusinessEvidenceForGap(gap);
+    if (gap.id) {
+      await syncEvidenceBundleForGap(gap.id, bundle);
+    }
+    businessEvidence = formatEvidenceForPrompt(bundle);
+  } catch (error: any) {
+    businessEvidence = `UK business-data evidence unavailable: ${error?.message || error}`;
   }
 
   const prompt = `Formulate a complete micro-startup execution business plan for this situational arbitrage gap.
@@ -712,13 +827,20 @@ Needs (what demands are unfulfilled): ${gap.needs}
 Controls Access (gatekeepers): ${gap.controlsAccess}
 Underestimates Value (price mismatch/inefficiency): ${gap.underestimatesValue}
 
+Independent UK business-data evidence:
+${businessEvidence}
+
 Provide a comprehensive blueprint covering:
 1. Operational Strategy (How to bridge the gap)
 2. Monetization & Pricing structure
 3. Mitigation of Ban/Interference risks
-4. Initial setup checklist`;
+4. Initial setup checklist
+5. Market validation caveats using ONS sources where available
+
+Important: Treat public statistics as supporting evidence only. Do not state that they prove purchase intent, profitability, market viability or definitive legal compliance.`;
 
   const plan = await callLLM(prompt, {
+    reasoningLevel: gap.id ? (await (await import('./services/discoveryPolicy')).gapPolicyAssessment(gap.id)).reasoningLevel as any : 'standard',
     model: MODEL_BUSINESS_PLAN,
     systemPrompt: 'You are an elite entrepreneurial strategist specializing in situational arbitrage.',
     maxTokens: 4096,
@@ -777,6 +899,13 @@ export async function processOneGap(): Promise<boolean> {
     });
 
     if (classification.classification === 'safe') {
+      const { evaluateGapPromotion } = await import('./services/discoveryPolicy');
+      const policy = await evaluateGapPromotion(gap.id);
+      if (policy.decision !== 'ALLOW') {
+        await db.updateGapStatus(gap.id, 'gray');
+        await db.updateQueueItem(queueItem.id, { status: 'paused', lastError: `${policy.decision}: ${policy.reason}`, nextRetryAt: null });
+        return true;
+      }
       const existingDeployment = await db.getDeploymentByGapId(gap.id);
       if (existingDeployment) {
         await db.enqueueDeploymentQueueItem(gap.id);
@@ -813,6 +942,36 @@ export async function processOneGap(): Promise<boolean> {
 
       // Fetch the deployment to get its ID for the broadcast
       const deployment = await db.getDeploymentByGapId(gap.id);
+      if (deployment) {
+        const spec = await createBusinessSpecification({
+          gapId: gap.id,
+          deploymentId: deployment.id,
+          title: `Specification for ${String(gap.needs || 'business opportunity').slice(0, 120)}`,
+          legacyBusinessPlan: plan,
+          sections: {
+            objectives: [],
+            targetCustomer: {},
+            productRequirements: [],
+            technicalRequirements: [],
+            operationalRequirements: [],
+            financialAssumptions: [],
+            marketingRequirements: [],
+            dependencies: [],
+          },
+          createdBy: adminUserId,
+        });
+        const build = await createBuildProject({ gapId: gap.id, deploymentId: deployment.id, specificationId: spec?.id, projectType: 'software' });
+        await createLifecycleRecord({ gapId: gap.id, deploymentId: deployment.id, state: 'monitoring' });
+        await createAgentTask({
+          deploymentId: deployment.id,
+          gapId: gap.id,
+          specificationId: spec?.id,
+          buildProjectId: build?.id,
+          taskType: 'business_build_preparation',
+          title: 'Prepare business build infrastructure',
+          input: { policyStatus: 'POLICY_NOT_CONFIGURED' },
+        });
+      }
 
       // Enqueue the deployment step so the app is generated, tested and
       // deployed automatically (same fix as the worker-pool path).
@@ -912,10 +1071,13 @@ async function queueGaps(gaps: DetectedGap[]): Promise<number> {
   let failedInsert = 0;
   
   for (const g of gaps) {
-    const concatenated = [g.knows, g.needs, g.controlsAccess, g.underestimatesValue, g.source]
-      .map((part) => String(part || '').toLowerCase().replace(/\s+/g, ' ').trim())
-      .join('|');
-    const dedupHash = crypto.createHash('sha256').update(concatenated).digest('hex');
+    const dedupHash = computeGapDedupHash({
+      knows: g.knows,
+      needs: g.needs,
+      controlsAccess: g.controlsAccess,
+      underestimatesValue: g.underestimatesValue,
+      source: g.source || 'tavily_search',
+    });
 
     // Deduplicate — skip if gap already exists
     try {
@@ -1056,6 +1218,8 @@ function scheduleCoreLoopTick(intervalMs: number): void {
 }
 
 export async function startCoreLoop() {
+  const { emergencyStopped } = await import('./services/execution');
+  if (await emergencyStopped()) throw new Error('Emergency stop is active. Clear it before restarting automation.');
   const state = await getStatus();
   const wasPersistedRunning = Boolean(state.isRunning);
 
@@ -1175,6 +1339,7 @@ export async function stopCoreLoop(): Promise<void> {
 export async function setConcurrency(level: number): Promise<void> {
   const clamped = Math.max(1, Math.min(10, level));
   await db.updateCoreLoopState({ concurrency: clamped });
+  resizeWorkerPool(clamped);
   console.log(`[Worker Pool] Concurrency set to ${clamped}`);
 }
 

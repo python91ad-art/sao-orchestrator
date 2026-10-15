@@ -63,13 +63,14 @@ test.describe('SAO Admin Dashboard', () => {
     await page.getByRole('button', { name: 'Settings' }).click();
 
     await expect(
-      page.getByRole('heading', { name: 'System Settings' })
+      page.getByRole('heading', { name: 'Settings Control Center' })
     ).toBeVisible();
 
     await expect(
       page.getByRole('button', { name: 'Save Configuration' })
     ).toBeVisible();
 
+    await page.getByRole('button', { name: 'Queue & Workers', exact: true }).click();
     await expect(
       page.getByRole('button', { name: 'Save Retry Config' })
     ).toBeVisible();

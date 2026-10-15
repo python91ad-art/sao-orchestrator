@@ -325,7 +325,11 @@ export async function updateLastSignedIn(id: string) {
 // ==========================================
 // Gap Helpers
 // ==========================================
-export async function createGap(gapData: {
+export async function createGap(gapData: Parameters<typeof createGapUnlocked>[0]) {
+  const { withDiscoveryWrite } = await import('./services/discoveryMaintenance');
+  return withDiscoveryWrite(() => createGapUnlocked(gapData));
+}
+async function createGapUnlocked(gapData: {
   knows: string;
   needs: string;
   controlsAccess: string;
@@ -372,7 +376,7 @@ export async function getGapByHash(dedupHash: string) {
   const results = await db
     .select()
     .from(schema.gaps)
-    .where(eq(schema.gaps.dedupHash, dedupHash))
+    .where(and(eq(schema.gaps.dedupHash, dedupHash), sql`NOT EXISTS (SELECT 1 FROM discovery_archives WHERE gap_id=${schema.gaps.id})`))
     .limit(1);
 
   return results[0] || null;
@@ -382,6 +386,7 @@ export async function listGaps(limit = 50, skip = 0) {
   return db
     .select()
     .from(schema.gaps)
+    .where(sql`NOT EXISTS (SELECT 1 FROM discovery_archives WHERE gap_id=${schema.gaps.id})`)
     .orderBy(desc(schema.gaps.createdAt))
     .limit(limit)
     .offset(skip);
@@ -413,38 +418,31 @@ export async function updateGapStatus(
 // ==========================================
 // Queue Helpers
 // ==========================================
-export async function createQueueItem(itemData: {
-  gapId: string;
-  dedupHash: string;
-  priority?: number;
-  sortOrder?: number;
-}) {
-  const id = generateId();
+export async function createQueueItem(itemData: Parameters<typeof createQueueItemUnlocked>[0]) {
+  const { withDiscoveryWrite } = await import('./services/discoveryMaintenance');
+  return withDiscoveryWrite(() => createQueueItemUnlocked(itemData));
+}
+async function createQueueItemUnlocked(itemData: { gapId: string; dedupHash: string; priority?: number; sortOrder?: number }) {
+  return insertQueueItemAtomic({ id: generateId(), gapId: itemData.gapId, dedupHash: itemData.dedupHash, queueType: 'synthesis', priority: itemData.priority ?? 5, sortOrder: itemData.sortOrder ?? 0 });
+}
 
-  const coreLoopState = await getCoreLoopState();
-  const configuredMaxAttempts = Math.max(
-    1,
-    Number(coreLoopState?.maxAttempts) || 3
-  );
-
-  await db.insert(schema.queueItems).values({
-    id,
-    gapId: itemData.gapId,
-    dedupHash: itemData.dedupHash,
-    status: 'pending',
-    attempts: 0,
-    maxAttempts: configuredMaxAttempts,
-    priority:
-      itemData.priority !== undefined
-        ? itemData.priority
-        : 5,
-    sortOrder:
-      itemData.sortOrder !== undefined
-        ? itemData.sortOrder
-        : 0,
+async function insertQueueItemAtomic(item: { id: string; gapId: string; dedupHash: string; queueType: 'synthesis' | 'deployment'; priority: number; sortOrder: number }) {
+  await initCoreLoopState();
+  return db.transaction(async tx => {
+    const gap = (await tx.select({ id: schema.gaps.id }).from(schema.gaps).where(eq(schema.gaps.id, item.gapId)).for('update'))[0];
+    if (!gap) throw new Error('Discovery candidate no longer exists; stale work cannot recreate it.');
+    const state = (await tx.select().from(schema.coreLoopState).where(eq(schema.coreLoopState.id, 'singleton')).for('update'))[0];
+    if (item.queueType === 'synthesis') {
+      const archived = await tx.select().from(schema.discoveryArchives).where(eq(schema.discoveryArchives.gapId, item.gapId)).limit(1);
+      if (archived.length) throw new Error('Archived discovery candidates cannot be requeued.');
+    }
+    const existing = (await tx.select().from(schema.queueItems).where(and(eq(schema.queueItems.gapId, item.gapId), eq(schema.queueItems.queueType, item.queueType), inArray(schema.queueItems.status, ['pending', 'processing', 'paused']))).limit(1))[0];
+    if (existing) return existing;
+    const count = (await tx.select({ total: sql<number>`COUNT(*)` }).from(schema.queueItems).where(and(inArray(schema.queueItems.status, ['pending', 'processing', 'paused']), sql`(${schema.queueItems.queueType}<>'synthesis' OR NOT EXISTS(SELECT 1 FROM discovery_archives WHERE gap_id=${schema.queueItems.gapId}))`)))[0];
+    if (Number(count.total) >= state.queueMaxSize) throw new Error('Queue capacity reached. Existing work was preserved; retry when capacity is available.');
+    await tx.insert(schema.queueItems).values({ ...item, status: 'pending', attempts: 0, maxAttempts: state.maxAttempts });
+    return (await tx.select().from(schema.queueItems).where(eq(schema.queueItems.id, item.id)))[0];
   });
-
-  return getQueueItem(id);
 }
 
 export async function getQueueItem(id: string) {
@@ -468,6 +466,7 @@ export async function listQueueItems() {
       schema.gaps,
       eq(schema.queueItems.gapId, schema.gaps.id)
     )
+    .where(sql`${schema.queueItems.queueType}<>'synthesis' OR NOT EXISTS (SELECT 1 FROM discovery_archives WHERE gap_id=${schema.queueItems.gapId})`)
     .orderBy(
       asc(schema.queueItems.sortOrder),
       desc(schema.queueItems.priority),
@@ -479,6 +478,13 @@ export async function updateQueueItem(
   id: string,
   updates: Partial<typeof schema.queueItems.$inferSelect>
 ) {
+  if (updates.status === 'pending' || updates.status === 'processing') {
+    const item = await getQueueItem(id);
+    if (item?.queueType === 'synthesis') {
+      const archived = await db.select().from(schema.discoveryArchives).where(eq(schema.discoveryArchives.gapId, item.gapId)).limit(1);
+      if (archived.length) throw new Error('Archived candidate jobs cannot restart.');
+    }
+  }
   await db
     .update(schema.queueItems)
     .set({
@@ -504,6 +510,8 @@ export async function claimNextPendingQueueItem(workerId: string) {
     .where(
       and(
         eq(schema.queueItems.status, 'pending'),
+        sql`(${schema.queueItems.queueType} IN ('audit','maintenance') OR NOT EXISTS (SELECT 1 FROM operational_settings WHERE setting_key='emergencyStop' AND value_json='true'))`,
+        sql`(${schema.queueItems.queueType}<>'synthesis' OR (IS_USED_LOCK('sao:discovery-maintenance') IS NULL AND NOT EXISTS (SELECT 1 FROM discovery_archives WHERE gap_id=${schema.queueItems.gapId})))`,
         or(
           isNull(schema.queueItems.nextRetryAt),
           sql`${schema.queueItems.nextRetryAt} <= NOW()`
@@ -595,6 +603,7 @@ export async function getQueueStats() {
       count: sql<number>`count(*)`,
     })
     .from(schema.queueItems)
+    .where(sql`${schema.queueItems.queueType}<>'synthesis' OR NOT EXISTS(SELECT 1 FROM discovery_archives WHERE gap_id=${schema.queueItems.gapId})`)
     .groupBy(schema.queueItems.status);
 
   const stats = {
@@ -619,7 +628,11 @@ export async function getQueueStats() {
 // ==========================================
 // Deployment Helpers
 // ==========================================
-export async function createDeployment(deploymentData: {
+export async function createDeployment(deploymentData: Parameters<typeof createDeploymentUnlocked>[0]) {
+  const { withDiscoveryWrite } = await import('./services/discoveryMaintenance');
+  return withDiscoveryWrite(() => createDeploymentUnlocked(deploymentData));
+}
+async function createDeploymentUnlocked(deploymentData: {
   gapId: string;
   userId?: string | null;
   businessPlan?: string;
@@ -632,19 +645,28 @@ export async function createDeployment(deploymentData: {
 }) {
   const id = generateId();
 
-  await db.insert(schema.deployments).values({
-    id,
-    gapId: deploymentData.gapId,
-    userId: deploymentData.userId || null,
-    businessPlan: deploymentData.businessPlan || '',
-    revenue: deploymentData.revenue || '0.00',
-    costPerDay: deploymentData.costPerDay || '0.00',
-    banRisk: deploymentData.banRisk || 'low',
-    health: deploymentData.health || 'healthy',
-    stripeProductId:
-      deploymentData.stripeProductId || null,
-    stripePriceId:
-      deploymentData.stripePriceId || null,
+  await db.transaction(async tx => {
+    const gap = (await tx.select({ id: schema.gaps.id }).from(schema.gaps).where(eq(schema.gaps.id, deploymentData.gapId)).for('update'))[0];
+    if (!gap) throw new Error('Business creation requires an existing candidate.');
+    if ((await tx.select().from(schema.discoveryArchives).where(eq(schema.discoveryArchives.gapId, deploymentData.gapId)).limit(1)).length) throw new Error('Archived candidates cannot start new businesses.');
+    const activePolicies = await tx.select().from(schema.policyHeads).orderBy(asc(schema.policyHeads.category)).for('update');
+    await tx.insert(schema.deployments).values({
+      id,
+      gapId: deploymentData.gapId,
+      userId: deploymentData.userId || null,
+      businessPlan: deploymentData.businessPlan || '',
+      revenue: deploymentData.revenue || '0.00',
+      costPerDay: deploymentData.costPerDay || '0.00',
+      banRisk: deploymentData.banRisk || 'low',
+      health: deploymentData.health || 'healthy',
+      stripeProductId:
+        deploymentData.stripeProductId || null,
+      stripePriceId:
+        deploymentData.stripePriceId || null,
+    });
+    for (const policy of activePolicies) {
+      if (policy.activeVersionId) await tx.insert(schema.policyAssignments).values({ deploymentId: id, category: policy.category, versionId: policy.activeVersionId });
+    }
   });
 
   return getDeploymentById(id);
@@ -762,6 +784,11 @@ export async function updateDeployment(
   id: string,
   updates: Partial<typeof schema.deployments.$inferSelect>
 ) {
+  if (updates.status === 'active') {
+    const protectedLifecycle = await db.select({ state: schema.businessLifecycleRecords.state }).from(schema.businessLifecycleRecords).where(and(eq(schema.businessLifecycleRecords.deploymentId, id), inArray(schema.businessLifecycleRecords.state, ['closed', 'suspended']))).limit(1);
+    if (protectedLifecycle[0]?.state === 'closed') throw new Error('Closed businesses require a fresh validated opportunity and new build.');
+    if (protectedLifecycle[0]?.state === 'suspended') throw new Error('Suspended businesses require verified Supervisor resumption in Operations → Lifecycle.');
+  }
   await db
     .update(schema.deployments)
     .set({
@@ -1091,10 +1118,11 @@ export async function recordPaymentPaid(
 
     const deployment = depRows[0];
 
-    if (deployment) {
-      const current = parseFloat(deployment.revenue || '0.00');
-      const amount = parseFloat(payment.amount || '0.00');
-      const newRevenue = (current + amount).toFixed(2);
+    const purpose = (await tx.select().from(schema.operationalEvents).where(and(eq(schema.operationalEvents.type, 'payment_purpose'), eq(schema.operationalEvents.resourceId, payment.id))).limit(1))[0];
+    const paymentPurpose = purpose ? JSON.parse(purpose.detailJson).purpose : 'business_sale';
+    if (deployment && !['extension', 'legacy_sao_payment'].includes(paymentPurpose)) {
+      const { minorUnits, money } = await import('./services/profitAccounting');
+      const newRevenue = money(minorUnits(deployment.revenue || '0.00') + minorUnits(payment.amount || '0.00'));
       await tx
         .update(schema.deployments)
         .set({ revenue: newRevenue, updatedAt: now })
@@ -1154,44 +1182,9 @@ export async function getOrCreateProviderPayment(paymentData: {
  * pending/processing deployment queue item for the same gap.
  */
 export async function enqueueDeploymentQueueItem(gapId: string) {
-  const existing = await db
-    .select()
-    .from(schema.queueItems)
-    .where(
-      and(
-        eq(schema.queueItems.gapId, gapId),
-        eq(schema.queueItems.queueType, 'deployment'),
-        inArray(schema.queueItems.status, ['pending', 'processing'])
-      )
-    )
-    .limit(1);
-
-  if (existing[0]) {
-    return existing[0];
-  }
-
-  const id = generateId();
-  await db.insert(schema.queueItems).values({
-    id,
-    gapId,
-    status: 'pending',
-    queueType: 'deployment',
-    workerId: null,
-    attempts: 0,
-    maxAttempts: 3,
-    lastError: null,
-    nextRetryAt: null,
-    dedupHash: `deployment:${gapId}`,
-    priority: 5,
-    sortOrder: 0,
-  });
-
-  const rows = await db
-    .select()
-    .from(schema.queueItems)
-    .where(eq(schema.queueItems.id, id))
-    .limit(1);
-  return rows[0] || null;
+  const gap = await getGapById(gapId);
+  if (!gap) throw new Error('Associated gap not found.');
+  return insertQueueItemAtomic({ id: generateId(), gapId, dedupHash: `deployment:${gapId}`, queueType: 'deployment', priority: gap.priority, sortOrder: 0 });
 }
 
 // ==========================================
@@ -1396,7 +1389,7 @@ export async function initCoreLoopState() {
       intervalMs: 10800000,
       totalGapsProcessed: 0,
       totalDeploymentsCreated: 0,
-    });
+    }).onDuplicateKeyUpdate({ set: { id: 'singleton' } });
 
     console.log(
       'Core loop state initialized with defaults.'

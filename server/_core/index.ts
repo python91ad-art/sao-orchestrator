@@ -70,17 +70,17 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
     return;
   }
 
-  if (event.type === 'checkout.session.completed') {
+  if (event.type === 'checkout.session.completed' || event.type === 'checkout.session.async_payment_succeeded') {
     const session = event.data.object as Stripe.Checkout.Session;
     const deploymentId = session.client_reference_id;
     const amountTotal = session.amount_total ? session.amount_total / 100 : 0;
 
-    if (deploymentId && amountTotal > 0) {
+    if (deploymentId && amountTotal > 0 && session.payment_status === 'paid') {
       try {
         const { recognizeExternalPaymentRevenue } = await import('../services/revenue');
         const result = await recognizeExternalPaymentRevenue({
           providerType: 'stripe',
-          providerPaymentId: session.payment_intent?.toString() || session.id || event.id,
+          providerPaymentId: (typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id) || session.id || event.id,
           deploymentId,
           amount: amountTotal,
           currency: session.currency || 'usd',
@@ -95,7 +95,23 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
         }
       } catch (err) {
         console.error(`Stripe Webhook: Failed to recognize revenue.`, err);
+        res.status(500).json({ received: false, error: 'Payment recording requires retry.' });
+        return;
       }
+    }
+  }
+
+  if (event.type.startsWith('charge.dispute.') || event.type === 'refund.created' || event.type === 'refund.updated') {
+    try {
+      const data = event.data.object as unknown as { id: string; payment_intent?: string | { id: string }; amount?: number; currency?: string; status?: string };
+      const reference = typeof data.payment_intent === 'string' ? data.payment_intent : data.payment_intent?.id;
+      const payment = reference ? await db.getPaymentByProviderPaymentId('stripe', reference) : null;
+      if (!payment) throw new Error('Related canonical payment is not available for provider reconciliation.');
+      const { recordVerifiedPaymentException } = await import('../services/financialLifecycle');
+      await recordVerifiedPaymentException(payment.id, event.id, { type: event.type, providerObjectId: data.id, status: data.status, providerAmountMinor: data.amount, currency: data.currency });
+    } catch {
+      res.status(500).json({ received: false, error: 'Provider adjustment requires canonical payment reconciliation.' });
+      return;
     }
   }
 

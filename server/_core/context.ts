@@ -4,6 +4,11 @@ import { getUserById } from '../db';
 import { Context } from './trpc';
 
 export async function createContext({ req, res }: CreateExpressContextOptions): Promise<Context> {
+  const agentToken = req.headers['x-sao-agent-token'];
+  if (typeof agentToken === 'string') {
+    const { authenticateAgent } = await import('../services/execution');
+    try { return { user: null, agent: await authenticateAgent(agentToken), req, res }; } catch { return { user: null, req, res }; }
+  }
   let user = null;
   const authorization = req.headers.authorization;
   const bearerToken =

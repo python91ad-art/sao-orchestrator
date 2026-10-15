@@ -1,0 +1,11 @@
+import { useState } from 'react';
+import { trpc } from '../lib/trpc';
+
+export default function Checkout() {
+  const businessId = new URLSearchParams(window.location.search).get('business') || '';
+  const price = trpc.operations.publicPrice.useQuery(businessId, { enabled: Boolean(businessId), refetchOnWindowFocus: true });
+  const checkout = trpc.operations.checkout.useMutation();
+  const [message, setMessage] = useState('');
+  const [payment, setPayment] = useState<{ id: string; checkoutUrl: string | null } | null>(null);
+  return <main className="min-h-screen bg-[#100e17] text-white p-6"><section className="card-bold max-w-xl mx-auto space-y-4"><h1 className="text-2xl font-bold">Business Checkout</h1><p>Business: {businessId || 'No business selected'}</p>{price.isLoading && <p role="status">Loading current approved price…</p>}{price.error && <p role="alert">{price.error.message}</p>}{price.data ? <><p className="text-xl">{price.data.amount} {price.data.currency}</p><p>This approved quote applies to a new purchase only. Existing commitments and completed transactions are unchanged. Payment is completed with the payment provider after your confirmation.</p><button className="btn-bold-primary" disabled={checkout.isPending || Boolean(payment)} onClick={async () => { if (!confirm(`Create a payment request for ${price.data!.amount} ${price.data!.currency}?`)) return; try { const result = await checkout.mutateAsync({ deploymentId: businessId, quoteId: price.data!.quoteId }); setPayment({ id: result.id, checkoutUrl: result.checkoutUrl }); setMessage(result.status === 'no_payment_required' ? 'Free enrollment recorded. No payment was created or charged.' : 'Payment request created. No payment is confirmed until a verified provider event is received.'); } catch (error: any) { setMessage(error.message); await price.refetch(); } }}>{price.data.amount === '0.00' ? 'Enroll at no charge' : 'Continue to secure payment'}</button></> : !price.isLoading && <p>No approved public price is currently available.</p>}{message && <p role="status">{message}</p>}{payment && <><p>Request reference: {payment.id}</p>{payment.checkoutUrl && <a className="btn-secondary" href={payment.checkoutUrl} rel="noreferrer">Open payment provider</a>}</>}<a className="btn-secondary" href="/">Return to dashboard</a></section></main>;
+}

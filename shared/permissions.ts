@@ -1,0 +1,1 @@
+export const ADMIN_PERMISSIONS = ['policies.view', 'policies.edit', 'policies.validate', 'policies.activate', 'policies.history', 'policies.restore', 'policies.impact', 'policies.assign', 'maintenance.discovery', 'agents.manage', 'approvals.request', 'approvals.supervisor', 'specifications.manage', 'finance.manage', 'lifecycle.manage', 'settings.manage'] as const;

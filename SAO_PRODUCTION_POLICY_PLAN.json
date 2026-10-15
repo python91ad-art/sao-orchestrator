@@ -1,0 +1,103 @@
+{
+  "purpose": "Review-only production policy configuration; never executed or activated by this file",
+  "target": {
+    "database": "eb2bfb559429",
+    "server": "sao-sql-primary-0",
+    "engine": "9.6.0"
+  },
+  "approvalStatus": "NOT_APPROVED",
+  "proposedConfigurations": {
+    "discovery": {
+      "minimumSources": null,
+      "demandWeight": null,
+      "severityWeight": null,
+      "evidenceWeight": null,
+      "solutionWeight": null,
+      "qualificationThreshold": null,
+      "evidenceMaxAgeDays": null,
+      "complexReasoning": "high"
+    },
+    "specification": {
+      "requiredSections": [
+        "objectives",
+        "productRequirements",
+        "technicalRequirements"
+      ],
+      "allowAutomaticImprovements": false,
+      "requireArchitectReview": true
+    },
+    "agents": {
+      "originalAgentRetries": null,
+      "backupAgentRetries": null,
+      "allowedTools": [],
+      "requireSupervisorForHighRisk": true,
+      "requireUserForSpending": true,
+      "requireUserForIrreversible": true
+    },
+    "pricing": {
+      "automaticChanges": false,
+      "maximumChangePercent": null,
+      "minimumChangeIntervalHours": null,
+      "requireMarketEvidence": true,
+      "requireSupervisorForHighRisk": true
+    },
+    "quality": {
+      "mandatorySuites": [
+        "functional",
+        "integration",
+        "security",
+        "performance"
+      ],
+      "repairRetries": null,
+      "maximumLatencyMs": null,
+      "requireIndependentQc": true,
+      "requireArchitectCompliance": true
+    },
+    "advertising": {
+      "organicFirst": true,
+      "requireUserAuthorization": true,
+      "requireReinvestmentAuthorization": true,
+      "campaignLimit": null,
+      "performanceReviewDays": null
+    },
+    "finance": {
+      "platformPercent": 20,
+      "settlementFrequency": "weekly",
+      "currency": null,
+      "timezone": null,
+      "weekStartsOn": null,
+      "accountingConvention": null,
+      "transactionEligibility": null,
+      "taxTreatment": null,
+      "rounding": null,
+      "requireUserAuthorization": true
+    },
+    "deadlines": {
+      "industry": null,
+      "complexity": null,
+      "initialDays": null,
+      "maximumExtensions": null,
+      "extensionDays": null,
+      "minimumExtensionPrice": null,
+      "maximumExtensionPrice": null,
+      "profitabilityThreshold": null,
+      "profitabilityPeriods": null,
+      "warningDays": null,
+      "customerGrowthThreshold": null,
+      "demandThreshold": null,
+      "sustainabilityThreshold": null
+    },
+    "shutdown": {
+      "requireSupervisorForClosure": true,
+      "requireUserForDeletion": true,
+      "preserveObligations": true,
+      "freshBuildOnRestart": true,
+      "retentionDays": null,
+      "lossSuspensionThreshold": null
+    }
+  },
+  "businessAssignments": [],
+  "ownerConsent": "Required from the authenticated existing owner after policy versions, currency and authorization scope/expiry are approved",
+  "independentBackupDestination": null,
+  "providerSnapshotId": null
+}

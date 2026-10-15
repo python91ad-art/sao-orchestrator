@@ -6,3 +6,4 @@ dist/
 mysql_data/
 playwright-report/
 test-results/
+.sao-backups/

@@ -26,6 +26,7 @@ export interface ProviderRequest {
   maxTokens: number;
   temperature: number;
   jsonMode: boolean;
+  reasoningLevel?: 'standard' | 'high' | 'extended';
 }
 
 export interface ProviderCompletion {
@@ -153,6 +154,7 @@ class GroqProvider implements LLMProvider {
       max_tokens: req.maxTokens,
       temperature: req.temperature,
       response_format: req.jsonMode ? { type: 'json_object' as any } : undefined,
+      ...(req.reasoningLevel && req.reasoningLevel !== 'standard' ? { reasoning_effort: 'high' } : {}),
     });
 
     const content = completion.choices?.[0]?.message?.content;

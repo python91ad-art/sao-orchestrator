@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Plus, Trash2, ShieldCheck, Power, Edit3 } from 'lucide-react';
 import { trpc } from '../../lib/trpc';
 
-type ServiceType = 'search' | 'llm' | 'deployment' | 'advertising' | 'payments';
+type ServiceType = 'search' | 'llm' | 'deployment' | 'advertising' | 'payments' | 'business_data';
 
 interface ProviderRecord {
   id: string;
@@ -67,8 +67,11 @@ const Providers: React.FC = () => {
   const providers = (listQuery.data ?? []) as ProviderRecord[];
   const serviceTypes = (serviceTypesQuery.data ?? []) as { id: ServiceType; label: string }[];
   const knownProviders = (knownProvidersQuery.data ?? []) as {
-    id: string; name: string; serviceType: ServiceType; credentialType: string; envConfigured: boolean;
+    id: string; name: string; serviceType: ServiceType; credentialType: string; envConfigured: boolean; credentialRequired?: boolean;
   }[];
+
+  const selectedKnownProvider = knownProviders.find((k) => k.id === form.providerId);
+  const credentialRequired = selectedKnownProvider ? selectedKnownProvider.credentialType !== 'none' : true;
 
   const reload = async () => {
     await utils.providers.list.invalidate();
@@ -76,8 +79,17 @@ const Providers: React.FC = () => {
   };
 
   const openAdd = (service: ServiceType) => {
+    const firstKnown = knownProviders.find((k) => k.serviceType === service);
     setEditing(null);
-    setForm({ service, name: '', providerId: 'custom', credentialType: 'api_key', credential: '', baseUrl: '', priority: '' });
+    setForm({
+      service,
+      name: firstKnown?.name || '',
+      providerId: firstKnown?.id || 'custom',
+      credentialType: firstKnown?.credentialType || 'api_key',
+      credential: '',
+      baseUrl: '',
+      priority: '',
+    });
     setIsAddOpen(true);
   };
 
@@ -111,7 +123,7 @@ const Providers: React.FC = () => {
           service: form.service,
           name: form.name || (knownProviders.find((k) => k.id === form.providerId)?.name ?? 'Custom Provider'),
           providerId: form.providerId,
-          credentialType: form.credentialType,
+          credentialType: selectedKnownProvider?.credentialType || form.credentialType,
           credential: form.credential,
           baseUrl: form.baseUrl || undefined,
           priority: form.priority || null,
@@ -185,7 +197,7 @@ const Providers: React.FC = () => {
           <div className="flex items-center justify-between border-b border-[#221c32] pb-2">
             <h3 className="text-base font-bold text-white">{group.label}</h3>
             <button onClick={() => openAdd(group.id)} className="btn-secondary py-1.5 px-3 text-xs">
-              <Plus className="h-3.5 w-3.5" /><span>Add New API Key</span>
+              <Plus className="h-3.5 w-3.5" /><span>Add Provider</span>
             </button>
           </div>
 
@@ -196,7 +208,8 @@ const Providers: React.FC = () => {
                   <ShieldCheck className="h-3.5 w-3.5 text-purple-400" />
                   <span className="font-medium text-neutral-300">{k.name}</span>
                   <span className="text-neutral-500">— adapter available</span>
-                  {k.envConfigured && <span className="badge-gray">env fallback configured</span>}
+                  {k.credentialType === 'none' && <span className="badge-success">no key required</span>}
+                  {k.envConfigured && k.credentialType !== 'none' && <span className="badge-gray">env fallback configured</span>}
                 </div>
               ))}
             </div>
@@ -274,14 +287,14 @@ const Providers: React.FC = () => {
         <div className="modal-overlay">
           <div className="modal-content">
             <div className="flex items-center justify-between mb-6 pb-2 border-b border-[#221c32]">
-              <h3 className="text-lg font-bold text-white">{editing ? 'Edit Provider' : 'Add New API Key'}</h3>
+              <h3 className="text-lg font-bold text-white">{editing ? 'Edit Provider' : 'Add Provider'}</h3>
               <button onClick={() => setIsAddOpen(false)} className="text-neutral-400 hover:text-white">✕</button>
             </div>
 
             <form onSubmit={handleSave} className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">Provider Name</label>
-                <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Tavily, My Custom Search" required />
+                <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Tavily, ONS" required />
               </div>
               <div>
                 <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">Service Type</label>
@@ -291,7 +304,15 @@ const Providers: React.FC = () => {
               </div>
               <div>
                 <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">Provider</label>
-                <select value={form.providerId} onChange={(e) => setForm({ ...form, providerId: e.target.value })}>
+                <select value={form.providerId} onChange={(e) => {
+                  const next = knownProviders.find((k) => k.id === e.target.value);
+                  setForm({
+                    ...form,
+                    providerId: e.target.value,
+                    credentialType: next?.credentialType || form.credentialType,
+                    name: form.name || next?.name || '',
+                  });
+                }}>
                   <option value="custom">Custom / no adapter yet</option>
                   {knownProviders.filter((k) => k.serviceType === form.service).map((k) => (
                     <option key={k.id} value={k.id}>{k.name}</option>
@@ -302,9 +323,14 @@ const Providers: React.FC = () => {
                 )}
               </div>
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">API Key / Credential</label>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">
+                  {credentialRequired ? 'API Key / Credential' : 'Credential'}
+                </label>
                 <input type="password" value={form.credential} onChange={(e) => setForm({ ...form, credential: e.target.value })}
-                  placeholder={editing ? 'Leave blank to keep existing key' : 'sk-...'} required={!editing} />
+                  placeholder={credentialRequired ? (editing ? 'Leave blank to keep existing key' : 'Required for this provider') : 'Not required'} required={!editing && credentialRequired} disabled={!credentialRequired} />
+                {!credentialRequired && (
+                  <p className="text-[11px] text-neutral-500 mt-1.5">This official public API does not require a key.</p>
+                )}
               </div>
               <div>
                 <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">API Base URL (optional)</label>

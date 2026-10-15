@@ -6,6 +6,7 @@
 // ==========================================
 
 const VERCEL_API_BASE = 'https://api.vercel.com';
+export class VercelRequestRejected extends Error {}
 
 async function getVercelToken(): Promise<string> {
   let token = process.env.VERCEL_API_TOKEN;
@@ -55,6 +56,7 @@ export interface VercelProject {
 
 export interface VercelDeployment {
   uid: string;
+  projectId?: string;
   name: string;
   url: string;
   created: number;
@@ -78,6 +80,7 @@ export interface VercelCreateProjectParams {
 
 export interface VercelDeployParams {
   projectId: string;
+  releaseContext?: { deploymentId: string; releaseId: string; entryPoint: string };
   source?: 'import' | 'cli';
   files?: { file: string; data: string }[];
   name?: string;
@@ -92,6 +95,8 @@ export interface VercelDeployResult {
 }
 
 type VercelTestAdapter = {
+  getDeployment?: (deploymentId: string) => Promise<VercelDeployment | null>;
+  readDeploymentFiles?: (deploymentId: string) => Promise<{ path: string; content: string }[]>;
   createProject?: (params: VercelCreateProjectParams) => Promise<{ projectId: string; name: string }>;
   deploy?: (params: VercelDeployParams) => Promise<VercelDeployResult>;
   waitReady?: (
@@ -109,6 +114,25 @@ let vercelTestAdapter: VercelTestAdapter | null = null;
 
 export function setVercelTestAdapter(adapter: VercelTestAdapter | null) {
   vercelTestAdapter = adapter;
+}
+export async function readPublicDeploymentFiles(url: string, paths: string[], deploymentId: string) {
+  if (vercelTestAdapter) {
+    if (process.env.NODE_ENV !== 'test' || !vercelTestAdapter.readDeploymentFiles) throw new Error('Mock deployment artifact retrieval is unavailable.');
+    return vercelTestAdapter.readDeploymentFiles(deploymentId);
+  }
+  const origin = new URL(url);
+  if (origin.protocol !== 'https:' || ['localhost', '127.0.0.1', '::1'].includes(origin.hostname)) throw new Error('A verified public HTTPS deployment URL is required.');
+  const files = [];
+  for (const filePath of paths) {
+    if (filePath.includes('..') || filePath.startsWith('/')) throw new Error('Invalid deployment artifact path.');
+    const response = await fetch(new URL(filePath, `${origin.origin}/`), { redirect: 'error', signal: AbortSignal.timeout(15000) });
+    if (!response.ok || !response.body) throw new Error(`Post-deployment asset verification failed: HTTP ${response.status}.`);
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    for await (const chunk of response.body as any) { size += chunk.byteLength; if (size > 800000) throw new Error('Deployed asset exceeds safe retrieval limits.'); chunks.push(chunk); }
+    files.push({ path: filePath, content: Buffer.concat(chunks).toString('utf8') });
+  }
+  return files;
 }
 // ==========================================
 // API FUNCTIONS
@@ -258,6 +282,27 @@ export async function createVercelProject(
 export async function deployToVercel(
   params: VercelDeployParams
 ): Promise<VercelDeployResult> {
+  if (!params.releaseContext || !params.files?.length) throw new Error('Verified artifact-bound release context is required at provider execution.');
+  const { verifyReleaseForDeployment } = await import('./releasePipeline');
+  await verifyReleaseForDeployment(params.releaseContext.deploymentId, params.releaseContext.releaseId, { description: '', framework: 'static', entryPoint: params.releaseContext.entryPoint, files: params.files.map(file => ({ path: file.file, content: file.data })) });
+  const { db } = await import('../db');
+  const { releaseAuthorizations } = await import('../../drizzle/schema');
+  const { and, eq } = await import('drizzle-orm');
+  const releaseId = params.releaseContext.releaseId;
+  const beforePublication = (await db.select().from(releaseAuthorizations).where(eq(releaseAuthorizations.id, releaseId)).limit(1))[0];
+  const claimed = await db.update(releaseAuthorizations).set({ status: 'deploying', evidenceJson: JSON.stringify({ ...JSON.parse(beforePublication.evidenceJson), publicationProjectId: params.projectId }) }).where(and(eq(releaseAuthorizations.id, releaseId), eq(releaseAuthorizations.status, 'eligible')));
+  if (!(claimed[0] as any).affectedRows) throw new Error('Release publication is already in progress or requires provider reconciliation.');
+  try {
+    const result = await executeVercelDeployment(params);
+    const release = (await db.select().from(releaseAuthorizations).where(eq(releaseAuthorizations.id, releaseId)).limit(1))[0];
+    await db.update(releaseAuthorizations).set({ status: 'deployment_submitted', evidenceJson: JSON.stringify({ ...JSON.parse(release.evidenceJson), externalDeploymentId: result.deploymentId, projectId: result.projectId, submittedDeployment: result, submittedAt: new Date().toISOString() }) }).where(eq(releaseAuthorizations.id, releaseId));
+    return result;
+  } catch (error) {
+    await db.update(releaseAuthorizations).set({ status: error instanceof VercelRequestRejected ? 'eligible' : 'deployment_unknown' }).where(eq(releaseAuthorizations.id, releaseId));
+    throw error;
+  }
+}
+async function executeVercelDeployment(params: VercelDeployParams): Promise<VercelDeployResult> {
   if (vercelTestAdapter?.deploy) {
     return vercelTestAdapter.deploy(params);
   }
@@ -296,7 +341,7 @@ export async function deployToVercel(
 
   const response = await fetch(
     `${VERCEL_API_BASE}/v13/deployments${skipConfirmation}`,
-    { method: 'POST', headers, body: JSON.stringify(body) }
+    { method: 'POST', headers, body: JSON.stringify(body), signal: AbortSignal.timeout(30000) }
   );
 
   if (!response.ok) {
@@ -304,7 +349,8 @@ export async function deployToVercel(
     console.error(
       `[Vercel] deployToVercel returned HTTP ${response.status}: ${text.slice(0, 300)}`
     );
-    throw new Error(
+    const Rejection = response.status >= 400 && response.status < 500 ? VercelRequestRejected : Error;
+    throw new Rejection(
       `Vercel deployment failed (HTTP ${response.status}).`
     );
   }
@@ -331,6 +377,7 @@ export async function deployToVercel(
 export async function getVercelDeployment(
   deploymentId: string
 ): Promise<VercelDeployment | null> {
+  if (vercelTestAdapter?.getDeployment && process.env.NODE_ENV === 'test') return vercelTestAdapter.getDeployment(deploymentId);
   const headers = await getVercelHeaders();
   const teamParam = getTeamParam();
 

@@ -8,12 +8,17 @@ export interface Context {
   user: UserType | null;
   req: Request;
   res: Response;
+  agent?: import('../services/execution').ExecutionContext;
 }
 
 const t = initTRPC.context<Context>().create();
 
 export const router = t.router;
 export const publicProcedure = t.procedure;
+export const agentProcedure = t.procedure.use(({ ctx, next }) => {
+  if (!ctx.agent) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Verified scoped agent identity required.' });
+  return next({ ctx: { ...ctx, agent: ctx.agent } });
+});
 
 export const protectedProcedure = t.procedure.use(({ ctx, next }) => {
   if (!ctx.user) {

@@ -1,6 +1,7 @@
 import { callLLM, callLLMJson, MODEL_CLASSIFIER, MODEL_BUSINESS_PLAN } from './services/llm';
 import * as db from './db';
 import { retryWithExponentialBackoff } from './retryEngine';
+import { collectBusinessEvidenceForGap, formatEvidenceForPrompt } from './services/businessData';
 
 
 // ==========================================
@@ -89,7 +90,24 @@ export async function tryAutoFix(deploymentId: string, issue: string, health: 'w
     console.log(`Critical health detected on ${deploymentId}. Synthesizing revised strategic business plan.`);
     const deployment = await db.getDeploymentById(deploymentId);
     if (deployment) {
-      const prompt = `Formulate an optimized emergency pivot for this startup plan to resolve the following issue: "${issue}". Keep the core value proposition but mitigate operational overhead. Existing Plan: ${deployment.businessPlan}`;
+      let businessEvidence = 'UK business-data evidence unavailable.';
+      try {
+        const gap = await db.getGapById(deployment.gapId);
+        if (gap) {
+          businessEvidence = formatEvidenceForPrompt(await collectBusinessEvidenceForGap(gap));
+        }
+      } catch (error: any) {
+        businessEvidence = `UK business-data evidence unavailable: ${error?.message || error}`;
+      }
+
+      const prompt = `Formulate an optimized emergency pivot for this startup plan to resolve the following issue: "${issue}". Keep the core value proposition but mitigate operational overhead.
+
+Existing Plan: ${deployment.businessPlan}
+
+Independent UK business-data evidence:
+${businessEvidence}
+
+Use official evidence as supporting context only; do not present it as proof of demand, profitability, viability or definitive compliance.`;
       
       const updatedPlan = await callLLM(prompt, {
         model: MODEL_BUSINESS_PLAN,
@@ -121,9 +139,18 @@ export async function auditDeployment(deploymentId: string) {
 
   const gap = await db.getGapById(deployment.gapId);
   const gapContext = gap ? `Gap Context - Knows: ${gap.knows}, Needs: ${gap.needs}` : 'Gap Context Unavailable';
+  let businessEvidence = 'UK business-data evidence unavailable.';
+  try {
+    if (gap) {
+      businessEvidence = formatEvidenceForPrompt(await collectBusinessEvidenceForGap(gap));
+    }
+  } catch (error: any) {
+    businessEvidence = `UK business-data evidence unavailable: ${error?.message || error}`;
+  }
 
   const systemPrompt = `You are a high-level Auditor for the Situational Arbitrage Orchestrator. 
 Analyze the current performance and operational risk of this active deployment. 
+Use UK official business-data evidence as supporting context only; do not treat it as definitive proof of customer intent, profitability or legal compliance.
 Respond with valid raw JSON matching this schema:
 {
   "health": "healthy" | "warning" | "critical",
@@ -141,7 +168,10 @@ Stripe Product: ${deployment.stripeProductId}
 Revenue: $${deployment.revenue}
 Cost Per Day: $${deployment.costPerDay}
 Current Status: ${deployment.status}
-${gapContext}`;
+${gapContext}
+
+Independent UK business-data evidence:
+${businessEvidence}`;
 
   const auditResult = await callLLMJson(userPrompt, {
     model: MODEL_CLASSIFIER,

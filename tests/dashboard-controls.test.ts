@@ -23,6 +23,7 @@ const pages = {
   Analytics: 'client/src/pages/dashboard/Analytics.tsx',
   Policies: 'client/src/pages/dashboard/Policies.tsx',
   Providers: 'client/src/pages/dashboard/Providers.tsx',
+  Infrastructure: 'client/src/pages/dashboard/Infrastructure.tsx',
   Settings: 'client/src/pages/dashboard/Settings.tsx',
   RegistrationAccess: 'client/src/pages/dashboard/RegistrationAccess.tsx',
 };
@@ -36,9 +37,10 @@ const expectations: Record<string, string[]> = {
   CryptoPayments: ['trpc.payments.createCryptoPayment.useMutation', 'paymentsQuery.refetch', 'deploymentsQuery'],
   AuditLog: ['trpc.audit.list.useQuery', 'setIsModalOpen(true)', 'auditQuery.refetch'],
   Analytics: ['trpc.analytics.overview.useQuery', 'analyticsQuery.refetch'],
-  Policies: ['trpc.policies.create.useMutation', 'trpc.policies.acknowledge.useMutation', 'trpc.policies.delete.useMutation', 'utils.policies.list.invalidate'],
+  Policies: ['trpc.policies.overview.useQuery', 'trpc.policies.saveDraft.useMutation', 'trpc.policies.validateDraft.useMutation', 'trpc.policies.activate.useMutation', 'utils.policies.invalidate'],
   Providers: ['trpc.providers.create.useMutation', 'trpc.providers.update.useMutation', 'trpc.providers.remove.useMutation', 'trpc.providers.test.useMutation', 'trpc.providers.setPriority.useMutation', 'trpc.providers.setEnabled.useMutation', 'utils.providers.list.invalidate'],
-  Settings: ['trpc.coreLoop.resetOperationalData.useMutation', 'handleSave', 'handleReset', 'retryConfig', 'queueLimits', 'setConcurrency'],
+  Infrastructure: ['trpc.infrastructure.overview.useQuery', 'trpc.evidence.create.useMutation', 'trpc.specifications.createDraft.useMutation', 'trpc.agents.ensureDefaults.useMutation', 'trpc.supervisor.createTask.useMutation', 'trpc.builder.create.useMutation', 'trpc.qc.create.useMutation', 'trpc.sales.createLead.useMutation', 'trpc.finance.createAccount.useMutation', 'trpc.lifecycle.create.useMutation', 'refreshAll'],
+  Settings: ['trpc.policies.discoveryResetPreview.useQuery', 'handleSave', 'handleReset', 'retryConfig', 'queueLimits', 'setConcurrency'],
   RegistrationAccess: ['trpc.invites.create.useMutation', 'trpc.invites.delete.useMutation', 'utils.invites.list.invalidate', 'handleCopy'],
 };
 
@@ -73,12 +75,12 @@ for (const [name, file] of Object.entries(pages)) {
 }
 
 const dashboard = read('client/src/pages/Dashboard.tsx');
-for (const pageId of ['overview', 'gaps', 'queue', 'deployments', 'advertising', 'audit-log', 'analytics', 'policies', 'providers', 'settings', 'registration-access']) {
+for (const pageId of ['overview', 'gaps', 'queue', 'deployments', 'advertising', 'audit-log', 'analytics', 'policies', 'providers', 'infrastructure', 'settings', 'registration-access']) {
   assert.ok(dashboard.includes(`case '${pageId}'`), `Dashboard route missing ${pageId}`);
 }
 
 const layout = read('client/src/components/DashboardLayout.tsx');
-for (const pageId of ['overview', 'gaps', 'queue', 'deployments', 'advertising', 'audit-log', 'analytics', 'policies', 'providers', 'settings', 'registration-access']) {
+for (const pageId of ['overview', 'gaps', 'queue', 'deployments', 'advertising', 'audit-log', 'analytics', 'policies', 'providers', 'infrastructure', 'settings', 'registration-access']) {
   assert.ok(layout.includes(`id: '${pageId}'`), `Dashboard nav missing ${pageId}`);
 }
 

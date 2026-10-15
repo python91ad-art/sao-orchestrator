@@ -5,3 +5,9 @@ dist/
 !.env.example
 mysql_data/
 .git
+.aws/
+.codex/
+.agents/
+.sao-backups/
+test-results/
+playwright-report/

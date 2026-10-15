@@ -73,8 +73,7 @@ export function getChannelStatus(channel: ChannelId): ChannelStatus {
   if (required.length === 0) return 'READY'; // Free channels always ready
   if (missing.length === required.length) return 'NOT_CONFIGURED';
   if (missing.length > 0) return 'NOT_CONFIGURED'; // Partial config = not configured
-  if (!isLiveAdvertisingEnabled()) return 'STUBBED';
-  return 'CONFIGURED'; // All credentials present
+  return 'STUBBED';
 }
 
 /**
@@ -87,9 +86,9 @@ export function getChannelCapabilities(channel: ChannelId): ChannelCapabilities 
 
   return {
     canCreateCampaign: isConfigured,
-    canPublishCreatives: isConfigured,
-    canRetrieveMetrics: isConfigured && requiresPayment,
-    canPauseResume: isConfigured && requiresPayment,
+    canPublishCreatives: false,
+    canRetrieveMetrics: false,
+    canPauseResume: false,
     requiresPayment,
     supportedContentFormats: ['headline', 'primary_text', 'description', 'cta'],
   };

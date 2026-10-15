@@ -6,6 +6,7 @@ import { AuthProvider, useAuth } from './hooks/useAuth';
 import Login from './pages/Login';
 import Registration from './pages/Registration';
 import Dashboard from './pages/Dashboard';
+import Checkout from './pages/Checkout';
 
 // Set up standard react-query client
 const queryClient = new QueryClient({
@@ -51,7 +52,7 @@ const AppContent: React.FC = () => {
     return <Login />;
   }
 
-  return <Dashboard />;
+  return window.location.pathname === '/checkout' ? <Checkout /> : <Dashboard />;
 };
 
 const App: React.FC = () => {

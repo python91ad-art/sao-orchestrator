@@ -92,6 +92,27 @@
       "when": 1756740000000,
       "tag": "0012_advertising_growth_engine",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "5",
+      "when": 1791936000000,
+      "tag": "0013_lifecycle_infrastructure",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "5",
+      "when": 1791936001000,
+      "tag": "0014_policy_engine",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "5",
+      "when": 1791936002000,
+      "tag": "0015_operational_policies",
+      "breakpoints": true
     }
   ]
 }

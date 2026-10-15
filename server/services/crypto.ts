@@ -1,4 +1,7 @@
 import * as db from '../db';
+import { and, eq } from 'drizzle-orm';
+import { operationalEvents } from '../../drizzle/schema';
+import { minorUnits } from './profitAccounting';
 import {
   getNowPaymentsConfigAsync,
   createNowPaymentsPayment,
@@ -8,6 +11,7 @@ import {
 } from './nowpayments';
 import { broadcastEvent } from '../websocket';
 import { allocateRevenueForPayment } from './advertising/growthEngine';
+import { recordRevenueTransaction } from './infrastructure';
 
 // Re-export the pure, DB-free helpers for callers and tests.
 import {
@@ -70,8 +74,12 @@ export async function createCryptoPayment(params: {
   deploymentId: string;
   payCurrency?: string;
 }) {
+  return createQuotedPayment({ ...params, ...getSaoPrice(), purpose: 'legacy_sao_payment', resourceId: params.deploymentId });
+}
+
+export async function createQuotedPayment(params: { deploymentId: string; payCurrency?: string; amount: string; currency: string; purpose: 'legacy_sao_payment' | 'business_sale' | 'extension'; resourceId: string; customerUserId?: string }) {
   const config = await getNowPaymentsConfigAsync();
-  const price = getSaoPrice();
+  const price = { amount: params.amount, currency: params.currency };
 
   const payment = await db.createPayment({
     deploymentId: params.deploymentId,
@@ -80,6 +88,8 @@ export async function createCryptoPayment(params: {
     currency: price.currency,
     providerPaymentId: null,
   });
+  const { auditOperation } = await import('./execution');
+  await auditOperation('system:payments', 'payment_purpose', payment.id, { purpose: params.purpose, resourceId: params.resourceId, amount: price.amount, currency: price.currency, customerUserId: params.customerUserId }, params.deploymentId);
 
   try {
     const webhookUrl = buildWebhookUrl();
@@ -122,7 +132,7 @@ export async function createCryptoPayment(params: {
 
 export interface IpnResult {
   status: 'invalid_signature' | 'invalid_payload' | 'missing_payment_id' |
-          'unknown_payment' | 'currency_mismatch' | 'already_paid' |
+          'unknown_payment' | 'currency_mismatch' | 'amount_mismatch' | 'already_paid' |
           'recorded' | 'updated' | 'noop' | 'not_found';
   detail?: string;
 }
@@ -159,8 +169,17 @@ export async function processNowPaymentsIpn(
     return { status: 'unknown_payment' };
   }
 
+  if (payment.status === 'paid' && payload.payment_status === 'refunded') {
+    const { recordVerifiedPaymentException } = await import('./financialLifecycle');
+    await recordVerifiedPaymentException(payment.id, `refunded:${providerPaymentId}`, { providerStatus: payload.payment_status, invoiceCurrency: payload.price_currency, invoiceAmount: payload.price_amount, actualRefundAmount: 'Requires provider refund/settlement evidence; invoice value is not assumed to be the refund value.' });
+    return { status: 'already_paid' };
+  }
   // 4. Never regress a paid payment.
   if (payment.status === 'paid') {
+    const { ingestVerifiedPayment } = await import('./financialLifecycle');
+    await ingestVerifiedPayment(payment.id);
+    const { recordVerifiedSaleCustomer } = await import('./pricingLifecycle');
+    await recordVerifiedSaleCustomer(payment.id);
     return { status: 'already_paid' };
   }
 
@@ -180,6 +199,15 @@ export async function processNowPaymentsIpn(
 
   // 7. Transition to `paid` — record revenue and trigger deployment once.
   if (targetStatus === 'paid') {
+    if (typeof payload.price_currency !== 'string' || payload.price_currency.toUpperCase() !== payment.currency.toUpperCase()) return { status: 'currency_mismatch' };
+    const received = String(payload.price_amount ?? '');
+    const [whole, fraction = ''] = received.split('.');
+    const normalized = /^\d+(\.\d+)?$/.test(received) && !/[1-9]/.test(fraction.slice(2)) ? `${whole}.${fraction.padEnd(2, '0').slice(0, 2)}` : null;
+    if (!normalized || minorUnits(normalized) !== minorUnits(payment.amount)) {
+      const { auditOperation } = await import('./execution');
+      await auditOperation('verified-provider:crypto', 'payment_evidence_rejected', payment.id, { expectedInvoiceAmount: payment.amount, receivedInvoiceAmount: payload.price_amount, reason: 'Signed provider invoice value does not match the server-created payment request.' }, payment.deploymentId);
+      return { status: 'amount_mismatch' };
+    }
     const result = await db.recordPaymentPaid(payment.id, {
       providerStatus: payload.payment_status,
       transactionHash: extractTransactionHash(payload),
@@ -189,15 +217,50 @@ export async function processNowPaymentsIpn(
       paymentAddress: payload.pay_address,
     });
 
+    if ('payment' in result && result.payment?.status === 'paid') {
+      const { ingestVerifiedPayment } = await import('./financialLifecycle');
+      await ingestVerifiedPayment(result.payment.id);
+      const { recordVerifiedSaleCustomer } = await import('./pricingLifecycle');
+      await recordVerifiedSaleCustomer(result.payment.id);
+    }
     if (result.outcome === 'recorded') {
-      await allocateRevenueForPayment(result.payment, result.deployment);
+      const purposeRows = await db.db.select().from(operationalEvents).where(and(eq(operationalEvents.type, 'payment_purpose'), eq(operationalEvents.resourceId, result.payment.id))).limit(1);
+      const purpose = purposeRows[0] ? JSON.parse(purposeRows[0].detailJson) : null;
+      if (purpose?.purpose === 'extension') {
+        const { applyPaidExtension } = await import('./businessLifecycle');
+        await recordRevenueTransaction({ deploymentId: result.payment.deploymentId, paymentId: result.payment.id, transactionType: 'extension_receipt', amount: result.payment.amount, currency: result.payment.currency, idempotencyKey: `extension_receipt:${result.payment.id}`, metadata: { offerId: purpose.resourceId } });
+        try { await applyPaidExtension(purpose.resourceId); } catch (error: any) {
+          const { extensionOffers } = await import('../../drizzle/schema');
+          await db.db.update(extensionOffers).set({ status: 'payment_exception' }).where(and(eq(extensionOffers.id, purpose.resourceId), eq(extensionOffers.status, 'accepted')));
+          const { auditOperation } = await import('./execution');
+          await auditOperation('system:payments', 'settlement_exception', result.payment.id, { offerId: purpose.resourceId, reason: error.message, paymentReceived: true, extensionApplied: false, refundOrFulfillmentReviewRequired: true }, result.payment.deploymentId);
+          await auditOperation('system:payments', 'user_notification', result.payment.id, { reason: 'Extension payment was recorded but fulfillment requires review. The extension has not been applied; payment and refund obligations are preserved.', offerId: purpose.resourceId }, result.payment.deploymentId);
+        }
+        return { status: result.outcome };
+      }
+      if (purpose?.purpose !== 'legacy_sao_payment') await allocateRevenueForPayment(result.payment, result.deployment);
+      if (result.deployment) {
+        await recordRevenueTransaction({
+          deploymentId: result.deployment.id,
+          paymentId: result.payment.id,
+          transactionType: purpose?.purpose === 'legacy_sao_payment' ? 'platform_service_receipt' : 'verified_crypto_revenue',
+          amount: result.payment.amount,
+          currency: result.payment.currency,
+          idempotencyKey: `revenue:${result.payment.id}`,
+          metadata: {
+            providerType: PROVIDER_TYPE,
+            providerPaymentId,
+            settlementPolicy: 'POLICY_NOT_CONFIGURED',
+          },
+        });
+      }
 
       broadcastEvent({
         type: 'payment:updated',
         data: { paymentId: payment.id, deploymentId: payment.deploymentId, status: 'paid' },
       });
 
-      if (result.deployment) {
+      if (result.deployment && purpose?.purpose !== 'business_sale') {
         await db.enqueueDeploymentQueueItem(result.deployment.gapId);
         console.log(
           `[crypto-webhook] Enqueued deployment for ${result.deployment.id} ` +

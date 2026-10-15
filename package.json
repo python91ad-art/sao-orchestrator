@@ -2,6 +2,15 @@
   "name": "sao",
   "version": "2.0.0",
   "private": true,
+  "packageManager": "pnpm@9.15.9",
+  "pnpm": {
+    "overrides": {
+      "brace-expansion@2": "2.1.7",
+      "undici@7": "7.29.1",
+      "qs@6": "6.16.0",
+      "proxy-addr@2": "2.0.8"
+    }
+  },
   "scripts": {
     "dev": "concurrently \"pnpm dev:server\" \"pnpm dev:client\"",
     "dev:server": "tsx watch server/_core/index.ts",
@@ -9,13 +18,15 @@
     "build": "cd client && vite build",
     "build:client": "cd client && vite build",
     "start": "node run-migration.js && tsx server/_core/index.ts",
-    "test": "node --import tsx tests/auth.test.ts && node --import tsx tests/invites-auth.test.ts && node --import tsx tests/ai-providers.test.ts && node --import tsx tests/settings-validation.test.ts && node --import tsx tests/migration-integrity.test.ts && node --import tsx tests/crypto-payments.test.ts && node --import tsx tests/advertising.test.ts && node --import tsx tests/advertising-growth.test.ts && node --import tsx tests/provider-registry-unit.test.ts && node --import tsx tests/internal-remediation.test.ts && node --import tsx tests/dashboard-controls.test.ts",
+    "test": "node --import tsx tests/auth.test.ts && node --import tsx tests/invites-auth.test.ts && node --import tsx tests/ai-providers.test.ts && node --import tsx tests/settings-validation.test.ts && node --import tsx tests/migration-integrity.test.ts && node --import tsx tests/crypto-payments.test.ts && node --import tsx tests/advertising.test.ts && node --import tsx tests/advertising-growth.test.ts && node --import tsx tests/provider-registry-unit.test.ts && node --import tsx tests/business-data.test.ts && node --import tsx tests/infrastructure.test.ts && node --import tsx tests/internal-remediation.test.ts && node --import tsx tests/dashboard-controls.test.ts",
     "test:e2e": "node --import tsx tests/e2e-isolated.test.ts",
+    "test:policies": "node --import tsx tests/policy-engine.test.ts && node --import tsx tests/policy-db-isolated.test.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "test:crypto": "tsx tests/crypto-payments.test.ts"
   },
   "dependencies": {
+    "@playwright/test": "^1.63.0",
     "@tanstack/react-query": "^5.0.0",
     "@trpc/client": "^11.0.0",
     "@trpc/react-query": "^11.0.0",
@@ -40,7 +51,6 @@
     "zod": "^3.22.0"
   },
   "devDependencies": {
-    "@playwright/test": "^1.63.0",
     "@types/bcryptjs": "^2.4.6",
     "@types/cheerio": "^0.22.35",
     "@types/cookie-parser": "^1.4.6",

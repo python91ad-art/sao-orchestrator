@@ -64,8 +64,8 @@ async function main() {
     const known = getKnownProviders();
     const knownIds = known.map((p) => p.id);
 
-    record('Supports all 5 core service types', SERVICE_TYPES.length === 5);
-    record('isSupportedService accepts valid types', isSupportedService('search') && isSupportedService('llm') && isSupportedService('deployment') && isSupportedService('advertising') && isSupportedService('payments'));
+    record('Supports all 6 core service types', SERVICE_TYPES.length === 6);
+    record('isSupportedService accepts valid types', isSupportedService('search') && isSupportedService('llm') && isSupportedService('deployment') && isSupportedService('advertising') && isSupportedService('payments') && isSupportedService('business_data'));
     record('isSupportedService rejects unknown types', !isSupportedService('arbitrary_fake_type'));
 
     record('Contains Tavily adapter', knownIds.includes('tavily') && hasAdapter('tavily'));
@@ -75,7 +75,7 @@ async function main() {
     record('Contains OpenRouter adapter', knownIds.includes('openrouter') && hasAdapter('openrouter'));
     record('Contains Vercel adapter', knownIds.includes('vercel') && hasAdapter('vercel'));
     record('Contains NOWPayments adapter', knownIds.includes('nowpayments') && hasAdapter('nowpayments'));
-
+    record('Contains ONS adapter', knownIds.includes('ons') && hasAdapter('ons'));
     record('hasAdapter returns false for unknown provider', !hasAdapter('unknown_nonexistent_provider'));
   }
 
@@ -93,6 +93,10 @@ async function main() {
 
     const nowpayments = getProviderDescriptor('nowpayments');
     record('NOWPayments descriptor configured for payments', nowpayments?.serviceType === 'payments' && nowpayments?.credentialType === 'api_key');
+
+    const ons = getProviderDescriptor('ons');
+    record('ONS descriptor configured without credentials', ons?.serviceType === 'business_data' && ons?.credentialType === 'none' && ons?.credentialRequired === false);
+
   }
 
   // --- 5. LLM Model Registry & Provider Adapters ---

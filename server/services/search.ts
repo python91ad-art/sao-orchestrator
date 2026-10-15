@@ -1,6 +1,7 @@
 import { callLLMJson } from './llm';
 import { ExtractedGap } from './crawler';
 import { retryWithExponentialBackoff } from '../retryEngine';
+import { collectBusinessEvidenceForGap } from './businessData';
 
 export interface SearchResult {
   title: string;
@@ -200,10 +201,28 @@ export async function searchForGaps(topic: string): Promise<ExtractedGap[]> {
   const searchQuery = `"${topic}" problems pain points workflow frustration limitations`;
   const results = await search(searchQuery, { maxResults: 10 });
 
-  if (results.length === 0) return [];
+  let businessEvidenceContent = '';
+  try {
+    const bundle = await collectBusinessEvidenceForGap({
+      knows: topic,
+      needs: `${topic} market problems`,
+      controlsAccess: 'UK public institutions and market incumbents',
+      underestimatesValue: 'fragmented evidence and operational guidance',
+      source: `business_data:${topic}`,
+    });
+    businessEvidenceContent = bundle.evidence
+      .slice(0, 8)
+      .map((e) => `Source: ${e.url}\nTitle: ${e.title}\nSnippet: ${e.summary}\nCaveats: ${e.caveats.join(' ')}`)
+      .join('\n\n---\n\n');
+  } catch (error: any) {
+    console.warn(`[Search] Business-data evidence unavailable for "${topic}": ${error?.message || error}`);
+  }
+
+  if (results.length === 0 && !businessEvidenceContent) return [];
 
   const concatenatedContent = results
     .map(r => `Source: ${r.url}\nTitle: ${r.title}\nSnippet: ${r.snippet}`)
+    .concat(businessEvidenceContent ? [`${businessEvidenceContent}`] : [])
     .join('\n\n---\n\n');
 
   try {

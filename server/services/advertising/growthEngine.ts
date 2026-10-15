@@ -432,6 +432,15 @@ export async function canSpend(input: SpendCheckInput): Promise<SpendCheckResult
   if (campaign.campaignType !== 'PAID') {
     return { allowed: false, reason: 'Spend authorization only applies to paid campaigns.' };
   }
+  const { evaluatePolicy, activePolicy } = await import('../policyEngine');
+  const { validApproval, emergencyStopped } = await import('../execution');
+  const finance = await activePolicy('finance', input.deploymentId);
+  const currency = finance ? JSON.parse(finance.configJson).currency : null;
+  const authorization = currency ? await validApproval({ deploymentId: input.deploymentId, action: 'paid_campaign', resourceId: input.campaignId, authority: 'user', amount: input.requestedAmount.toFixed(2), currency }) : null;
+  const scope = authorization ? JSON.parse(authorization.scopeJson) : null;
+  const remainingAuthorized = authorization?.amount ? Number(authorization.amount) - Number(scope?.spent || '0.00') : 0;
+  const policy = await evaluatePolicy({ category: 'advertising', action: 'paid_campaign', deploymentId: input.deploymentId, actorId: 'system:advertising', facts: { amount: input.requestedAmount, providerOperational: getChannelStatus(campaign.channel as any) === 'READY', userAuthorizationId: authorization?.id, remainingAuthorized, emergencyStop: await emergencyStopped(), campaignId: campaign.id } });
+  if (policy.decision !== 'ALLOW') return { allowed: false, reason: `${policy.decision}: ${policy.reason}` };
   if (!isLiveAdvertisingEnabled()) {
     return { allowed: false, reason: 'Paid advertising live mode is disabled.' };
   }
@@ -528,6 +537,9 @@ export async function confirmReservedSpend(input: {
   if (!reservation[0] || reservation[0].status !== 'RESERVED') {
     return { success: false, reason: 'Reservation not found or already settled.' };
   }
+  if (reservation[0].deploymentId !== input.deploymentId || reservation[0].campaignId !== input.campaignId || input.amount > Number(reservation[0].amount)) return { success: false, reason: 'Reservation workspace, campaign or amount mismatch.' };
+  const campaign = await database.getAdCampaignById(input.campaignId);
+  if (!campaign || getChannelStatus(campaign.channel as any) !== 'READY') return { success: false, reason: 'Verified provider spend confirmation is unavailable for this adapter.' };
   try {
     const id = database.generateId();
     await database.db.insert(schema.adBudgetLedger).values({

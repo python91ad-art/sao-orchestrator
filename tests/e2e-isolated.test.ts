@@ -133,6 +133,10 @@ function installTestEnv(socketPath: string) {
 
 function llmResponseFor(task: string, prompt: string) {
   const p = prompt.toLowerCase();
+  if (p.includes('assess source reliability')) return { reliability: 'high', rationale: 'Controlled fixture source attribution.', limitations: ['Synthetic isolated test evidence; not production market proof.'] };
+  if (p.includes('master business specification')) return { objectives: ['Match repair specialists to customers'], productRequirements: ['A working repair request interaction'], technicalRequirements: ['Static, self-contained application'], immediateRequirements: ['Repair request'], futureImprovements: ['Customer retention analytics'], expertise: ['developer', 'independent_qc'], acceptanceChecks: [{ selector: 'h1', operation: 'text', value: 'Repair Match' }, { selector: '#book', operation: 'click' }, { selector: 'body', operation: 'attribute', attribute: 'data-requested', value: 'true' }] };
+  if (p.includes('assess business sustainability')) return { sustainabilityScore: 8, recoveryPotential: true, rationale: 'Controlled fixture analysis of supplied metrics.', uncertainties: [] };
+  if (p.includes('administrator-configured business deadline')) return { rationale: 'Configured isolated fixture deadline is supported.', concerns: [] };
   if (task === 'CLASSIFICATION') {
     if (p.includes('unsafe')) return { classification: 'unsafe', reasoning: 'Unsafe test marker.', banRisk: 'high', explanation: 'Rejected as unsafe.' };
     if (p.includes('false gap')) return { classification: 'false', reasoning: 'False test marker.', banRisk: 'low', explanation: 'Not a real opportunity.' };
@@ -185,8 +189,8 @@ async function main() {
     const db = await import('../server/db');
     const schema = await import('../drizzle/schema');
     const { setProvidersForTest, resetRouterState } = await import('../server/services/llmRouter');
-    const { setVercelTestAdapter } = await import('../server/services/vercel');
-    const { processQueueBatch } = await import('../server/orchestrator');
+    const { setVercelTestAdapter, VercelRequestRejected } = await import('../server/services/vercel');
+    const { processQueueBatch: rawProcessQueueBatch } = await import('../server/orchestrator');
     const { monitorDeploymentById, recoverStaleJobs, runAutonomousCycle } = await import('../server/autonomousManager');
     const { recognizeExternalPaymentRevenue } = await import('../server/services/revenue');
     const growth = await import('../server/services/advertising/growthEngine');
@@ -242,7 +246,9 @@ async function main() {
         throw new Error('Injected creative failure');
       }
 
-      const inferred = !req.jsonMode ? llmResponseFor('TEXT', user)
+      const inferred = user.toLowerCase().includes('recommend a business model') ? { businessModel: 'service', amount: '10.00', currency: 'USD', competitorAnalysis: 'Controlled market comparison.', willingnessToPay: 'Controlled customer evidence.', operatingCosts: 'Controlled proposed operating costs; not verified profit.', marginAnalysis: 'Fixture recommendation subject to Finance review.', repeatUsage: 'Recurring customer needs.', rationale: 'Isolated business model recommendation.', risk: 'high' }
+        : user.toLowerCase().includes('review this pricing proposal') ? { recommendation: 'Controlled Finance/Marketing assessment.', concerns: [] }
+        : !req.jsonMode ? llmResponseFor('TEXT', user)
         : isApplication ? llmResponseFor('APPLICATION_GENERATION', user)
         : isClassifier ? llmResponseFor('CLASSIFICATION', user)
         : isCreative ? llmResponseFor('ADVERTISING_CREATIVE', user)
@@ -263,13 +269,16 @@ async function main() {
       },
     ] as any);
 
+    const deployedFiles = new Map<string, { path: string; content: string }[]>();
     setVercelTestAdapter({
+      readDeploymentFiles: async deploymentId => { const files = deployedFiles.get(deploymentId); if (!files) throw new Error('Mock provider has no published artifact for this deployment.'); return files; },
       createProject: async (params) => {
         if (vercelFailures.createProject-- > 0) throw new Error('Injected project creation failure');
         return { projectId: `mock-project-${params.name}`, name: params.name };
       },
       deploy: async (params) => {
-        if (vercelFailures.deploy-- > 0) throw new Error('Injected deploy failure');
+        if (vercelFailures.deploy-- > 0) throw new VercelRequestRejected('Controlled provider rejected request before creating a deployment');
+        deployedFiles.set(`mock-deploy-${params.projectId}`, (params.files || []).map(file => ({ path: file.file, content: file.data })));
         return { projectId: params.projectId, deploymentId: `mock-deploy-${params.projectId}`, deploymentUrl: `${params.projectId}.test.local`, readyState: 'READY' };
       },
       waitReady: async (deploymentId) => {
@@ -286,6 +295,25 @@ async function main() {
     await db.initCoreLoopState();
     await db.updateCoreLoopState({ maxAttempts: 2, baseDelayMs: 1000, backoffMultiplier: '1.0', concurrency: 1 } as any);
     const admin = await db.createUser('admin-e2e@sao.test', 'hash', 'admin');
+    const { configureTestPolicies, authorizeTestGap, authorizeTestDeployment } = await import('./fixtures/authorizedLifecycle');
+    await configureTestPolicies(admin!.id);
+    async function processQueueBatch() {
+      const first = await rawProcessQueueBatch();
+      const businesses = await db.listDeployments();
+      for (const business of businesses) await authorizeTestDeployment(admin!.id, business.id);
+      const queued = await db.listQueueItems();
+      for (const item of queued) if (item.queueItem.queueType === 'deployment' && item.queueItem.status === 'paused' && item.queueItem.lastError?.includes('REQUIRES_USER_AUTHORIZATION')) await db.updateQueueItem(item.queueItem.id, { status: 'pending', nextRetryAt: null });
+      let total = first + await rawProcessQueueBatch();
+      for (let round = 0; round < 5; round++) {
+        const pending = (await db.listQueueItems()).map(item => item.queueItem).filter(item => item.status === 'pending' && item.nextRetryAt);
+        if (!pending.length) break;
+        const wait = Math.max(0, Math.min(...pending.map(item => new Date(item.nextRetryAt!).getTime())) - Date.now());
+        if (wait > 2500) break;
+        await new Promise(resolve => setTimeout(resolve, wait + 20));
+        total += await rawProcessQueueBatch();
+      }
+      return total;
+    }
     record('isolated database initialized', Boolean(admin?.id), isolated.socketPath);
 
     async function createQueuedGap(dedupHash: string, overrides: Partial<{
@@ -304,6 +332,7 @@ async function main() {
         priority: overrides.priority || 8,
         dedupHash,
       });
+      await authorizeTestGap(admin!.id, created!.id);
       await db.createQueueItem({ gapId: created!.id, dedupHash, priority: overrides.priority || 8 });
       return created!;
     }
@@ -318,6 +347,7 @@ async function main() {
       priority: 9,
       dedupHash,
     });
+    await authorizeTestGap(admin!.id, gap!.id);
     await db.createQueueItem({ gapId: gap!.id, dedupHash, priority: 9 });
     record('Discovery -> Gap persisted', Boolean(await db.getGapById(gap!.id)));
 
@@ -582,7 +612,8 @@ async function main() {
     const validationDeployment = await db.getDeploymentByGapId(validationGap.id);
     const validationProvider = validationDeployment ? await db.getActiveProvider(validationDeployment.id, 'vercel') : null;
     validationQueue = (await db.listQueueItems()).find((q: any) => q.queueItem.id === validationQueue!.queueItem.id);
-    record('Failure recovery: validation failure captured for retry', Number(validationQueue?.queueItem.attempts || 0) >= 2 && Boolean(validationQueue?.queueItem.lastError));
+    const validationExecutions = validationDeployment ? await db.db.select().from(schema.taskExecutions).where(eq(schema.taskExecutions.deploymentId, validationDeployment.id)) : [];
+    record('Failure recovery: validation failure captured for retry', validationExecutions.some(execution => execution.status === 'failed' && Boolean(execution.errorMessage)));
     record('Failure recovery: validation retry reaches deployed state', Boolean(validationProvider?.deploymentUrl) && validationQueue?.queueItem.status === 'completed');
 
     vercelFailures.createProject = 1;
@@ -688,6 +719,13 @@ async function main() {
 
     const auditLogs = await db.listAuditLogs(200, 0);
     record('Audit events recorded', auditLogs.length >= 5);
+
+    const lifecycleService = await import('../server/services/businessLifecycle');
+    await lifecycleService.suspendBusiness(admin!.id, deployment!.id, 'Controlled Supervisor recovery drill with preserved resources.');
+    await assert.rejects(db.updateDeployment(deployment!.id, { status: 'active' }), /Supervisor resumption/);
+    record('Governed suspension prevents direct reactivation', (await db.getDeploymentById(deployment!.id))?.status === 'paused');
+    await lifecycleService.resumeSuspendedBusiness({ id: admin!.id, role: 'admin' }, deployment!.id, 'Reviewed preserved legal clearance, independent artifact QC, owner consent and actual mock-provider health.');
+    record('Verified Supervisor resumption preserves the existing business', (await db.getDeploymentById(deployment!.id))?.status === 'active');
 
     setProvidersForTest(null);
     setVercelTestAdapter(null);

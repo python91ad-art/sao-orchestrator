@@ -88,10 +88,11 @@ const Login: React.FC = () => {
             <div className="space-y-4">
               {!isResetConfirmMode && (
                 <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">
+                  <label htmlFor="login-email" className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">
                     Email address
                   </label>
                   <input
+                    id="login-email"
                     type="email"
                     required
                     value={email}
@@ -135,7 +136,7 @@ const Login: React.FC = () => {
               {!isResetMode && !isResetConfirmMode && (
                 <div>
                   <div className="flex items-center justify-between mb-2">
-                    <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400">
+                    <label htmlFor="login-password" className="block text-xs font-semibold uppercase tracking-wider text-neutral-400">
                       Password
                     </label>
                     <button
@@ -154,6 +155,7 @@ const Login: React.FC = () => {
                     type="password"
                     required
                     value={password}
+                    id="login-password"
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="••••••••"
                   />

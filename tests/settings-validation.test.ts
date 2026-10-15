@@ -41,7 +41,7 @@ const notificationSettingsSchema = z.object({
 });
 
 const setIntervalSchema = z.object({
-  intervalMs: z.number().min(5000).max(86400000),
+  intervalMs: z.number().min(60000).max(86400000),
 });
 
 async function main() {
@@ -124,7 +124,7 @@ async function main() {
     }).success);
 
     record('Valid interval passes', setIntervalSchema.safeParse({ intervalMs: 10800000 }).success);
-    record('Rejects interval < 5000ms', !setIntervalSchema.safeParse({ intervalMs: 1000 }).success);
+    record('Rejects interval < 60000ms', !setIntervalSchema.safeParse({ intervalMs: 5000 }).success);
   }
 
   const passed = results.filter((r) => r.pass).length;

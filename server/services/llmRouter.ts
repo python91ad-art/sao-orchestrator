@@ -187,6 +187,8 @@ function restoreOnSuccess(mc: ModelConfig) {
 }
 
 export interface RouterRequest {
+  requiredModel?: string;
+  reasoningLevel?: 'standard' | 'high' | 'extended';
   task: Capability;
   prompt: string;
   systemPrompt?: string;
@@ -213,6 +215,9 @@ async function selectCandidates(
   return allModels
     .filter((mc) => {
       if (!mc.enabled) return false;
+      if (req.requiredModel && mc.model !== req.requiredModel) return false;
+      if (req.reasoningLevel && req.reasoningLevel !== 'standard' && (mc.provider !== 'groq' || !/^openai\/gpt-oss-(20b|120b)$/.test(mc.model))) return false;
+      if (req.reasoningLevel === 'extended' && mc.model !== 'openai/gpt-oss-120b') return false;
       if (!providerConfigured.get(mc.provider)) return false;
       if (!providers.has(mc.provider)) return false;
       if (!mc.capabilities.includes(req.task)) return false;
@@ -286,6 +291,7 @@ export async function route(req: RouterRequest): Promise<LLMRouteResult> {
         maxTokens: req.maxTokens,
         temperature: req.temperature,
         jsonMode: req.jsonMode,
+        reasoningLevel: req.reasoningLevel,
       });
 
       recordUsage(mc, completion.usage.inputTokens ?? estimateTokens(req.prompt), completion.usage.outputTokens ?? req.maxTokens);

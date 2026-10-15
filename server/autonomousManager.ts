@@ -92,6 +92,8 @@ export async function runAutonomousCycle(): Promise<void> {
   cycleRunning = true;
   const started = Date.now();
   try {
+    const { runOperatingCycle } = await import('./services/operatingCycle');
+    await runOperatingCycle();
     // 1. Recover abandoned/stale jobs (worker & scheduler self-healing).
     await recoverStaleJobs();
 

@@ -1,5 +1,6 @@
 import * as db from '../db';
 import { allocateRevenueForPayment } from './advertising/growthEngine';
+import { recordRevenueTransaction } from './infrastructure';
 
 export type RevenueRecognitionResult =
   | { outcome: 'deployment_not_found' }
@@ -37,6 +38,8 @@ export async function recognizeExternalPaymentRevenue(input: {
   });
 
   if (paid.outcome === 'already_paid') {
+    const { ingestVerifiedPayment } = await import('./financialLifecycle');
+    await ingestVerifiedPayment(paid.payment.id);
     return { outcome: 'already_paid', payment: paid.payment };
   }
 
@@ -45,6 +48,19 @@ export async function recognizeExternalPaymentRevenue(input: {
   }
 
   await allocateRevenueForPayment(paid.payment, paid.deployment);
+  await recordRevenueTransaction({
+    deploymentId: paid.deployment.id,
+    paymentId: paid.payment.id,
+    transactionType: 'verified_payment_revenue',
+    amount: paid.payment.amount,
+    currency: paid.payment.currency,
+    idempotencyKey: `revenue:${paid.payment.id}`,
+    metadata: {
+      providerType: input.providerType,
+      providerPaymentId: input.providerPaymentId,
+      settlementPolicy: 'POLICY_NOT_CONFIGURED',
+    },
+  });
   await db.createAuditLog({
     deploymentId: paid.deployment.id,
     gapId: paid.deployment.gapId,

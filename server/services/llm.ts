@@ -22,6 +22,12 @@ export interface LLMResponse {
   content: string;
   model: string;
 }
+import { currentAgentRouting } from './agentRouting';
+function reasoningFor(options?: LLMCallOptions) {
+  const assigned = currentAgentRouting()?.level;
+  const order = ['standard', 'high', 'extended'];
+  return order[Math.max(order.indexOf(assigned || 'standard'), order.indexOf(options?.reasoningLevel || 'standard'))] as 'standard' | 'high' | 'extended';
+}
 
 // Capability markers. These replaced raw Groq model ids so the router
 // can map a logical request type to the best available model.
@@ -30,6 +36,7 @@ export const MODEL_CLASSIFIER = 'CLASSIFICATION';
 export const MODEL_GENERIC = 'ANALYSIS';
 
 export interface LLMCallOptions {
+  reasoningLevel?: 'standard' | 'high' | 'extended';
   model?: string;
   systemPrompt?: string;
   jsonMode?: boolean;
@@ -54,6 +61,8 @@ function resolveTask(options?: LLMCallOptions): Capability {
  */
 export async function callLLM(prompt: string, options?: LLMCallOptions): Promise<string> {
   const result = await route({
+    requiredModel: currentAgentRouting()?.model,
+    reasoningLevel: reasoningFor(options),
     task: resolveTask(options),
     prompt,
     systemPrompt: options?.systemPrompt,
@@ -86,6 +95,8 @@ export async function callLLMJsonWithMeta<T = any>(
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const result = await route({
+      requiredModel: currentAgentRouting()?.model,
+      reasoningLevel: reasoningFor(options),
       task,
       prompt,
       systemPrompt: options?.systemPrompt,

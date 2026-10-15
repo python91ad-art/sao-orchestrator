@@ -10,10 +10,15 @@ import Settings from './dashboard/Settings';
 import Analytics from './dashboard/Analytics';
 import RegistrationAccess from './dashboard/RegistrationAccess';
 import Providers from './dashboard/Providers';
+import Infrastructure from './dashboard/Infrastructure';
+import Operations from './dashboard/Operations';
+import Authorizations from './dashboard/Authorizations';
+import { useAuth } from '../hooks/useAuth';
 
 import Advertising from './dashboard/Advertising';
 
 const Dashboard: React.FC = () => {
+  const { user } = useAuth();
   const [currentPage, setCurrentPage] = useState<string>('overview');
 
   useEffect(() => {
@@ -25,6 +30,10 @@ const Dashboard: React.FC = () => {
 
   const renderActivePage = () => {
     switch (currentPage) {
+      case 'operations':
+        return user?.role === 'admin' ? <Operations /> : <p role="alert">Administrator access required.</p>;
+      case 'authorizations':
+        return <Authorizations />;
       case 'overview':
         return <Overview />;
       case 'gaps':
@@ -40,13 +49,15 @@ const Dashboard: React.FC = () => {
       case 'advertising':
         return <Advertising />;
       case 'policies':
-        return <Policies />;
+        return user?.role === 'admin' ? <Policies /> : <p role="alert">Administrator access required.</p>;
       case 'settings':
         return <Settings />;
       case 'registration-access':
         return <RegistrationAccess />;
       case 'providers':
         return <Providers />;
+      case 'infrastructure':
+        return <Infrastructure />;
       default:
         return <Overview />;
     }

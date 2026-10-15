@@ -1,5 +1,68 @@
-import { mysqlTable, varchar, text, datetime, mysqlEnum, int, decimal, boolean, json, index } from 'drizzle-orm/mysql-core';
+import { mysqlTable, varchar, text, longtext, datetime, mysqlEnum, int, decimal, boolean, json, index, primaryKey, AnyMySqlColumn } from 'drizzle-orm/mysql-core';
 import { sql } from 'drizzle-orm';
+export * from './operations';
+
+export const policyVersions = mysqlTable('policy_versions', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  category: varchar('category', { length: 64 }).notNull(),
+  configJson: longtext('config_json').notNull(),
+  status: varchar('status', { length: 32 }).notNull().default('draft'),
+  previousId: varchar('previous_id', { length: 255 }).references((): AnyMySqlColumn => policyVersions.id),
+  actorId: varchar('actor_id', { length: 255 }).notNull(),
+  reason: text('reason').notNull(),
+  validationJson: longtext('validation_json'),
+  impactJson: longtext('impact_json'),
+  createdAt: datetime('created_at').notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: datetime('updated_at').notNull().default(sql`CURRENT_TIMESTAMP`),
+}, table => [index('policy_category_created').on(table.category, table.createdAt)]);
+export const policyHeads = mysqlTable('policy_heads', {
+  category: varchar('category', { length: 64 }).primaryKey(),
+  activeVersionId: varchar('active_version_id', { length: 255 }).references(() => policyVersions.id),
+  updatedAt: datetime('updated_at').notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+export const policyAssignments = mysqlTable('policy_assignments', {
+  deploymentId: varchar('deployment_id', { length: 255 }).notNull().references(() => deployments.id),
+  category: varchar('category', { length: 64 }).notNull(),
+  versionId: varchar('version_id', { length: 255 }).notNull().references(() => policyVersions.id),
+  createdAt: datetime('created_at').notNull().default(sql`CURRENT_TIMESTAMP`),
+}, table => [primaryKey({ columns: [table.deploymentId, table.category] })]);
+export const policyEvaluations = mysqlTable('policy_evaluations', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  category: varchar('category', { length: 64 }).notNull(),
+  versionId: varchar('version_id', { length: 255 }).references(() => policyVersions.id),
+  action: varchar('action', { length: 128 }).notNull(),
+  deploymentId: varchar('deployment_id', { length: 255 }),
+  gapId: varchar('gap_id', { length: 255 }),
+  decision: varchar('decision', { length: 64 }).notNull(),
+  reason: text('reason').notNull(),
+  evidenceJson: longtext('evidence_json').notNull(),
+  actorId: varchar('actor_id', { length: 255 }).notNull(),
+  createdAt: datetime('created_at').notNull().default(sql`CURRENT_TIMESTAMP`),
+}, table => [index('policy_activity').on(table.category, table.createdAt), index('policy_business').on(table.deploymentId)]);
+export const adminPermissions = mysqlTable('admin_permissions', {
+  userId: varchar('user_id', { length: 255 }).notNull().references(() => users.id),
+  permission: varchar('permission', { length: 64 }).notNull(),
+}, table => [primaryKey({ columns: [table.userId, table.permission] })]);
+export const discoveryResetReports = mysqlTable('discovery_reset_reports', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  actorId: varchar('actor_id', { length: 255 }).notNull(),
+  reportJson: longtext('report_json').notNull(),
+  createdAt: datetime('created_at').notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+export const gapPolicyReviews = mysqlTable('gap_policy_reviews', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  gapId: varchar('gap_id', { length: 255 }).notNull().references(() => gaps.id),
+  legalState: varchar('legal_state', { length: 32 }).notNull(),
+  complexity: varchar('complexity', { length: 32 }).notNull(),
+  demandScore: decimal('demand_score', { precision: 12, scale: 4 }).notNull(),
+  severityScore: decimal('severity_score', { precision: 12, scale: 4 }).notNull(),
+  evidenceScore: decimal('evidence_score', { precision: 12, scale: 4 }).notNull(),
+  solutionScore: decimal('solution_score', { precision: 12, scale: 4 }).notNull(),
+  evidenceIdsJson: longtext('evidence_ids_json').notNull(),
+  rationale: text('rationale').notNull(),
+  actorId: varchar('actor_id', { length: 255 }).notNull(),
+  createdAt: datetime('created_at', { fsp: 3 }).notNull().default(sql`CURRENT_TIMESTAMP(3)`),
+}, table => [index('gap_review').on(table.gapId, table.createdAt)]);
 
 export const users = mysqlTable('users', {
   id: varchar('id', { length: 255 }).primaryKey(),
@@ -379,3 +442,396 @@ export const credentialAuditLogs = mysqlTable('credential_audit_logs', {
   message: varchar('message', { length: 255 }),
   createdAt: datetime('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
+
+// ==========================================
+// Lifecycle infrastructure foundation
+// ==========================================
+// These tables are intentionally policy-neutral. They persist durable state,
+// traceability and audit records without authorizing spend, deployment,
+// outreach, settlement, shutdown or other high-impact business decisions.
+
+export const evidenceRecords = mysqlTable('evidence_records', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  gapId: varchar('gap_id', { length: 255 }),
+  deploymentId: varchar('deployment_id', { length: 255 }),
+  businessSpecId: varchar('business_spec_id', { length: 255 }),
+  provider: varchar('provider', { length: 128 }).notNull(),
+  sourceUrl: varchar('source_url', { length: 2048 }),
+  category: varchar('category', { length: 128 }).notNull().default('market_context'),
+  title: varchar('title', { length: 512 }),
+  summary: text('summary').notNull(),
+  content: text('content'),
+  retrievedAt: datetime('retrieved_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+  publishedAt: datetime('published_at'),
+  geography: varchar('geography', { length: 255 }),
+  reportingPeriod: varchar('reporting_period', { length: 255 }),
+  metadataJson: text('metadata_json'),
+  reliabilityJson: text('reliability_json'),
+  caveatsJson: text('caveats_json'),
+  status: varchar('status', { length: 64 }).notNull().default('collected'),
+  version: int('version').default(1).notNull(),
+  dedupHash: varchar('dedup_hash', { length: 64 }).notNull().unique(),
+  createdAt: datetime('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: datetime('updated_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('idx_evidence_gap').on(table.gapId),
+  index('idx_evidence_deployment').on(table.deploymentId),
+  index('idx_evidence_provider').on(table.provider),
+  index('idx_evidence_status').on(table.status),
+]);
+
+export const evidenceEvents = mysqlTable('evidence_events', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  evidenceId: varchar('evidence_id', { length: 255 }),
+  gapId: varchar('gap_id', { length: 255 }),
+  provider: varchar('provider', { length: 128 }).notNull(),
+  eventType: varchar('event_type', { length: 64 }).notNull(),
+  message: text('message').notNull(),
+  metadataJson: text('metadata_json'),
+  createdAt: datetime('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('idx_evidence_events_evidence').on(table.evidenceId),
+  index('idx_evidence_events_gap').on(table.gapId),
+]);
+
+export const businessSpecifications = mysqlTable('business_specifications', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  gapId: varchar('gap_id', { length: 255 }),
+  deploymentId: varchar('deployment_id', { length: 255 }),
+  currentVersionId: varchar('current_version_id', { length: 255 }),
+  status: varchar('status', { length: 64 }).notNull().default('draft'),
+  approvalState: varchar('approval_state', { length: 64 }).notNull().default('POLICY_NOT_CONFIGURED'),
+  title: varchar('title', { length: 255 }).notNull(),
+  legacyBusinessPlan: text('legacy_business_plan'),
+  createdBy: varchar('created_by', { length: 255 }),
+  createdAt: datetime('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: datetime('updated_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('idx_specs_gap').on(table.gapId),
+  index('idx_specs_deployment').on(table.deploymentId),
+  index('idx_specs_status').on(table.status),
+]);
+
+export const businessSpecificationVersions = mysqlTable('business_specification_versions', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  specificationId: varchar('specification_id', { length: 255 }).notNull(),
+  versionNumber: int('version_number').notNull(),
+  status: varchar('status', { length: 64 }).notNull().default('draft'),
+  sectionsJson: longtext('sections_json').notNull(),
+  changeSummary: text('change_summary'),
+  createdBy: varchar('created_by', { length: 255 }),
+  createdAt: datetime('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('idx_spec_versions_spec').on(table.specificationId),
+]);
+
+export const businessSpecificationEvents = mysqlTable('business_specification_events', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  specificationId: varchar('specification_id', { length: 255 }).notNull(),
+  versionId: varchar('version_id', { length: 255 }),
+  eventType: varchar('event_type', { length: 64 }).notNull(),
+  status: varchar('status', { length: 64 }).notNull().default('open'),
+  title: varchar('title', { length: 255 }).notNull(),
+  detail: text('detail').notNull(),
+  metadataJson: text('metadata_json'),
+  createdBy: varchar('created_by', { length: 255 }),
+  createdAt: datetime('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('idx_spec_events_spec').on(table.specificationId),
+  index('idx_spec_events_type').on(table.eventType),
+  index('idx_spec_events_status').on(table.status),
+]);
+
+export const agents = mysqlTable('agents', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  role: varchar('role', { length: 128 }).notNull(),
+  name: varchar('name', { length: 255 }).notNull(),
+  capabilityJson: text('capability_json').notNull(),
+  toolMetadataJson: text('tool_metadata_json'),
+  availability: varchar('availability', { length: 64 }).notNull().default('registered'),
+  implementationStatus: varchar('implementation_status', { length: 64 }).notNull().default('registered'),
+  healthStatus: varchar('health_status', { length: 64 }).notNull().default('unknown'),
+  version: varchar('version', { length: 64 }).notNull().default('1'),
+  isBackup: boolean('is_backup').default(false).notNull(),
+  backupForAgentId: varchar('backup_for_agent_id', { length: 255 }),
+  createdAt: datetime('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: datetime('updated_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('idx_agents_role').on(table.role),
+  index('idx_agents_availability').on(table.availability),
+]);
+
+export const agentTasks = mysqlTable('agent_tasks', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  parentTaskId: varchar('parent_task_id', { length: 255 }),
+  agentId: varchar('agent_id', { length: 255 }),
+  gapId: varchar('gap_id', { length: 255 }),
+  deploymentId: varchar('deployment_id', { length: 255 }),
+  specificationId: varchar('specification_id', { length: 255 }),
+  buildProjectId: varchar('build_project_id', { length: 255 }),
+  taskType: varchar('task_type', { length: 128 }).notNull(),
+  title: varchar('title', { length: 255 }).notNull(),
+  state: varchar('state', { length: 64 }).notNull().default('pending'),
+  inputJson: longtext('input_json'),
+  outputJson: longtext('output_json'),
+  errorMessage: text('error_message'),
+  retryCount: int('retry_count').default(0).notNull(),
+  policyStatus: varchar('policy_status', { length: 64 }).notNull().default('POLICY_NOT_CONFIGURED'),
+  idempotencyKey: varchar('idempotency_key', { length: 255 }).notNull().unique(),
+  recoveryCheckpointJson: longtext('recovery_checkpoint_json'),
+  createdBy: varchar('created_by', { length: 255 }),
+  createdAt: datetime('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: datetime('updated_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('idx_agent_tasks_agent').on(table.agentId),
+  index('idx_agent_tasks_state').on(table.state),
+  index('idx_agent_tasks_gap').on(table.gapId),
+  index('idx_agent_tasks_deployment').on(table.deploymentId),
+]);
+
+export const taskDependencies = mysqlTable('task_dependencies', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  taskId: varchar('task_id', { length: 255 }).notNull(),
+  dependsOnTaskId: varchar('depends_on_task_id', { length: 255 }).notNull(),
+  createdAt: datetime('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('idx_task_dependencies_task').on(table.taskId),
+  index('idx_task_dependencies_depends').on(table.dependsOnTaskId),
+]);
+
+export const agentEvents = mysqlTable('agent_events', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  agentId: varchar('agent_id', { length: 255 }),
+  taskId: varchar('task_id', { length: 255 }),
+  eventType: varchar('event_type', { length: 64 }).notNull(),
+  message: text('message').notNull(),
+  metadataJson: text('metadata_json'),
+  createdAt: datetime('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('idx_agent_events_agent').on(table.agentId),
+  index('idx_agent_events_task').on(table.taskId),
+]);
+
+export const buildProjects = mysqlTable('build_projects', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  gapId: varchar('gap_id', { length: 255 }),
+  deploymentId: varchar('deployment_id', { length: 255 }),
+  specificationId: varchar('specification_id', { length: 255 }),
+  projectType: varchar('project_type', { length: 64 }).notNull().default('software'),
+  status: varchar('status', { length: 64 }).notNull().default('draft'),
+  architectureJson: text('architecture_json'),
+  frontendWorkspaceJson: text('frontend_workspace_json'),
+  backendWorkspaceJson: text('backend_workspace_json'),
+  databaseRequirementsJson: text('database_requirements_json'),
+  integrationRequirementsJson: text('integration_requirements_json'),
+  environmentConfigJson: text('environment_config_json'),
+  policyStatus: varchar('policy_status', { length: 64 }).notNull().default('POLICY_NOT_CONFIGURED'),
+  createdAt: datetime('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: datetime('updated_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('idx_build_projects_gap').on(table.gapId),
+  index('idx_build_projects_deployment').on(table.deploymentId),
+  index('idx_build_projects_spec').on(table.specificationId),
+  index('idx_build_projects_status').on(table.status),
+]);
+
+export const buildArtifacts = mysqlTable('build_artifacts', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  buildProjectId: varchar('build_project_id', { length: 255 }).notNull(),
+  artifactType: varchar('artifact_type', { length: 64 }).notNull(),
+  name: varchar('name', { length: 255 }).notNull(),
+  uri: varchar('uri', { length: 2048 }),
+  version: varchar('version', { length: 64 }).notNull().default('1'),
+  contentHash: varchar('content_hash', { length: 128 }),
+  metadataJson: longtext('metadata_json'),
+  createdAt: datetime('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('idx_build_artifacts_project').on(table.buildProjectId),
+]);
+
+export const buildLogs = mysqlTable('build_logs', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  buildProjectId: varchar('build_project_id', { length: 255 }).notNull(),
+  level: varchar('level', { length: 32 }).notNull().default('info'),
+  message: text('message').notNull(),
+  metadataJson: text('metadata_json'),
+  createdAt: datetime('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('idx_build_logs_project').on(table.buildProjectId),
+]);
+
+export const qcJobs = mysqlTable('qc_jobs', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  buildProjectId: varchar('build_project_id', { length: 255 }),
+  artifactId: varchar('artifact_id', { length: 255 }),
+  assignedAgentId: varchar('assigned_agent_id', { length: 255 }),
+  status: varchar('status', { length: 64 }).notNull().default('pending'),
+  releaseDecision: varchar('release_decision', { length: 64 }).notNull().default('POLICY_NOT_CONFIGURED'),
+  summary: text('summary'),
+  createdAt: datetime('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: datetime('updated_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('idx_qc_jobs_project').on(table.buildProjectId),
+  index('idx_qc_jobs_status').on(table.status),
+]);
+
+export const qcTestRuns = mysqlTable('qc_test_runs', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  qcJobId: varchar('qc_job_id', { length: 255 }).notNull(),
+  suiteName: varchar('suite_name', { length: 255 }).notNull(),
+  testName: varchar('test_name', { length: 255 }).notNull(),
+  status: varchar('status', { length: 64 }).notNull(),
+  evidenceJson: text('evidence_json'),
+  output: text('output'),
+  createdAt: datetime('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('idx_qc_test_runs_job').on(table.qcJobId),
+  index('idx_qc_test_runs_status').on(table.status),
+]);
+
+export const defectReports = mysqlTable('defect_reports', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  qcJobId: varchar('qc_job_id', { length: 255 }),
+  buildProjectId: varchar('build_project_id', { length: 255 }),
+  repairTaskId: varchar('repair_task_id', { length: 255 }),
+  severity: varchar('severity', { length: 64 }).notNull().default('medium'),
+  status: varchar('status', { length: 64 }).notNull().default('open'),
+  title: varchar('title', { length: 255 }).notNull(),
+  detail: text('detail').notNull(),
+  createdAt: datetime('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: datetime('updated_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('idx_defects_qc').on(table.qcJobId),
+  index('idx_defects_project').on(table.buildProjectId),
+  index('idx_defects_status').on(table.status),
+]);
+
+export const leads = mysqlTable('leads', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  deploymentId: varchar('deployment_id', { length: 255 }),
+  source: varchar('source', { length: 128 }).notNull(),
+  name: varchar('name', { length: 255 }),
+  company: varchar('company', { length: 255 }),
+  emailHash: varchar('email_hash', { length: 64 }),
+  status: varchar('status', { length: 64 }).notNull().default('new'),
+  metadataJson: text('metadata_json'),
+  dedupHash: varchar('dedup_hash', { length: 64 }).notNull().unique(),
+  createdAt: datetime('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: datetime('updated_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('idx_leads_deployment').on(table.deploymentId),
+  index('idx_leads_status').on(table.status),
+]);
+
+export const customers = mysqlTable('customers', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  deploymentId: varchar('deployment_id', { length: 255 }),
+  leadId: varchar('lead_id', { length: 255 }),
+  name: varchar('name', { length: 255 }),
+  company: varchar('company', { length: 255 }),
+  emailHash: varchar('email_hash', { length: 64 }),
+  status: varchar('status', { length: 64 }).notNull().default('active'),
+  metadataJson: text('metadata_json'),
+  createdAt: datetime('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: datetime('updated_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('idx_customers_deployment').on(table.deploymentId),
+  index('idx_customers_lead').on(table.leadId),
+]);
+
+export const salesActivities = mysqlTable('sales_activities', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  deploymentId: varchar('deployment_id', { length: 255 }),
+  leadId: varchar('lead_id', { length: 255 }),
+  customerId: varchar('customer_id', { length: 255 }),
+  activityType: varchar('activity_type', { length: 64 }).notNull(),
+  status: varchar('status', { length: 64 }).notNull().default('recorded'),
+  notes: text('notes'),
+  attributionJson: text('attribution_json'),
+  createdAt: datetime('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('idx_sales_activities_deployment').on(table.deploymentId),
+  index('idx_sales_activities_lead').on(table.leadId),
+  index('idx_sales_activities_customer').on(table.customerId),
+]);
+
+export const revenueAccounts = mysqlTable('revenue_accounts', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  deploymentId: varchar('deployment_id', { length: 255 }),
+  accountType: varchar('account_type', { length: 64 }).notNull(),
+  currency: varchar('currency', { length: 10 }).notNull().default('USD'),
+  status: varchar('status', { length: 64 }).notNull().default('open'),
+  policyStatus: varchar('policy_status', { length: 64 }).notNull().default('POLICY_NOT_CONFIGURED'),
+  createdAt: datetime('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: datetime('updated_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('idx_revenue_accounts_deployment').on(table.deploymentId),
+  index('idx_revenue_accounts_type').on(table.accountType),
+]);
+
+export const revenueTransactions = mysqlTable('revenue_transactions', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  deploymentId: varchar('deployment_id', { length: 255 }),
+  paymentId: varchar('payment_id', { length: 255 }),
+  customerId: varchar('customer_id', { length: 255 }),
+  accountId: varchar('account_id', { length: 255 }),
+  transactionType: varchar('transaction_type', { length: 64 }).notNull(),
+  amount: decimal('amount', { precision: 12, scale: 2 }).notNull(),
+  currency: varchar('currency', { length: 10 }).notNull().default('USD'),
+  status: varchar('status', { length: 64 }).notNull().default('recorded'),
+  idempotencyKey: varchar('idempotency_key', { length: 255 }).notNull().unique(),
+  metadataJson: text('metadata_json'),
+  createdAt: datetime('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('idx_revenue_transactions_deployment').on(table.deploymentId),
+  index('idx_revenue_transactions_payment').on(table.paymentId),
+  index('idx_revenue_transactions_customer').on(table.customerId),
+]);
+
+export const settlementRecords = mysqlTable('settlement_records', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  deploymentId: varchar('deployment_id', { length: 255 }),
+  revenueTransactionId: varchar('revenue_transaction_id', { length: 255 }),
+  settlementType: varchar('settlement_type', { length: 64 }).notNull(),
+  amount: decimal('amount', { precision: 12, scale: 2 }).notNull().default('0.00'),
+  currency: varchar('currency', { length: 10 }).notNull().default('USD'),
+  status: varchar('status', { length: 64 }).notNull().default('POLICY_NOT_CONFIGURED'),
+  policyStatus: varchar('policy_status', { length: 64 }).notNull().default('POLICY_NOT_CONFIGURED'),
+  metadataJson: text('metadata_json'),
+  createdAt: datetime('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: datetime('updated_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('idx_settlements_deployment').on(table.deploymentId),
+  index('idx_settlements_status').on(table.status),
+]);
+
+export const businessLifecycleRecords = mysqlTable('business_lifecycle_records', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  deploymentId: varchar('deployment_id', { length: 255 }),
+  gapId: varchar('gap_id', { length: 255 }),
+  state: varchar('state', { length: 64 }).notNull().default('monitoring'),
+  deadlineAt: datetime('deadline_at'),
+  deadlinePolicyStatus: varchar('deadline_policy_status', { length: 64 }).notNull().default('POLICY_NOT_CONFIGURED'),
+  extensionPolicyStatus: varchar('extension_policy_status', { length: 64 }).notNull().default('POLICY_NOT_CONFIGURED'),
+  shutdownPolicyStatus: varchar('shutdown_policy_status', { length: 64 }).notNull().default('POLICY_NOT_CONFIGURED'),
+  finalReportJson: longtext('final_report_json'),
+  createdAt: datetime('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: datetime('updated_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('idx_lifecycle_deployment').on(table.deploymentId),
+  index('idx_lifecycle_gap').on(table.gapId),
+  index('idx_lifecycle_state').on(table.state),
+]);
+
+export const businessLifecycleEvents = mysqlTable('business_lifecycle_events', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  lifecycleId: varchar('lifecycle_id', { length: 255 }).notNull(),
+  eventType: varchar('event_type', { length: 64 }).notNull(),
+  status: varchar('status', { length: 64 }).notNull().default('recorded'),
+  detail: text('detail').notNull(),
+  metadataJson: text('metadata_json'),
+  createdAt: datetime('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('idx_lifecycle_events_lifecycle').on(table.lifecycleId),
+  index('idx_lifecycle_events_type').on(table.eventType),
+]);

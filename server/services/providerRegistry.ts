@@ -18,7 +18,8 @@ export type ServiceType =
   | 'llm'
   | 'deployment'
   | 'advertising'
-  | 'payments';
+  | 'payments'
+  | 'business_data';
 
 export const SERVICE_TYPES: { id: ServiceType; label: string }[] = [
   { id: 'search', label: 'Search / Gap Finder' },
@@ -26,6 +27,7 @@ export const SERVICE_TYPES: { id: ServiceType; label: string }[] = [
   { id: 'deployment', label: 'Deployment' },
   { id: 'advertising', label: 'Advertising' },
   { id: 'payments', label: 'Payments' },
+  { id: 'business_data', label: 'Business Data' },
 ];
 
 export type ConnectionStatus =
@@ -51,6 +53,7 @@ export interface ProviderDescriptor {
   credentialType: string;
   envKeys: string[];
   envConfigured: () => boolean;
+  credentialRequired?: boolean;
   test: (credential: string, baseUrl?: string, config?: any) => Promise<ProviderTestOutcome>;
 }
 
@@ -94,7 +97,6 @@ async function httpTest(opts: {
     clearTimeout(timer);
   }
 }
-
 
 // ------------------------------------------------------------
 // Known providers + adapters
@@ -191,6 +193,20 @@ const KNOWN_PROVIDERS: ProviderDescriptor[] = [
       httpTest({
         url: 'https://api.nowpayments.io/v1/status',
         headers: { 'x-api-key': key },
+      }),
+  },
+  {
+    id: 'ons',
+    name: 'Office for National Statistics',
+    serviceType: 'business_data',
+    credentialType: 'none',
+    envKeys: [],
+    credentialRequired: false,
+    envConfigured: () => true,
+    test: () =>
+      httpTest({
+        url: 'https://api.beta.ons.gov.uk/v1/datasets?limit=1',
+        headers: { Accept: 'application/json' },
       }),
   },
 ];
@@ -311,7 +327,7 @@ export interface SaveCredentialInput {
   name: string;
   providerId?: string;
   credentialType?: string;
-  credential: string;
+  credential?: string;
   baseUrl?: string;
   config?: any;
   priority?: 'primary' | 'fallback' | null;
@@ -332,7 +348,7 @@ export async function saveProvider(input: SaveCredentialInput) {
     name: input.name || descriptor?.name || 'Custom Provider',
     providerId,
     credentialType: input.credentialType || descriptor?.credentialType || 'api_key',
-    encryptedValue: encryptCredential(input.credential),
+    encryptedValue: encryptCredential(input.credential || ''),
     encryptionVersion: 1,
     baseUrl: input.baseUrl || null,
     config: input.config ? JSON.stringify(input.config) : null,
@@ -407,7 +423,7 @@ export async function testProvider(id: string): Promise<ProviderTestOutcome> {
     return { status: 'invalid_config', message: 'Stored credential could not be decrypted.' };
   }
 
-  if (!credential) {
+  if (!credential && descriptor.credentialRequired !== false) {
     await setConnectionStatus(id, 'invalid_config', 'No credential value stored.');
     return { status: 'invalid_config', message: 'No credential value stored.' };
   }

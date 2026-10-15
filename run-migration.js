@@ -348,6 +348,341 @@ CREATE TABLE IF NOT EXISTS credential_audit_logs (
   created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT credential_audit_logs_id PRIMARY KEY(id)
 );
+
+CREATE TABLE IF NOT EXISTS evidence_records (
+  id varchar(255) NOT NULL,
+  gap_id varchar(255),
+  deployment_id varchar(255),
+  business_spec_id varchar(255),
+  provider varchar(128) NOT NULL,
+  source_url varchar(2048),
+  category varchar(128) NOT NULL DEFAULT 'market_context',
+  title varchar(512),
+  summary text NOT NULL,
+  content text,
+  retrieved_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  published_at datetime,
+  geography varchar(255),
+  reporting_period varchar(255),
+  metadata_json text,
+  reliability_json text,
+  caveats_json text,
+  status varchar(64) NOT NULL DEFAULT 'collected',
+  version int NOT NULL DEFAULT 1,
+  dedup_hash varchar(64) NOT NULL,
+  created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT evidence_records_id PRIMARY KEY(id),
+  CONSTRAINT evidence_records_dedup_hash_unique UNIQUE(dedup_hash)
+);
+
+CREATE TABLE IF NOT EXISTS evidence_events (
+  id varchar(255) NOT NULL,
+  evidence_id varchar(255),
+  gap_id varchar(255),
+  provider varchar(128) NOT NULL,
+  event_type varchar(64) NOT NULL,
+  message text NOT NULL,
+  metadata_json text,
+  created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT evidence_events_id PRIMARY KEY(id)
+);
+
+CREATE TABLE IF NOT EXISTS business_specifications (
+  id varchar(255) NOT NULL,
+  gap_id varchar(255),
+  deployment_id varchar(255),
+  current_version_id varchar(255),
+  status varchar(64) NOT NULL DEFAULT 'draft',
+  approval_state varchar(64) NOT NULL DEFAULT 'POLICY_NOT_CONFIGURED',
+  title varchar(255) NOT NULL,
+  legacy_business_plan text,
+  created_by varchar(255),
+  created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT business_specifications_id PRIMARY KEY(id)
+);
+
+CREATE TABLE IF NOT EXISTS business_specification_versions (
+  id varchar(255) NOT NULL,
+  specification_id varchar(255) NOT NULL,
+  version_number int NOT NULL,
+  status varchar(64) NOT NULL DEFAULT 'draft',
+  sections_json text NOT NULL,
+  change_summary text,
+  created_by varchar(255),
+  created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT business_specification_versions_id PRIMARY KEY(id)
+);
+
+CREATE TABLE IF NOT EXISTS business_specification_events (
+  id varchar(255) NOT NULL,
+  specification_id varchar(255) NOT NULL,
+  version_id varchar(255),
+  event_type varchar(64) NOT NULL,
+  status varchar(64) NOT NULL DEFAULT 'open',
+  title varchar(255) NOT NULL,
+  detail text NOT NULL,
+  metadata_json text,
+  created_by varchar(255),
+  created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT business_specification_events_id PRIMARY KEY(id)
+);
+
+CREATE TABLE IF NOT EXISTS agents (
+  id varchar(255) NOT NULL,
+  role varchar(128) NOT NULL,
+  name varchar(255) NOT NULL,
+  capability_json text NOT NULL,
+  tool_metadata_json text,
+  availability varchar(64) NOT NULL DEFAULT 'registered',
+  implementation_status varchar(64) NOT NULL DEFAULT 'registered',
+  health_status varchar(64) NOT NULL DEFAULT 'unknown',
+  version varchar(64) NOT NULL DEFAULT '1',
+  is_backup boolean NOT NULL DEFAULT false,
+  backup_for_agent_id varchar(255),
+  created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT agents_id PRIMARY KEY(id)
+);
+
+CREATE TABLE IF NOT EXISTS agent_tasks (
+  id varchar(255) NOT NULL,
+  parent_task_id varchar(255),
+  agent_id varchar(255),
+  gap_id varchar(255),
+  deployment_id varchar(255),
+  specification_id varchar(255),
+  build_project_id varchar(255),
+  task_type varchar(128) NOT NULL,
+  title varchar(255) NOT NULL,
+  state varchar(64) NOT NULL DEFAULT 'pending',
+  input_json text,
+  output_json text,
+  error_message text,
+  retry_count int NOT NULL DEFAULT 0,
+  policy_status varchar(64) NOT NULL DEFAULT 'POLICY_NOT_CONFIGURED',
+  idempotency_key varchar(255) NOT NULL,
+  recovery_checkpoint_json text,
+  created_by varchar(255),
+  created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT agent_tasks_id PRIMARY KEY(id),
+  CONSTRAINT agent_tasks_idempotency_key_unique UNIQUE(idempotency_key)
+);
+
+CREATE TABLE IF NOT EXISTS task_dependencies (
+  id varchar(255) NOT NULL,
+  task_id varchar(255) NOT NULL,
+  depends_on_task_id varchar(255) NOT NULL,
+  created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT task_dependencies_id PRIMARY KEY(id)
+);
+
+CREATE TABLE IF NOT EXISTS agent_events (
+  id varchar(255) NOT NULL,
+  agent_id varchar(255),
+  task_id varchar(255),
+  event_type varchar(64) NOT NULL,
+  message text NOT NULL,
+  metadata_json text,
+  created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT agent_events_id PRIMARY KEY(id)
+);
+
+CREATE TABLE IF NOT EXISTS build_projects (
+  id varchar(255) NOT NULL,
+  gap_id varchar(255),
+  deployment_id varchar(255),
+  specification_id varchar(255),
+  project_type varchar(64) NOT NULL DEFAULT 'software',
+  status varchar(64) NOT NULL DEFAULT 'draft',
+  architecture_json text,
+  frontend_workspace_json text,
+  backend_workspace_json text,
+  database_requirements_json text,
+  integration_requirements_json text,
+  environment_config_json text,
+  policy_status varchar(64) NOT NULL DEFAULT 'POLICY_NOT_CONFIGURED',
+  created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT build_projects_id PRIMARY KEY(id)
+);
+
+CREATE TABLE IF NOT EXISTS build_artifacts (
+  id varchar(255) NOT NULL,
+  build_project_id varchar(255) NOT NULL,
+  artifact_type varchar(64) NOT NULL,
+  name varchar(255) NOT NULL,
+  uri varchar(2048),
+  version varchar(64) NOT NULL DEFAULT '1',
+  content_hash varchar(128),
+  metadata_json text,
+  created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT build_artifacts_id PRIMARY KEY(id)
+);
+
+CREATE TABLE IF NOT EXISTS build_logs (
+  id varchar(255) NOT NULL,
+  build_project_id varchar(255) NOT NULL,
+  level varchar(32) NOT NULL DEFAULT 'info',
+  message text NOT NULL,
+  metadata_json text,
+  created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT build_logs_id PRIMARY KEY(id)
+);
+
+CREATE TABLE IF NOT EXISTS qc_jobs (
+  id varchar(255) NOT NULL,
+  build_project_id varchar(255),
+  artifact_id varchar(255),
+  assigned_agent_id varchar(255),
+  status varchar(64) NOT NULL DEFAULT 'pending',
+  release_decision varchar(64) NOT NULL DEFAULT 'POLICY_NOT_CONFIGURED',
+  summary text,
+  created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT qc_jobs_id PRIMARY KEY(id)
+);
+
+CREATE TABLE IF NOT EXISTS qc_test_runs (
+  id varchar(255) NOT NULL,
+  qc_job_id varchar(255) NOT NULL,
+  suite_name varchar(255) NOT NULL,
+  test_name varchar(255) NOT NULL,
+  status varchar(64) NOT NULL,
+  evidence_json text,
+  output text,
+  created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT qc_test_runs_id PRIMARY KEY(id)
+);
+
+CREATE TABLE IF NOT EXISTS defect_reports (
+  id varchar(255) NOT NULL,
+  qc_job_id varchar(255),
+  build_project_id varchar(255),
+  repair_task_id varchar(255),
+  severity varchar(64) NOT NULL DEFAULT 'medium',
+  status varchar(64) NOT NULL DEFAULT 'open',
+  title varchar(255) NOT NULL,
+  detail text NOT NULL,
+  created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT defect_reports_id PRIMARY KEY(id)
+);
+
+CREATE TABLE IF NOT EXISTS leads (
+  id varchar(255) NOT NULL,
+  deployment_id varchar(255),
+  source varchar(128) NOT NULL,
+  name varchar(255),
+  company varchar(255),
+  email_hash varchar(64),
+  status varchar(64) NOT NULL DEFAULT 'new',
+  metadata_json text,
+  dedup_hash varchar(64) NOT NULL,
+  created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT leads_id PRIMARY KEY(id),
+  CONSTRAINT leads_dedup_hash_unique UNIQUE(dedup_hash)
+);
+
+CREATE TABLE IF NOT EXISTS customers (
+  id varchar(255) NOT NULL,
+  deployment_id varchar(255),
+  lead_id varchar(255),
+  name varchar(255),
+  company varchar(255),
+  email_hash varchar(64),
+  status varchar(64) NOT NULL DEFAULT 'active',
+  metadata_json text,
+  created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT customers_id PRIMARY KEY(id)
+);
+
+CREATE TABLE IF NOT EXISTS sales_activities (
+  id varchar(255) NOT NULL,
+  deployment_id varchar(255),
+  lead_id varchar(255),
+  customer_id varchar(255),
+  activity_type varchar(64) NOT NULL,
+  status varchar(64) NOT NULL DEFAULT 'recorded',
+  notes text,
+  attribution_json text,
+  created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT sales_activities_id PRIMARY KEY(id)
+);
+
+CREATE TABLE IF NOT EXISTS revenue_accounts (
+  id varchar(255) NOT NULL,
+  deployment_id varchar(255),
+  account_type varchar(64) NOT NULL,
+  currency varchar(10) NOT NULL DEFAULT 'USD',
+  status varchar(64) NOT NULL DEFAULT 'open',
+  policy_status varchar(64) NOT NULL DEFAULT 'POLICY_NOT_CONFIGURED',
+  created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT revenue_accounts_id PRIMARY KEY(id)
+);
+
+CREATE TABLE IF NOT EXISTS revenue_transactions (
+  id varchar(255) NOT NULL,
+  deployment_id varchar(255),
+  payment_id varchar(255),
+  customer_id varchar(255),
+  account_id varchar(255),
+  transaction_type varchar(64) NOT NULL,
+  amount decimal(12,2) NOT NULL,
+  currency varchar(10) NOT NULL DEFAULT 'USD',
+  status varchar(64) NOT NULL DEFAULT 'recorded',
+  idempotency_key varchar(255) NOT NULL,
+  metadata_json text,
+  created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT revenue_transactions_id PRIMARY KEY(id),
+  CONSTRAINT revenue_transactions_idempotency_key_unique UNIQUE(idempotency_key)
+);
+
+CREATE TABLE IF NOT EXISTS settlement_records (
+  id varchar(255) NOT NULL,
+  deployment_id varchar(255),
+  revenue_transaction_id varchar(255),
+  settlement_type varchar(64) NOT NULL,
+  amount decimal(12,2) NOT NULL DEFAULT '0.00',
+  currency varchar(10) NOT NULL DEFAULT 'USD',
+  status varchar(64) NOT NULL DEFAULT 'POLICY_NOT_CONFIGURED',
+  policy_status varchar(64) NOT NULL DEFAULT 'POLICY_NOT_CONFIGURED',
+  metadata_json text,
+  created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT settlement_records_id PRIMARY KEY(id)
+);
+
+CREATE TABLE IF NOT EXISTS business_lifecycle_records (
+  id varchar(255) NOT NULL,
+  deployment_id varchar(255),
+  gap_id varchar(255),
+  state varchar(64) NOT NULL DEFAULT 'monitoring',
+  deadline_at datetime,
+  deadline_policy_status varchar(64) NOT NULL DEFAULT 'POLICY_NOT_CONFIGURED',
+  extension_policy_status varchar(64) NOT NULL DEFAULT 'POLICY_NOT_CONFIGURED',
+  shutdown_policy_status varchar(64) NOT NULL DEFAULT 'POLICY_NOT_CONFIGURED',
+  final_report_json text,
+  created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT business_lifecycle_records_id PRIMARY KEY(id)
+);
+
+CREATE TABLE IF NOT EXISTS business_lifecycle_events (
+  id varchar(255) NOT NULL,
+  lifecycle_id varchar(255) NOT NULL,
+  event_type varchar(64) NOT NULL,
+  status varchar(64) NOT NULL DEFAULT 'recorded',
+  detail text NOT NULL,
+  metadata_json text,
+  created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT business_lifecycle_events_id PRIMARY KEY(id)
+);
 `;
 
 // Columns to add individually (MySQL doesn't support ADD COLUMN IF NOT EXISTS)
@@ -457,7 +792,15 @@ async function main() {
   });
 
   const conn = await mysql.createConnection(connectionOptions);
+  const [schemaDefaults] = await conn.query('SELECT DEFAULT_COLLATION_NAME AS collationName FROM information_schema.SCHEMATA WHERE SCHEMA_NAME=DATABASE()');
+  const [parentColumns] = await conn.query("SELECT TABLE_NAME,COLLATION_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN ('deployments','gaps','users') AND COLUMN_NAME='id'");
+  if (parentColumns.some(column => column.COLLATION_NAME !== schemaDefaults[0].collationName)) {
+    await conn.end();
+    throw new Error('Migration preflight blocked: existing business/gap/user identifier collations differ from the schema default. Review a source-preserving collation plan before any DDL.');
+  }
   console.log('Connected! Running migration...\n');
+
+  const policySql = require('fs').readFileSync(require('path').join(__dirname, 'drizzle/migrations/0014_policy_engine.sql'), 'utf8');
 
   // Run CREATE TABLE statements
   const statements = SQL.split(';').map(s => s.trim()).filter(s => s.length > 0 && !s.startsWith('--'));
@@ -482,6 +825,14 @@ async function main() {
         throw err;
       }
     }
+  }
+
+  for (const statement of policySql.split(';').map(value => value.trim()).filter(Boolean)) {
+    await conn.execute(statement);
+  }
+  const operationsSql = require('fs').readFileSync(require('path').join(__dirname, 'drizzle/migrations/0015_operational_policies.sql'), 'utf8');
+  for (const statement of operationsSql.split(';').map(value => value.trim()).filter(Boolean)) {
+    await conn.execute(statement);
   }
 
   // Add missing columns one by one (MySQL-compatible — no IF NOT EXISTS)
@@ -548,6 +899,22 @@ async function main() {
     { name: 'idx_ad_experiments_status', sql: 'CREATE INDEX idx_ad_experiments_status ON ad_experiments(status)' },
     { name: 'idx_ad_optimization_campaign', sql: 'CREATE INDEX idx_ad_optimization_campaign ON ad_optimization_decisions(campaign_id)' },
     { name: 'idx_ad_optimization_decision', sql: 'CREATE INDEX idx_ad_optimization_decision ON ad_optimization_decisions(decision)' },
+    { name: 'idx_evidence_gap', sql: 'CREATE INDEX idx_evidence_gap ON evidence_records(gap_id)' },
+    { name: 'idx_evidence_deployment', sql: 'CREATE INDEX idx_evidence_deployment ON evidence_records(deployment_id)' },
+    { name: 'idx_evidence_provider', sql: 'CREATE INDEX idx_evidence_provider ON evidence_records(provider)' },
+    { name: 'idx_evidence_status', sql: 'CREATE INDEX idx_evidence_status ON evidence_records(status)' },
+    { name: 'idx_specs_gap', sql: 'CREATE INDEX idx_specs_gap ON business_specifications(gap_id)' },
+    { name: 'idx_specs_deployment', sql: 'CREATE INDEX idx_specs_deployment ON business_specifications(deployment_id)' },
+    { name: 'idx_agents_role', sql: 'CREATE INDEX idx_agents_role ON agents(role)' },
+    { name: 'idx_agent_tasks_agent', sql: 'CREATE INDEX idx_agent_tasks_agent ON agent_tasks(agent_id)' },
+    { name: 'idx_agent_tasks_state', sql: 'CREATE INDEX idx_agent_tasks_state ON agent_tasks(state)' },
+    { name: 'idx_build_projects_deployment', sql: 'CREATE INDEX idx_build_projects_deployment ON build_projects(deployment_id)' },
+    { name: 'idx_qc_jobs_project', sql: 'CREATE INDEX idx_qc_jobs_project ON qc_jobs(build_project_id)' },
+    { name: 'idx_leads_deployment', sql: 'CREATE INDEX idx_leads_deployment ON leads(deployment_id)' },
+    { name: 'idx_customers_deployment', sql: 'CREATE INDEX idx_customers_deployment ON customers(deployment_id)' },
+    { name: 'idx_revenue_transactions_deployment', sql: 'CREATE INDEX idx_revenue_transactions_deployment ON revenue_transactions(deployment_id)' },
+    { name: 'idx_settlements_deployment', sql: 'CREATE INDEX idx_settlements_deployment ON settlement_records(deployment_id)' },
+    { name: 'idx_lifecycle_deployment', sql: 'CREATE INDEX idx_lifecycle_deployment ON business_lifecycle_records(deployment_id)' },
   ];
   for (const idx of INDEXES) {
     try {
@@ -563,20 +930,8 @@ async function main() {
     }
   }
 
-  // Backfill ownership for legacy deployments (assign to first admin)
-  try {
-    const [result] = await conn.execute(
-      `UPDATE deployments SET user_id = (SELECT id FROM users WHERE role = 'admin' ORDER BY created_at ASC LIMIT 1) WHERE user_id IS NULL`
-    );
-    if (result.affectedRows > 0) {
-      console.log(`✅ Assigned admin ownership to ${result.affectedRows} legacy deployment(s).`);
-    } else {
-      console.log('⏭️  No unowned deployments to backfill.');
-    }
-  } catch (err) {
-    console.error('❌ Failed to backfill deployment ownership:', err.message);
-    throw err;
-  }
+  const [unowned] = await conn.execute('SELECT COUNT(*) AS total FROM deployments WHERE user_id IS NULL');
+  console.log(`Legacy ownership preserved: ${unowned[0].total} business(es) require independently verified owner assignment; no administrator was assumed to be the owner.`);
 
   // Verify queue_items has the new columns
   console.log('\n=== queue_items columns ===');
@@ -584,6 +939,13 @@ async function main() {
     `SELECT COLUMN_NAME, COLUMN_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'queue_items' ORDER BY ORDINAL_POSITION`
   );
   cols.forEach(c => console.log(`  - ${c.COLUMN_NAME} (${c.COLUMN_TYPE})`));
+
+  const crypto = require('crypto');
+  const files = ['run-migration.js', 'drizzle/migrations/0013_lifecycle_infrastructure.sql', 'drizzle/migrations/0014_policy_engine.sql', 'drizzle/migrations/0015_operational_policies.sql'];
+  const hashes = Object.fromEntries(files.map(file => [file, crypto.createHash('sha256').update(require('fs').readFileSync(require('path').join(__dirname, file))).digest('hex')]));
+  const [identity] = await conn.query('SELECT DATABASE() AS databaseName,@@hostname AS serverName,@@version AS version');
+  const auditId = `schema:${crypto.createHash('sha256').update(JSON.stringify({ database: identity[0].databaseName, hashes })).digest('hex')}`;
+  await conn.execute('INSERT IGNORE INTO operational_events(id,actor_id,event_type,resource_id,detail_json) VALUES(?,?,?,?,?)', [auditId, 'system:migration-runner', 'schema_migration_verified', identity[0].databaseName, JSON.stringify({ identity: identity[0], hashes, approvalReference: process.env.SAO_MIGRATION_APPROVAL_REFERENCE || null, legacyOwnershipPreserved: true })]);
 
   await conn.end();
   console.log('\n✅ Migration complete!');

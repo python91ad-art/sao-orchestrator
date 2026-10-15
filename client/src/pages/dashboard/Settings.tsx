@@ -2,9 +2,26 @@ import React, { useEffect, useState } from 'react';
 import { Save, RotateCcw, Key, ShieldCheck, DollarSign, Bell } from 'lucide-react';
 import { trpcQuery, trpcMutation } from '../../lib/trpc';
 import { trpc } from '../../lib/trpc';
+import { useUnsavedChanges } from '../../hooks/useUnsavedChanges';
+import SettingsPanels from './SettingsPanels';
 
 const Settings: React.FC = () => {
-  const resetOperationalDataMutation = trpc.coreLoop.resetOperationalData.useMutation();
+  const [section, setSection] = useState('Core Loop & Automation');
+  const [search, setSearch] = useState('');
+  const [maintenanceReport, setMaintenanceReport] = useState<unknown>(null);
+  const [dirtyGroups, setDirtyGroups] = useState<string[]>([]);
+  const dirty = dirtyGroups.length > 0;
+  const [loadError, setLoadError] = useState('');
+  const [reloadVersion, setReloadVersion] = useState(0);
+  const clearDirty = (group: string) => setDirtyGroups(current => current.filter(value => value !== group));
+  useUnsavedChanges(dirty);
+  const sections = ['General & System', 'Core Loop & Automation', 'Queue & Workers', 'AI Agents & Reasoning', 'Budgets & Financial Controls', 'Security & Approvals', 'Notifications', 'Monitoring & Diagnostics', 'Data Management', 'Policies'];
+  const resetPreview = trpc.policies.discoveryResetPreview.useQuery(undefined, { enabled: false });
+  useEffect(() => {
+    const warn = (event: BeforeUnloadEvent) => { if (dirty) { event.preventDefault(); event.returnValue = ''; } };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [dirty]);
   // Retry Config state
   const [maxAttempts, setMaxAttempts] = useState(3);
   const [backoffMultiplier, setBackoffMultiplier] = useState(1.5);
@@ -59,13 +76,14 @@ const Settings: React.FC = () => {
         }
       } catch (error) {
         console.error('[Settings] Failed to load runtime configuration:', error);
+        setLoadError('Failed to load persisted runtime configuration.');
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [reloadVersion]);
 
   // Load persisted concurrency configuration.
   useEffect(() => {
@@ -80,13 +98,14 @@ const Settings: React.FC = () => {
         }
       } catch (error) {
         console.error('[Settings] Failed to load concurrency:', error);
+        setLoadError('Failed to load persisted concurrency.');
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [reloadVersion]);
 
   // Load persisted retry configuration.
   useEffect(() => {
@@ -109,13 +128,14 @@ const Settings: React.FC = () => {
         }
       } catch (error) {
         console.error('[Settings] Failed to load retry configuration:', error);
+        setLoadError('Failed to load persisted retry configuration.');
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [reloadVersion]);
 
   // Load persisted queue limits.
   useEffect(() => {
@@ -135,13 +155,14 @@ const Settings: React.FC = () => {
         }
       } catch (error) {
         console.error('[Settings] Failed to load queue limits:', error);
+        setLoadError('Failed to load persisted queue limits.');
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [reloadVersion]);
 
   // Budgets
   const [maxCost, setMaxCost] = useState<number>(50.00);
@@ -173,6 +194,7 @@ const Settings: React.FC = () => {
         if (typeof state.slackNotifications === 'boolean') setSlackNotify(state.slackNotifications);
       }
 
+      clearDirty('configuration');
       alert('Settings saved and applied to the application.');
     } catch (error: any) {
       console.error('[Settings] Failed to save configuration:', error);
@@ -181,53 +203,26 @@ const Settings: React.FC = () => {
   };
 
   const handleReset = async () => {
-    if (!confirm(
-      'RESET OPERATIONAL DATA?\\n\\n' +
-      'This will permanently delete all gaps, queue items, deployments, audit logs, health checks, and recurring actors.\\n\\n' +
-      'Users, policies, invitations, and application configuration will be preserved.\\n\\n' +
-      'This action cannot be undone.'
-    )) {
-      return;
-    }
-
-    try {
-      await resetOperationalDataMutation.mutateAsync();
-
-      const defaults = {
-        intervalMs: 10800000,
-        maxCost: 50.00,
-        maxDeployments: 10,
-        autoPause: true,
-        emailNotify: true,
-        slackNotify: false,
-      };
-
-      setIntervalMs(defaults.intervalMs);
-      setMaxCost(defaults.maxCost);
-      setMaxDeployments(defaults.maxDeployments);
-      setAutoPause(defaults.autoPause);
-      setEmailNotify(defaults.emailNotify);
-      setSlackNotify(defaults.slackNotify);
-
-      alert('Operational data reset successfully. Runtime state restored to defaults.');
-    } catch (error: any) {
-      console.error('[Settings] Failed to reset operational data:', error);
-      alert(`Operational reset failed: ${error?.message || 'Unknown error'}`);
-    }
+    setSection('Data Management');
+    const result = await resetPreview.refetch();
+    if (result.error) alert(result.error.message);
+    else setMaintenanceReport(result.data);
   };
 
+  if (loadError) return <section role="alert" className="card-bold"><p>{loadError}</p><p>Saved configuration could not be loaded. Reload before editing to avoid overwriting persisted values.</p><button className="btn-secondary" onClick={() => window.location.reload()}>Reload saved settings</button></section>;
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" onChangeCapture={event => { const target = event.target as HTMLElement; if (!target.closest('[data-operational-panel]') && target.getAttribute('aria-label') !== 'Search settings') { const group = target.closest('[data-settings-group]')?.getAttribute('data-settings-group') || 'configuration'; setDirtyGroups(current => [...new Set([...current, group])]); } }}>
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold tracking-tight text-white">System Settings</h2>
+          <h2 className="text-2xl font-bold tracking-tight text-white">Settings Control Center</h2>
           <p className="text-sm text-neutral-400">Configure orchestrator intervals, budgets, retries, and security</p>
         </div>
         <div className="flex items-center gap-2">
+          <button className="btn-secondary" onClick={() => { if (!window.dispatchEvent(new Event('sao:before-navigation', { cancelable: true }))) return; setDirtyGroups([]); setReloadVersion(value => value + 1); }}>Restore all saved form values</button>
           <button onClick={handleReset} className="btn-secondary">
             <RotateCcw className="h-4 w-4" />
-            <span>Reset Operational Data</span>
+            <span>Preview Discovery Cleanup</span>
           </button>
           <button onClick={handleSave} className="btn-bold-primary">
             <Save className="h-4 w-4" />
@@ -236,11 +231,16 @@ const Settings: React.FC = () => {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <label className="block">Find settings<input aria-label="Search settings" value={search} onChange={event => setSearch(event.target.value)} placeholder="Search settings categories" /></label>
+      <nav aria-label="Settings categories" className="flex flex-wrap gap-2">{sections.filter(item => item.toLowerCase().includes(search.toLowerCase())).map(item => <button key={item} className={section === item ? 'btn-bold-primary' : 'btn-secondary'} aria-current={section === item ? 'page' : undefined} onClick={() => setSection(item)}>{item}</button>)}</nav>
+      <h3 className="text-lg font-bold">{section}</h3>
+      <SettingsPanels key={reloadVersion} section={section} />
+      {section === 'Data Management' && <section className="card-bold space-y-3"><p>Preview candidate scope and protected business references before maintenance.</p><button className="btn-secondary" onClick={handleReset} disabled={resetPreview.isFetching}>Refresh cleanup preview</button>{maintenanceReport ? <pre className="overflow-auto text-xs">{JSON.stringify(maintenanceReport, null, 2)}</pre> : <p>No preview loaded.</p>}<p>Prepare a verified database backup and review exact protected-record counts in Operations → Maintenance before executing a scoped reset.</p></section>}
+      <div className="grid grid-cols-1 gap-6">
         {/* Core Loop & Budgets */}
         <div className="space-y-6">
           {/* Core Loop Settings */}
-          <div className="card-bold space-y-4">
+          <div hidden={section !== 'Core Loop & Automation'} className="card-bold space-y-4">
             <div className="flex items-center gap-3 border-b border-[#221c32] pb-2">
               <ShieldCheck className="h-5 w-5 text-purple-400" />
               <h3 className="text-base font-bold text-white">Orchestrator Execution Loop</h3>
@@ -252,7 +252,7 @@ const Settings: React.FC = () => {
               <input
                 type="number"
                 value={intervalMs}
-                onChange={(e) => setIntervalMs(parseInt(e.target.value) || 10800000)}
+                onChange={(e) => setIntervalMs(Number(e.target.value))}
                 placeholder="10800000"
               />
               <p className="text-[11px] text-neutral-500 mt-1.5">
@@ -262,7 +262,7 @@ const Settings: React.FC = () => {
           </div>
 
           {/* Budget Limits */}
-          <div className="card-bold space-y-4">
+          <div hidden={section !== 'Budgets & Financial Controls'} className="card-bold space-y-4">
             <div className="flex items-center gap-3 border-b border-[#221c32] pb-2">
               <DollarSign className="h-5 w-5 text-purple-400" />
               <h3 className="text-base font-bold text-white">Budget Limits</h3>
@@ -307,7 +307,7 @@ const Settings: React.FC = () => {
           </div>
 
           {/* Retry & Queue Settings */}
-          <div className="card-bold space-y-4">
+          <div hidden={section !== 'Queue & Workers'} className="card-bold space-y-4">
             <div className="flex items-center gap-3 border-b border-[#221c32] pb-2">
               <RotateCcw className="h-5 w-5 text-purple-400" />
               <h3 className="text-base font-bold text-white">Retry & Queue Configuration</h3>
@@ -315,15 +315,15 @@ const Settings: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">Max Attempts</label>
-                <input type="number" min="1" max="10" value={maxAttempts} onChange={(e) => setMaxAttempts(parseInt(e.target.value) || 3)} />
+                <input type="number" min="1" max="10" value={maxAttempts} data-settings-group="retry" onChange={(e) => setMaxAttempts(Number(e.target.value))} />
               </div>
               <div>
                 <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">Backoff Multiplier</label>
-                <input type="number" step="0.1" min="1" max="3" value={backoffMultiplier} onChange={(e) => setBackoffMultiplier(parseFloat(e.target.value) || 1.5)} />
+                <input type="number" step="0.1" min="1" max="3" value={backoffMultiplier} data-settings-group="retry" onChange={(e) => setBackoffMultiplier(Number(e.target.value))} />
               </div>
               <div>
                 <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">Base Delay (ms)</label>
-                <input type="number" min="1000" max="60000" step="500" value={baseDelayMs} onChange={(e) => setBaseDelayMs(parseInt(e.target.value) || 5000)} />
+                <input type="number" min="1000" max="60000" step="500" value={baseDelayMs} data-settings-group="retry" onChange={(e) => setBaseDelayMs(Number(e.target.value))} />
               </div>
             </div>
             <button
@@ -341,6 +341,7 @@ const Settings: React.FC = () => {
                     if (typeof value.baseDelayMs === 'number') setBaseDelayMs(value.baseDelayMs);
                   }
                   setRetrySaved(true);
+                  clearDirty('retry');
                   setTimeout(() => setRetrySaved(false), 2000);
                 } catch (e: any) {
                   console.error('[Settings] Retry config save failed:', e);
@@ -356,7 +357,7 @@ const Settings: React.FC = () => {
           </div>
 
           {/* Queue Limits */}
-          <div className="card-bold space-y-4">
+          <div hidden={section !== 'Queue & Workers'} className="card-bold space-y-4">
             <div className="flex items-center gap-3 border-b border-[#221c32] pb-2">
               <Key className="h-5 w-5 text-purple-400" />
               <h3 className="text-base font-bold text-white">Queue Limits</h3>
@@ -364,11 +365,11 @@ const Settings: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">Max Queue Size</label>
-                <input type="number" min="100" max="10000" value={queueMaxSize} onChange={(e) => setQueueMaxSize(parseInt(e.target.value) || 1000)} />
+                <input type="number" min="100" max="10000" value={queueMaxSize} data-settings-group="queue" onChange={(e) => setQueueMaxSize(Number(e.target.value))} />
               </div>
               <div>
                 <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-2">Expiration (hours)</label>
-                <input type="number" min="1" max="168" value={queueExpirationHours} onChange={(e) => setQueueExpirationHours(parseInt(e.target.value) || 72)} />
+                <input type="number" min="1" max="168" value={queueExpirationHours} data-settings-group="queue" onChange={(e) => setQueueExpirationHours(Number(e.target.value))} />
               </div>
             </div>
             <button
@@ -384,6 +385,7 @@ const Settings: React.FC = () => {
                     if (typeof value.expirationHours === 'number') setQueueExpirationHours(value.expirationHours);
                   }
                   setQueueSaved(true);
+                  clearDirty('queue');
                   setTimeout(() => setQueueSaved(false), 2000);
                 } catch (e: any) {
                   console.error('[Settings] Queue limits save failed:', e);
@@ -402,7 +404,7 @@ const Settings: React.FC = () => {
         {/* Concurrency & Notifications */}
         <div className="space-y-6">
           {/* Concurrency */}
-          <div className="card-bold space-y-4">
+          <div hidden={section !== 'Queue & Workers'} className="card-bold space-y-4">
             <div className="flex items-center gap-3 border-b border-[#221c32] pb-2">
               <Key className="h-5 w-5 text-purple-400" />
               <h3 className="text-base font-bold text-white">Worker Pool Concurrency</h3>
@@ -417,7 +419,7 @@ const Settings: React.FC = () => {
                   min={1}
                   max={10}
                   value={concurrencyLevel}
-                  onChange={(e) => setConcurrencyLevel(Number(e.target.value))}
+                  data-settings-group="concurrency" onChange={(e) => setConcurrencyLevel(Number(e.target.value))}
                   className="w-32"
                 />
               </div>
@@ -432,6 +434,7 @@ const Settings: React.FC = () => {
                         const value: any = await trpcQuery('settings.getConcurrency');
                         if (typeof value?.concurrency === 'number') setConcurrencyLevel(value.concurrency);
                         setConcurrencySaved(true);
+                        clearDirty('concurrency');
                         setTimeout(() => setConcurrencySaved(false), 2000);
                       } catch (e: any) {
                         console.error('[Settings] Concurrency save failed:', e);
@@ -454,7 +457,7 @@ const Settings: React.FC = () => {
           </div>
 
           {/* Notifications */}
-          <div className="card-bold space-y-4">
+          <div hidden={section !== 'Notifications'} className="card-bold space-y-4">
             <div className="flex items-center gap-3 border-b border-[#221c32] pb-2">
               <Bell className="h-5 w-5 text-purple-400" />
               <h3 className="text-base font-bold text-white">Notifications</h3>

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../hooks/useAuth';
+import { trpc } from '../lib/trpc';
 import {
   LayoutDashboard,
   Search,
@@ -15,7 +16,8 @@ import {
   X,
   BarChart3,
   UserPlus,
-  Key
+  Key,
+  Network
 } from 'lucide-react';
 
 interface DashboardLayoutProps {
@@ -26,18 +28,22 @@ interface DashboardLayoutProps {
 
 const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, currentPage, setCurrentPage }) => {
   const { user, logout } = useAuth();
+  const preferences = trpc.operations.preferences.useQuery(undefined, { enabled: Boolean(user) });
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const navItems = [
     { id: 'overview', label: 'Overview', icon: LayoutDashboard },
+    { id: 'authorizations', label: 'My Authorizations', icon: Shield },
+    ...(user?.role === 'admin' ? [{ id: 'operations', label: 'Operations', icon: Network }] : []),
     { id: 'gaps', label: 'Gaps', icon: Search },
     { id: 'queue', label: 'Queue', icon: List },
     { id: 'deployments', label: 'Deployments', icon: Rocket },
     { id: 'advertising', label: 'Advertising', icon: Megaphone },
     { id: 'audit-log', label: 'Audit Log', icon: FileText },
     { id: 'analytics', label: 'Analytics', icon: BarChart3 },
-    { id: 'policies', label: 'Policies', icon: Shield },
+    ...(user?.role === 'admin' ? [{ id: 'policies', label: 'Policies', icon: Shield }] : []),
     { id: 'providers', label: 'Providers', icon: Key },
+    { id: 'infrastructure', label: 'Infrastructure', icon: Network },
     { id: 'settings', label: 'Settings', icon: Settings },
     ...(user?.role === 'admin'
       ? [{ id: 'registration-access', label: 'Registration Access', icon: UserPlus }]
@@ -45,6 +51,7 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, currentPage
   ];
 
   const handleNavClick = (id: string) => {
+    if (!window.dispatchEvent(new Event('sao:before-navigation', { cancelable: true }))) return;
     setCurrentPage(id);
     localStorage.setItem('currentPage', id);
     setSidebarOpen(false);
@@ -68,7 +75,7 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children, currentPage
             </div>
             <div className="flex-1">
               <h1 className="text-lg font-bold tracking-tight bg-gradient-to-r from-white via-purple-300 to-amber-200 bg-clip-text text-transparent">
-                SAO Orchestrator
+                {preferences.data?.systemName || 'SAO Orchestrator'}
               </h1>
               <p className="text-[10px] uppercase font-bold tracking-wider text-purple-400">
                 Arb Loop Control
