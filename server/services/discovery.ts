@@ -1,3 +1,4 @@
+import type { DatasetDiagnostic } from './datasetEligibility';
 import { scoreGap, QUALIFICATION_THRESHOLD } from './gapAnalysis';
 import { discoverOns, type OnsOutcome } from './onsDiscovery';
 import { detectEcommerceGaps, detectOperationalGaps, newWebMetrics, type WebDiscoveryMetrics } from './search';
@@ -6,7 +7,7 @@ import { mutateDiscoveryRuntime, acquireDiscoveryLease } from './discoveryRuntim
 
 export interface DiscoveryReport {
   status: 'idle' | 'running' | 'ok' | 'partial' | 'unavailable' | 'stopped' | 'interrupted';
-  ons: { status: string; signals: number; errors: string[] };
+  ons: { status: string; signals: number; errors: string[]; diagnostics?: DatasetDiagnostic[] };
   web: WebDiscoveryMetrics & { status: string };
   candidatesBySource: Record<string, number>; validated: number; rejected: number; queued: number;
   cycleId?: string; startedAt?: string; persisted?: number; duplicates?: number; errors?: string[]; outcome?: string;
@@ -91,7 +92,7 @@ export function runDiscoveryCycle(queue: (gaps: QualifiedGap[]) => Promise<numbe
       report = { cycleId: report.cycleId, startedAt: report.startedAt, persisted, duplicates: scored.length - gaps.length, errors,
         outcome: stopped ? 'stopped' : !onsOk && !webOk ? 'failed' : failed ? 'partially_successful' : gaps.length ? 'completed_with_results' : 'completed_with_zero_results',
         status: stopped ? 'stopped' : !onsOk && !webOk ? 'unavailable' : failed ? 'partial' : 'ok',
-        ons: { status: ons.status, signals: ons.signals, errors: ons.errors },
+        ons: { status: ons.status, signals: ons.signals, errors: ons.errors, diagnostics: ons.diagnostics },
         web: { status: !webOk ? 'unavailable' : metrics.failures || extractionFailures ? 'partial' : 'ok', ...metrics, extractionFailures },
         candidatesBySource, validated: gaps.length, rejected: ons.rejected + metrics.rejected + batch.length - scored.length, queued,
         lastSuccess: !stopped && !queueFailed && (onsOk || webOk) ? now : report.lastSuccess, lastFailure: failed ? now : report.lastFailure, completedAt: now };

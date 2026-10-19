@@ -266,6 +266,9 @@ export async function collectBusinessEvidenceForGap(gap: {
   controlsAccess?: string;
   underestimatesValue?: string;
   source?: string;
+}, isAssigned: () => Promise<boolean> = async () => {
+  const { resolveSectionRoutes } = await import('./providerAssignments');
+  return (await resolveSectionRoutes('business_data', 'statistical_data')).some(r => r.providerId === 'ons');
 }): Promise<BusinessResearchBundle> {
   const query = buildQuery([
     gap.knows || '',
@@ -278,6 +281,7 @@ export async function collectBusinessEvidenceForGap(gap: {
   const unavailable: BusinessResearchBundle['unavailable'] = [];
   const evidence: EvidenceRecord[] = [];
 
+  if (!await isAssigned()) return { query, industryTerms, evidence, unavailable: [{ provider: 'ons', reason: 'No enabled Business Data assignment.' }] };
   const ons = new OnsAdapter();
 
   const tasks: Promise<EvidenceRecord[]>[] = [

@@ -420,6 +420,7 @@ export const integrationCredentials = mysqlTable('integration_credentials', {
   credentialType: varchar('credential_type', { length: 64 }).notNull().default('api_key'),
   encryptedValue: text('encrypted_value').notNull(),
   encryptionVersion: int('encryption_version').default(1).notNull(),
+  assignmentVersion: int('assignment_version').default(0).notNull(),
   baseUrl: varchar('base_url', { length: 1024 }),
   config: text('config'),
   enabled: boolean('enabled').default(true).notNull(),
@@ -432,6 +433,18 @@ export const integrationCredentials = mysqlTable('integration_credentials', {
 }, (table) => [
   index('idx_integration_credentials_service').on(table.service, table.providerId),
 ]);
+
+export const providerAssignments = mysqlTable('provider_assignments', {
+  connectionId: varchar('connection_id', { length: 255 }).notNull(),
+  section: varchar('section', { length: 64 }).notNull(),
+  enabled: boolean('enabled').notNull().default(true),
+  priority: int('priority').notNull().default(100),
+  fallbackOrder: int('fallback_order').notNull().default(0),
+  operation: varchar('operation', { length: 64 }).notNull(),
+  model: varchar('model', { length: 150 }),
+  settingsJson: text('settings_json').notNull(),
+  updatedAt: datetime('updated_at', { fsp: 3 }).notNull().default(sql`CURRENT_TIMESTAMP(3)`),
+}, table => [primaryKey({ columns: [table.connectionId, table.section] }), index('idx_assignment_section').on(table.section, table.enabled)]);
 
 export const credentialAuditLogs = mysqlTable('credential_audit_logs', {
   id: varchar('id', { length: 255 }).primaryKey(),

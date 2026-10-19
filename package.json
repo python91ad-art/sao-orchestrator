@@ -18,14 +18,15 @@
     "build": "cd client && vite build",
     "build:client": "cd client && vite build",
     "start": "node run-migration.js && tsx server/_core/index.ts",
-    "test": "node --import tsx tests/auth.test.ts && node --import tsx tests/invites-auth.test.ts && node --import tsx tests/ai-providers.test.ts && node --import tsx tests/settings-validation.test.ts && node --import tsx tests/migration-integrity.test.ts && node --import tsx tests/crypto-payments.test.ts && node --import tsx tests/advertising.test.ts && node --import tsx tests/advertising-growth.test.ts && node --import tsx tests/provider-registry-unit.test.ts && node --import tsx tests/business-data.test.ts && node --import tsx tests/infrastructure.test.ts && node --import tsx tests/internal-remediation.test.ts && node --import tsx tests/dashboard-controls.test.ts && node --import tsx tests/discovery.test.ts && node --import tsx tests/core-loop-lifecycle.test.ts",
+    "test": "node --import tsx tests/auth.test.ts && node --import tsx tests/invites-auth.test.ts && node --import tsx tests/ai-providers.test.ts && node --import tsx tests/settings-validation.test.ts && node --import tsx tests/migration-integrity.test.ts && node --import tsx tests/crypto-payments.test.ts && node --import tsx tests/advertising.test.ts && node --import tsx tests/advertising-growth.test.ts && node --import tsx tests/provider-registry-unit.test.ts && node --import tsx tests/business-data.test.ts && node --import tsx tests/infrastructure.test.ts && node --import tsx tests/internal-remediation.test.ts && node --import tsx tests/dashboard-controls.test.ts && node --import tsx tests/discovery.test.ts && node --import tsx tests/core-loop-lifecycle.test.ts && node --import tsx tests/provider-assignments.test.ts && node --import tsx tests/ons-eligibility.test.ts",
     "test:e2e": "node --import tsx tests/e2e-isolated.test.ts",
     "test:policies": "node --import tsx tests/policy-engine.test.ts && node --import tsx tests/policy-db-isolated.test.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "test:crypto": "tsx tests/crypto-payments.test.ts",
     "test:discovery": "node --import tsx tests/discovery.test.ts",
-    "test:discovery:db": "node --import tsx tests/discovery-db-isolated.test.ts"
+    "test:discovery:db": "node --import tsx tests/discovery-db-isolated.test.ts",
+    "test:assignments": "node --import tsx tests/provider-assignments.test.ts && node --import tsx tests/ons-eligibility.test.ts && node --import tsx tests/provider-assignments-db-isolated.test.ts"
   },
   "dependencies": {
     "@playwright/test": "^1.63.0",

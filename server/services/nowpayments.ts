@@ -12,6 +12,14 @@ import crypto from 'crypto';
 // ============================================================
 
 const DEFAULT_API_URL = 'https://api.nowpayments.io';
+async function paymentFetch(url: string, init: RequestInit): Promise<Response> {
+  const { executeFunctionRequest } = await import('./providerAssignments');
+  return executeFunctionRequest('nowpayments', 'payments', key => {
+    const headers = new Headers(init.headers); headers.set('x-api-key', key);
+    return fetch(url, { ...init, headers });
+  });
+}
+
 
 export interface NowPaymentsConfig {
   apiKey: string;
@@ -75,19 +83,10 @@ export function getNowPaymentsConfig(): NowPaymentsConfig {
  * Read the NOWPayments configuration with Provider Registry precedence and env fallback.
  */
 export async function getNowPaymentsConfigAsync(): Promise<NowPaymentsConfig> {
-  let apiKey = process.env.NOWPAYMENTS_API_KEY || '';
+  const { resolveFunctionCredential } = await import('./providerAssignments');
+  const apiKey = await resolveFunctionCredential('nowpayments', 'payments') || '';
   const ipnSecret = process.env.NOWPAYMENTS_IPN_SECRET || '';
   const apiUrl = process.env.NOWPAYMENTS_API_URL || DEFAULT_API_URL;
-
-  try {
-    const { resolveCredential } = await import('./providerRegistry');
-    const resolved = await resolveCredential('nowpayments', ['NOWPAYMENTS_API_KEY']);
-    if (resolved.value) {
-      apiKey = resolved.value;
-    }
-  } catch {
-    /* fallback to env */
-  }
 
   if (!apiKey) {
     throw new Error('NOWPayments API credentials are not configured. Set NOWPAYMENTS_API_KEY server-side or in Providers & API Keys.');
@@ -145,15 +144,14 @@ export async function createNowPaymentsPayment(
     body.ipn_callback_url = input.ipnCallbackUrl;
   }
 
-  const response = await fetch(`${config.apiUrl}/v1/payment`, {
+  const response = await paymentFetch(`${config.apiUrl}/v1/payment`, {
     method: 'POST',
     headers: nowPaymentsHeaders(config.apiKey),
     body: JSON.stringify(body),
   });
 
   if (!response.ok) {
-    const text = await response.text().catch(() => '');
-    throw new Error(`NOWPayments create payment failed (HTTP ${response.status}): ${text}`);
+    throw new Error(`NOWPayments create payment failed (HTTP ${response.status}).`);
   }
 
   return (await response.json()) as NowPaymentsPayment;
@@ -167,14 +165,13 @@ export async function getNowPaymentsPaymentStatus(
   config: NowPaymentsConfig,
   paymentId: string
 ): Promise<NowPaymentsPayment> {
-  const response = await fetch(`${config.apiUrl}/v1/payment/${encodeURIComponent(paymentId)}`, {
+  const response = await paymentFetch(`${config.apiUrl}/v1/payment/${encodeURIComponent(paymentId)}`, {
     method: 'GET',
     headers: nowPaymentsHeaders(config.apiKey),
   });
 
   if (!response.ok) {
-    const text = await response.text().catch(() => '');
-    throw new Error(`NOWPayments status lookup failed (HTTP ${response.status}): ${text}`);
+    throw new Error(`NOWPayments status lookup failed (HTTP ${response.status}).`);
   }
 
   return (await response.json()) as NowPaymentsPayment;

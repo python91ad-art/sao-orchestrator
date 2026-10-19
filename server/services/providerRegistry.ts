@@ -10,7 +10,7 @@
 
 import * as db from '../db';
 import { z } from 'zod';
-import { integrationCredentials, credentialAuditLogs } from '../../drizzle/schema';
+import { integrationCredentials, credentialAuditLogs, providerAssignments } from '../../drizzle/schema';
 import { eq, and, desc, sql } from 'drizzle-orm';
 import { encryptCredential, decryptCredential, redactCredential } from './credentialCrypto';
 
@@ -93,7 +93,7 @@ async function httpTest(opts: {
     if (msg.toLowerCase().includes('timeout') || msg.toLowerCase().includes('abort')) {
       return { status: 'timeout', message: 'Request timed out.' };
     }
-    return { status: 'unreachable', message: `Could not reach endpoint: ${msg.slice(0, 120)}` };
+    return { status: 'unreachable', message: 'Could not reach provider endpoint.' };
   } finally {
     clearTimeout(timer);
   }
@@ -311,7 +311,9 @@ export async function listProviders(service?: ServiceType) {
     .from(integrationCredentials)
     .where(service ? eq(integrationCredentials.service, service) : undefined)
     .orderBy(desc(integrationCredentials.createdAt));
-  return rows.map(toSafeView);
+  const { listConnections } = await import('./providerAssignments');
+  const virtual = (await listConnections()).filter(r => !rows.some(existing => existing.id === r.id) && r.id.startsWith('env:') && (!service || r.service === service));
+  return [...rows, ...virtual].map(toSafeView);
 }
 
 export async function getProviderRecord(id: string) {
@@ -396,12 +398,25 @@ export async function updateProvider(
   if (input.priority !== undefined) set.priority = input.priority;
 
   await db.db.update(integrationCredentials).set(set).where(eq(integrationCredentials.id, id));
+  if (input.credential !== undefined) {
+    const { recoverAssignmentAuthentication } = await import('./providerAssignments');
+    await recoverAssignmentAuthentication(id);
+    const row = await getProviderRecord(id);
+    if (row && ['groq', 'gemini', 'cerebras', 'openrouter'].includes(row.providerId)) {
+      const { resetProvider } = await import('./llmRouter');
+      resetProvider(row.providerId as import('./llmTypes').ProviderId);
+    }
+  }
   return getProviderRecord(id);
 }
 
 export async function deleteProvider(id: string) {
   const existing = await getProviderRecord(id);
-  await db.db.delete(integrationCredentials).where(eq(integrationCredentials.id, id));
+  await db.db.transaction(async tx => {
+    await tx.select().from(integrationCredentials).where(eq(integrationCredentials.id, id)).for('update');
+    await tx.delete(providerAssignments).where(eq(providerAssignments.connectionId, id));
+    await tx.delete(integrationCredentials).where(eq(integrationCredentials.id, id));
+  });
   if (existing) await auditCredential(existing.service, 'delete', true);
   return { success: true };
 }
@@ -439,12 +454,29 @@ export async function testProvider(id: string): Promise<ProviderTestOutcome> {
     return { status: 'invalid_config', message: 'Stored credential could not be decrypted.' };
   }
 
+  if (!credential) for (const name of descriptor.envKeys) {
+    if (process.env[name]?.trim()) { credential = process.env[name]!; break; }
+  }
   if (!credential && descriptor.credentialRequired !== false) {
     await setConnectionStatus(id, 'invalid_config', 'No credential value stored.');
     return { status: 'invalid_config', message: 'No credential value stored.' };
   }
 
-  const result = await descriptor.test(credential, row.baseUrl || undefined, safeParseConfig(row.config));
+  let result: ProviderTestOutcome;
+  if (row.providerId === 'tavily') {
+    // Tavily's existing test endpoint is itself a search: use the same caps and billing gates.
+    const { resolveSectionRoutes } = await import('./providerAssignments');
+    const { mutateDiscoveryRuntime } = await import('./discoveryRuntime');
+    const { WebSearchRouter } = await import('./webSearch');
+    const routes = (await resolveSectionRoutes('search', 'live_web_search')).filter(route => route.connectionId === id);
+    if (!routes.length) return { status: 'untested', message: 'Connection test requires an enabled compatible Search assignment; no search was dispatched.' };
+    const tester = new WebSearchRouter({ resolve: resolveDiscoveryProvider, mutate: mutateDiscoveryRuntime, fetch: (...args: Parameters<typeof fetch>) => fetch(...args), now: Date.now,
+      sleep: ms => new Promise(resolve => setTimeout(resolve, ms)), routes: async () => routes });
+    const outcome = await tester.search('SAO provider connection check', { maxResults: 1 });
+    const status = outcome.attempts[0]?.status;
+    result = { status: status === 'results' || status === 'zero_results' ? 'connected' : status === 'auth_failure' ? 'invalid_key' : status === 'quota_exhausted' || status === 'rate_limited' ? 'rate_limited' : status === 'billing_blocked' || status === 'not_configured' ? 'untested' : 'unreachable',
+      message: status === 'results' || status === 'zero_results' ? 'Connected through the guarded search adapter.' : outcome.attempts[0]?.reason || 'No eligible search assignment; test was not dispatched.' };
+  } else result = await descriptor.test(credential, row.baseUrl || undefined, safeParseConfig(row.config));
   await setConnectionStatus(id, result.status, result.message);
   await auditCredential(row.service, 'test', result.status === 'connected');
   return result;
@@ -488,6 +520,11 @@ export async function resolveCredential(
   providerId: string,
   envKeys: string[]
 ): Promise<ResolvedCredential> {
+  const { currentAssignmentCredential } = await import('./providerAssignments');
+  const scoped = currentAssignmentCredential(providerId);
+  if (scoped) return scoped;
+  const all = await db.db.select().from(integrationCredentials).where(eq(integrationCredentials.providerId, providerId));
+  if (all.length && !all.some(row => row.enabled)) return { source: null, value: null };
   const rows = await db.db
     .select()
     .from(integrationCredentials)
@@ -523,22 +560,10 @@ export async function resolveCredential(
 
 /** Discovery settings are independent of inference routing. A disabled record blocks env fallback. */
 export async function resolveDiscoveryProvider(providerId: string): Promise<{
-  enabled: boolean; key: string | null; config: any; revision: string;
+  enabled: boolean; key: string | null; config: any; revision: string; route?: import('./providerAssignments').AssignmentRoute;
 }> {
-  const rows = await db.db.select().from(integrationCredentials)
-    .where(eq(integrationCredentials.providerId, providerId))
-    .orderBy(sql`case ${integrationCredentials.service} when 'search' then 0 else 1 end`, desc(integrationCredentials.updatedAt), desc(integrationCredentials.id));
-  const row = rows[0];
-  if (row && !row.enabled) return { enabled: false, key: null, config: {}, revision: String(row.updatedAt) };
-  const config = safeParseConfig(row?.config) || {};
-  let key: string | null = null;
-  if (row?.encryptedValue) {
-    try { key = decryptCredential(row.encryptedValue) || null; } catch { /* fail closed */ }
-    if (!key && providerId !== 'ons') return { enabled: false, key: null, config: {}, revision: String(row.updatedAt) };
-  } else {
-    for (const env of getProviderDescriptor(providerId)?.envKeys || []) {
-      if (process.env[env]?.trim()) { key = process.env[env]!; break; }
-    }
-  }
-  return { enabled: config.discovery?.enabled !== false, key, config: config.discovery || {}, revision: row ? `${row.id}:${new Date(row.updatedAt).getTime()}` : 'env' };
+  const { resolveSectionRoutes, discoveryRouteConfig } = await import('./providerAssignments');
+  const routes = await resolveSectionRoutes('search', providerId === 'ons' ? 'statistical_data' : 'live_web_search');
+  const route = routes.find(r => r.providerId === providerId);
+  return route ? { ...await discoveryRouteConfig(route), route } : { enabled: false, key: null, config: {}, revision: 'unassigned' };
 }

@@ -6,19 +6,19 @@
 // ==========================================
 
 const VERCEL_API_BASE = 'https://api.vercel.com';
+async function vercelFetch(url: string, init: RequestInit): Promise<Response> {
+  const { executeFunctionRequest } = await import('./providerAssignments');
+  return executeFunctionRequest('vercel', 'deployment', key => {
+    const headers = new Headers(init.headers); headers.set('Authorization', `Bearer ${key}`);
+    return fetch(url, { ...init, headers });
+  });
+}
+
 export class VercelRequestRejected extends Error {}
 
 async function getVercelToken(): Promise<string> {
-  let token = process.env.VERCEL_API_TOKEN;
-  try {
-    const { resolveCredential } = await import('./providerRegistry');
-    const resolved = await resolveCredential('vercel', ['VERCEL_API_TOKEN']);
-    if (resolved.value) {
-      token = resolved.value;
-    }
-  } catch {
-    /* fallback to env */
-  }
+  const { resolveFunctionCredential } = await import('./providerAssignments');
+  const token = await resolveFunctionCredential('vercel', 'deployment');
 
   if (!token) {
     throw new Error(
@@ -146,7 +146,7 @@ export async function testVercelConnection(): Promise<VercelTestResult> {
     const headers = await getVercelHeaders();
     const teamParam = getTeamParam();
 
-    const response = await fetch(
+    const response = await vercelFetch(
       `${VERCEL_API_BASE}/v2/user${teamParam}`,
       { headers }
     );
@@ -159,9 +159,8 @@ export async function testVercelConnection(): Promise<VercelTestResult> {
     }
 
     if (!response.ok) {
-      const text = await response.text().catch(() => 'Unknown error');
       console.error(
-        `[Vercel] Auth test returned HTTP ${response.status}: ${text.slice(0, 200)}`
+        `[Vercel] Auth test returned HTTP ${response.status}`
       );
       return {
         success: false,
@@ -211,7 +210,7 @@ export async function createVercelProject(
 
   // Check if a project with this name already exists
   try {
-    const listRes = await fetch(
+    const listRes = await vercelFetch(
       `${VERCEL_API_BASE}/v9/projects${teamParam ? `${teamParam}&` : '?'}search=${encodeURIComponent(params.name)}`,
       { headers }
     );
@@ -248,7 +247,7 @@ export async function createVercelProject(
     body.environmentVariables = params.environmentVariables;
   }
 
-  const response = await fetch(
+  const response = await vercelFetch(
     `${VERCEL_API_BASE}/v9/projects${teamParam}`,
     {
       method: 'POST',
@@ -258,9 +257,8 @@ export async function createVercelProject(
   );
 
   if (!response.ok) {
-    const text = await response.text().catch(() => 'Unknown error');
     console.error(
-      `[Vercel] createVercelProject returned HTTP ${response.status}: ${text.slice(0, 300)}`
+      `[Vercel] createVercelProject returned HTTP ${response.status}`
     );
     throw new Error(
       `Vercel project creation failed (HTTP ${response.status}).`
@@ -339,15 +337,14 @@ async function executeVercelDeployment(params: VercelDeployParams): Promise<Verc
   }
   if (params.source) { body.source = params.source; }
 
-  const response = await fetch(
+  const response = await vercelFetch(
     `${VERCEL_API_BASE}/v13/deployments${skipConfirmation}`,
     { method: 'POST', headers, body: JSON.stringify(body), signal: AbortSignal.timeout(30000) }
   );
 
   if (!response.ok) {
-    const text = await response.text().catch(() => 'Unknown error');
     console.error(
-      `[Vercel] deployToVercel returned HTTP ${response.status}: ${text.slice(0, 300)}`
+      `[Vercel] deployToVercel returned HTTP ${response.status}`
     );
     const Rejection = response.status >= 400 && response.status < 500 ? VercelRequestRejected : Error;
     throw new Rejection(
@@ -381,16 +378,15 @@ export async function getVercelDeployment(
   const headers = await getVercelHeaders();
   const teamParam = getTeamParam();
 
-  const response = await fetch(
+  const response = await vercelFetch(
     `${VERCEL_API_BASE}/v13/deployments/${deploymentId}${teamParam}`,
     { headers }
   );
 
   if (response.status === 404) return null;
   if (!response.ok) {
-    const text = await response.text().catch(() => 'Unknown error');
     console.error(
-      `[Vercel] getVercelDeployment returned HTTP ${response.status}: ${text.slice(0, 200)}`
+      `[Vercel] getVercelDeployment returned HTTP ${response.status}`
     );
     return null;
   }

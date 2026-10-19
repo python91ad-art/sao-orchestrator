@@ -1,3 +1,4 @@
+import ProviderAssignments from './ProviderAssignments';
 import { Dialog } from '../../components/ui';
 import { ErrorState, LoadingState } from '../../components/ui';
 import { useAuth } from '../../hooks/useAuth';
@@ -55,6 +56,7 @@ const Providers: React.FC = () => {
   const isAdmin = user?.role === 'admin';
   const busy = createMutation.isPending || updateMutation.isPending || removeMutation.isPending || testMutation.isPending || setPriorityMutation.isPending || setEnabledMutation.isPending;
 
+  const [assignmentConnection, setAssignmentConnection] = useState<string | null>(null);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [editing, setEditing] = useState<ProviderRecord | null>(null);
   const [testResults, setTestResults] = useState<Record<string, { status: string; message: string }>>({});
@@ -203,7 +205,7 @@ const Providers: React.FC = () => {
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-bold tracking-tight text-white">Providers & API Keys</h2>
-        <p className="text-sm text-neutral-400">Register, test and manage service providers. Credentials are encrypted at rest.</p>
+        <p className="text-sm text-neutral-400">Connect providers and manage their section assignments. Credentials are encrypted at rest. Environment connections can be assigned without copying keys.</p>
       </div>
 
       {grouped.map((group) => (
@@ -276,10 +278,11 @@ const Providers: React.FC = () => {
                       </td>
                       <td>
                         <div className="flex items-center justify-end gap-2">
-                          <button onClick={() => handleTest(p.id)} disabled={!isAdmin || busy || (testing === p.id)} className="btn-secondary py-1.5 px-3 text-xs">{testing === p.id ? '…' : 'Test'}</button>
-                          <button disabled={!isAdmin || busy} onClick={() => openEdit(p)} className="btn-secondary py-1.5 px-3 text-xs" title="Edit"><Edit3 className="h-3.5 w-3.5" /></button>
-                          <button disabled={!isAdmin || busy} onClick={() => handleToggle(p)} className="btn-secondary py-1.5 px-3 text-xs" title={p.enabled ? 'Disable' : 'Enable'}><Power className="h-3.5 w-3.5" /></button>
-                          <button disabled={!isAdmin || busy} onClick={() => handleDelete(p.id)} className="btn-secondary py-1.5 px-3 text-xs text-red-400" title="Delete"><Trash2 className="h-3.5 w-3.5" /></button>
+                          <button disabled={!isAdmin || busy} onClick={() => setAssignmentConnection(p.id)} className="btn-secondary py-1.5 px-3 text-xs">Manage Assignments</button>
+                          <button onClick={() => handleTest(p.id)} disabled={!isAdmin || busy || (testing === p.id) || p.createdAt?.startsWith('1970')}  className="btn-secondary py-1.5 px-3 text-xs">{testing === p.id ? '…' : 'Test'}</button>
+                          <button disabled={!isAdmin || busy || p.createdAt?.startsWith('1970')} onClick={() => openEdit(p)} className="btn-secondary py-1.5 px-3 text-xs" title="Edit"><Edit3 className="h-3.5 w-3.5" /></button>
+                          <button disabled={!isAdmin || busy || p.createdAt?.startsWith('1970')} onClick={() => handleToggle(p)} className="btn-secondary py-1.5 px-3 text-xs" title={p.enabled ? 'Disable' : 'Enable'}><Power className="h-3.5 w-3.5" /></button>
+                          <button disabled={!isAdmin || busy || p.createdAt?.startsWith('1970')} onClick={() => handleDelete(p.id)} className="btn-secondary py-1.5 px-3 text-xs text-red-400" title="Delete"><Trash2 className="h-3.5 w-3.5" /></button>
                         </div>
                         {testResults[p.id] && testResults[p.id].status !== 'testing' && (
                           <div className={`text-[11px] mt-1 text-right ${testResults[p.id].status === 'connected' ? 'text-emerald-400' : 'text-red-400'}`}>
@@ -297,6 +300,7 @@ const Providers: React.FC = () => {
       ))}
 
 
+      {assignmentConnection && <ProviderAssignments connectionId={assignmentConnection} onClose={() => setAssignmentConnection(null)} onSaved={reload} />}
       {isAddOpen && (
 <Dialog title={editing ? "Edit Provider" : "Add Provider"} onClose={() => setIsAddOpen(false)}>
 

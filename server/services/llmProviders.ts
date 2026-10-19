@@ -15,6 +15,7 @@ import {
 } from './llmTypes';
 
 const DEFAULT_TIMEOUT_MS = 60_000;
+import { currentAssignmentSettings } from './providerAssignments';
 
 export interface ProviderMessage {
   role: 'system' | 'user';
@@ -38,11 +39,6 @@ export interface ProviderCompletion {
 export interface LLMProvider {
   id: ProviderId;
   complete(model: string, req: ProviderRequest): Promise<ProviderCompletion>;
-}
-
-function redactMessage(message: string): string {
-  const clean = String(message || '').replace(/\s+/g, ' ').trim();
-  return clean.slice(0, 200);
 }
 
 function parseRetryAfter(value: unknown): number | undefined {
@@ -105,7 +101,7 @@ export function classifyError(
 
   return new LLMProviderError({
     category,
-    message: redactMessage(rawMsg),
+    message: `Provider request failed (${category}${status ? `; HTTP ${Number(status)}` : ''}).`,
     provider,
     model,
     status: status ? Number(status) : undefined,
@@ -147,7 +143,7 @@ class GroqProvider implements LLMProvider {
       });
     }
 
-    const client = new Groq({ apiKey, timeout: DEFAULT_TIMEOUT_MS });
+    const client = new Groq({ apiKey, maxRetries: 0, timeout: currentAssignmentSettings().timeoutMs ?? DEFAULT_TIMEOUT_MS });
     const completion = await client.chat.completions.create({
       model,
       messages: req.messages,
@@ -232,7 +228,7 @@ class OpenAICompatProvider implements LLMProvider {
         ...(this.cfg.extraHeaders || {}),
       },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS),
+      signal: AbortSignal.timeout(currentAssignmentSettings().timeoutMs ?? DEFAULT_TIMEOUT_MS),
     });
 
     if (!response.ok) {
@@ -244,7 +240,7 @@ class OpenAICompatProvider implements LLMProvider {
       }).category;
       throw new LLMProviderError({
         category,
-        message: redactMessage(text),
+        message: `Provider request failed (HTTP ${response.status}; ${category}).`,
         provider: this.id,
         model,
         status: response.status,

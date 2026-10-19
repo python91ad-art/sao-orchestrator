@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { mutateDiscoveryRuntime, type MutateRuntime } from './discoveryRuntime';
+import { resolveSectionRoutes, discoveryRouteConfig, reserveAssignment, recordAssignmentOutcome, type AssignmentRoute } from './providerAssignments';
 import { resolveDiscoveryProvider } from './providerRegistry';
 
 export type SearchProvider = 'tavily' | 'gemini' | 'groq' | 'openrouter';
@@ -11,11 +12,11 @@ export interface SearchResult {
 }
 export interface SearchAttempt { provider: SearchProvider; status: SearchStatus; reason?: string; retryAt?: string }
 export interface SearchOutcome {
-  status: SearchStatus; results: SearchResult[]; provider: SearchProvider | null; attempts: SearchAttempt[];
+  status: SearchStatus; results: SearchResult[]; provider: SearchProvider | null; attempts: SearchAttempt[]; reason?: string;
 }
 export class SearchUnavailableError extends Error {
   readonly code = 'DISCOVERY_UNAVAILABLE';
-  constructor(public outcome: SearchOutcome) { super('Web discovery unavailable; inspect discovery provider health.'); }
+  constructor(public outcome: SearchOutcome) { super(outcome.reason || 'Web discovery unavailable; inspect discovery provider health.'); }
 }
 type Config = Awaited<ReturnType<typeof resolveDiscoveryProvider>>;
 const order: SearchProvider[] = ['tavily', 'gemini', 'groq', 'openrouter'];
@@ -79,12 +80,13 @@ export class WebSearchRouter {
   private inFlight = new Map<string, Promise<SearchOutcome>>();
   private health: Partial<Record<SearchProvider, SearchAttempt & { lastSuccess?: string; lastFailure?: string }>> = {};
   lastOutcome: SearchOutcome | null = null;
-  constructor(private deps = {
+  constructor(private deps: { resolve: typeof resolveDiscoveryProvider; mutate: MutateRuntime; fetch: typeof fetch; now: () => number; sleep: (ms: number) => Promise<void>; routes?: () => Promise<AssignmentRoute[]> } = {
     resolve: resolveDiscoveryProvider, mutate: mutateDiscoveryRuntime as MutateRuntime,
     fetch: (...args: Parameters<typeof fetch>) => fetch(...args), now: () => Date.now(),
     sleep: (ms: number) => new Promise<void>(r => setTimeout(r, ms)),
+    routes: () => resolveSectionRoutes('search', 'live_web_search'),
   }) {}
-  getStatus() { return { activeProvider: this.lastOutcome?.provider || null, attempts: this.lastOutcome?.attempts || [], providers: this.health }; }
+  getStatus() { return { activeProvider: this.lastOutcome?.provider || null, attempts: this.lastOutcome?.attempts || [], providers: this.health, reason: this.lastOutcome?.reason }; }
   async restoreStatus() {
     const saved = await this.deps.mutate('web-health', state => ({ health: state.health, outcome: state.outcome }));
     if (!this.lastOutcome && saved.health) { this.health = saved.health; this.lastOutcome = saved.outcome || null; }
@@ -110,20 +112,25 @@ export class WebSearchRouter {
   }
   private async run(query: string, limit: number, shouldContinue: () => Promise<boolean> = async () => true): Promise<SearchOutcome> {
     const attempts: SearchAttempt[] = [];
-    for (const provider of order) {
+    let routes: AssignmentRoute[] | undefined;
+    try { routes = await this.deps.routes?.(); }
+    catch { return this.finish({ status: 'unavailable', results: [], provider: null, attempts: [{ provider: 'tavily', status: 'unavailable', reason: 'Assignment configuration unavailable' }] }); }
+    const entries = routes ? routes.map(route => ({ provider: route.providerId as SearchProvider, route })) : order.map(provider => ({ provider, route: undefined }));
+    for (const { provider, route } of entries) {
       if (!await shouldContinue()) return { status: 'stopped', results: [], provider: null, attempts };
       let attempt: SearchAttempt;
       let results: SearchResult[] = [];
       try {
-        const cfg = await this.deps.resolve(provider);
+        const cfg = route ? await discoveryRouteConfig(route) : await this.deps.resolve(provider);
         const eligible = this.eligible(provider, cfg);
         if (eligible) attempt = { provider, status: eligible, reason: !cfg.enabled ? 'Provider disabled by configuration' : !cfg.key ? 'No discovery credential configured' : eligible === 'billing_blocked' ? 'Paid discovery requires explicit opt-in, approved budget and confirmed provider account spending cap' : eligible === 'unsupported' ? 'Configured model does not support this search adapter' : 'Discovery not enabled for this provider' };
         else {
-          const outcome = await this.request(provider, cfg, query, limit, shouldContinue);
+          const outcome = await this.request(provider, cfg, query, limit, shouldContinue, route);
           attempt = outcome.attempt;
           results = outcome.results;
         }
       } catch { attempt = { provider, status: 'unavailable', reason: 'Configuration or durable request guard unavailable' }; }
+      if (route && (successful(attempt.status) || attempt.reason === attempt.status)) await recordAssignmentOutcome(route, successful(attempt.status) ? undefined : attempt.status, this.deps.mutate);
       attempts.push(attempt);
       const old = this.health[provider];
       this.health[provider] = { ...old, ...attempt,
@@ -132,7 +139,7 @@ export class WebSearchRouter {
         return this.finish({ status: attempt.status, results, provider, attempts });
       }
     }
-    return this.finish({ status: 'unavailable', results: [], provider: null, attempts });
+    return this.finish({ status: 'unavailable', results: [], provider: null, attempts, reason: entries.length ? 'No eligible Search & Gap Finder provider succeeded; inspect provider attempts.' : 'No enabled compatible live web search assignments in Search & Gap Finder. Use Manage Assignments in Providers.' });
   }
   private eligible(provider: SearchProvider, cfg: Config): SearchStatus | null {
     if (!cfg.enabled || !cfg.key) return 'not_configured';
@@ -147,12 +154,17 @@ export class WebSearchRouter {
       Number.isInteger(cfg.config.maxRequestsPerDay) && cfg.config.maxRequestsPerDay > 0)) return 'billing_blocked';
     return null;
   }
-  private async request(provider: SearchProvider, cfg: Config, query: string, limit: number, shouldContinue: () => Promise<boolean>) {
+  private async request(provider: SearchProvider, cfg: Config, query: string, limit: number, shouldContinue: () => Promise<boolean>, route?: AssignmentRoute) {
     const now = this.deps.now;
-    const fingerprint = createHash('sha256').update(`${cfg.key}:${cfg.revision}`).digest('hex');
+    const fingerprint = createHash('sha256').update(`${cfg.key}:${cfg.revision.replace(/:\d+$/, '')}:${cfg.config.model || provider}`).digest('hex');
     let status: SearchStatus = 'unavailable';
-    for (let retry = 0; retry < 2; retry++) {
+    for (let retry = 0; retry <= (cfg.config.retries ?? 1); retry++) {
       if (!await shouldContinue()) return { attempt: { provider, status: 'stopped' as SearchStatus, reason: 'Cycle stopped before dispatch' }, results: [] };
+      if (route) {
+        const cost = provider === 'tavily' && cfg.config.billingApproved !== true ? 0 : cfg.config.maxRequestCostUsd;
+        const blocked = await reserveAssignment(route, cost, 0, this.deps.mutate, now());
+        if (blocked) return { attempt: { provider, status: 'quota_exhausted' as SearchStatus, reason: blocked }, results: [] };
+      }
       const reservation = await this.deps.mutate(`web:${provider}`, state => {
         if (state.fingerprint !== fingerprint) Object.assign(state, { fingerprint, openUntil: 0, failures: 0 });
         const day = new Date(now()).toISOString().slice(0, 10);
@@ -196,7 +208,7 @@ export class WebSearchRouter {
           body = { model: cfg.config.model, messages: [{ role: 'user', content: prompt }], max_tokens: 2048,
             plugins: [{ id: 'web', engine: 'exa', max_results: limit }] };
         }
-        const response = await this.deps.fetch(url, { method: 'POST', headers, body: JSON.stringify(body), signal: AbortSignal.timeout(15000) });
+        const response = await this.deps.fetch(url, { method: 'POST', headers, body: JSON.stringify(body), signal: AbortSignal.timeout(cfg.config.timeoutMs ?? 15000) });
         if (!response.ok) {
           const ra = response.headers.get('retry-after');
           retryAfter = ra ? (/^\d+(\.\d+)?$/.test(ra) ? Number(ra) * 1000 : Math.max(0, Date.parse(ra) - now())) : 0;
@@ -216,7 +228,7 @@ export class WebSearchRouter {
         if (status !== 'invalid_response') status = /timeout|abort/i.test(String(error?.name)) ? 'timeout' : 'unavailable';
       }
       const transient = status === 'unavailable' || status === 'timeout';
-      if (transient && retry === 0) { await this.deps.sleep(500 * 2 ** retry); continue; }
+      if (transient && retry < (cfg.config.retries ?? 1)) { await this.deps.sleep(500 * 2 ** retry); continue; }
       const until = await this.deps.mutate(`web:${provider}`, s => {
         s.failures = (s.failures || 0) + 1; s.status = status;
         // Quota recovery is deliberately daily, auth requires rotation or a later health probe.

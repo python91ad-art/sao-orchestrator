@@ -23,9 +23,13 @@ export default function DiscoveryHealth() {
       <span>Last failed discovery: {report.lastFailure || 'none'}</span>
     </div>
     {report.web.attempts?.length > 0 && <p className="text-xs">Cycle provider attempts: {report.web.attempts.map(a => `${a.provider}: ${a.status}`).join(" → ")}</p>}
+    {webSearch.reason && <p className="text-xs text-amber-300">{webSearch.reason}</p>}
     {fallback.length > 0 && <p className="text-xs text-amber-300">Fallback routing: {fallback.map(a => `${a.provider}: ${a.reason || a.status}`).join(' → ')}</p>}
     {Object.entries(webSearch.providers).map(([provider, state]) => state && <p key={provider} className="text-xs text-neutral-400">{provider}: {state.status}{state.retryAt ? ` · restricted until ${state.retryAt}` : ''}{state.lastFailure ? ` · last failure ${state.lastFailure}` : ''}</p>)}
     {(report.errors || []).map((error, i) => <p key={`cycle-${i}`} className="text-xs text-amber-300">{error}</p>)}
+    {report.ons.diagnostics?.map((diagnostic, i) => <p key={`dataset-${i}`} className={`text-xs ${diagnostic.status === 'skipped' ? 'text-neutral-400' : 'text-amber-300'}`}>
+      {diagnostic.datasetId} · {diagnostic.status === 'skipped' ? 'Skipped' : 'Failed'} · {diagnostic.code}: {diagnostic.message}
+    </p>)}
     {report.ons.errors.map((error, i) => <p key={i} className="text-xs text-amber-300">{error}</p>)}
     <p className="text-xs text-neutral-400">ONS statistical retrieval is independent of web search. Candidate interpretation requires a configured inference provider. Validated discovery evidence still requires the existing independent source and legal reviews before business creation.</p>
   </div>;

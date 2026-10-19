@@ -16,7 +16,7 @@ import {
   ProviderId,
   AttemptedProvider,
 } from './llmTypes';
-import { getModelRegistry, hasProviderCredentials, hasProviderCredentialsAsync } from './llmModels';
+import { getModelRegistry, hasProviderCredentials } from './llmModels';
 import {
   classifyError,
   getProviders,
@@ -24,6 +24,9 @@ import {
   ProviderRequest,
 } from './llmProviders';
 
+import { resolveSectionRoutes, routeCredential, withAssignment, reserveAssignment, recordAssignmentOutcome, type AssignmentRoute } from './providerAssignments';
+
+type RoutedModel = ModelConfig & { assignmentRoute: AssignmentRoute };
 type HealthState = 'AVAILABLE' | 'DEGRADED' | 'COOLDOWN' | 'DISABLED';
 
 interface ModelHealth {
@@ -72,11 +75,11 @@ function rateLimitBaseMs(): number {
   return envInt('LLM_COOLDOWN_BASE_MS', 30_000);
 }
 
-function modelKey(mc: { provider: string; model: string }): string {
-  return `${mc.provider}:${mc.model}`;
+function modelKey(mc: { provider: string; model: string; assignmentRoute?: AssignmentRoute }): string {
+  return `${mc.provider}:${mc.model}${mc.assignmentRoute ? ':' + mc.assignmentRoute.connectionId : ''}`;
 }
 
-function getHealth(mc: { provider: string; model: string }): ModelHealth {
+function getHealth(mc: { provider: string; model: string; assignmentRoute?: AssignmentRoute }): ModelHealth {
   const key = modelKey(mc);
   let h = healthMap.get(key);
   if (!h) {
@@ -131,17 +134,17 @@ function logLine(fields: Record<string, unknown>) {
   console.log(`[LLM Router] ${parts}`);
 }
 
-function disableProvider(provider: ProviderId) {
+function disableProvider(provider: ProviderId, assignmentRoute?: AssignmentRoute) {
   for (const mc of getModelRegistry()) {
     if (mc.provider === provider) {
-      const h = getHealth(mc);
+      const h = getHealth({ ...mc, ...(assignmentRoute ? { assignmentRoute } : {}) });
       h.state = 'DISABLED';
       h.cooldownUntil = Number.POSITIVE_INFINITY;
     }
   }
 }
 
-function handleFailure(mc: ModelConfig, error: LLMProviderError) {
+function handleFailure(mc: ModelConfig & { assignmentRoute?: AssignmentRoute }, error: LLMProviderError) {
   const h = getHealth(mc);
   h.lastUsedAt = Date.now();
   h.lastErrorCategory = error.category;
@@ -149,7 +152,7 @@ function handleFailure(mc: ModelConfig, error: LLMProviderError) {
   switch (error.category) {
     case 'auth':
       h.state = 'DISABLED';
-      disableProvider(mc.provider);
+      disableProvider(mc.provider, mc.assignmentRoute);
       break;
     case 'invalid_model':
       h.state = 'DISABLED';
@@ -201,16 +204,12 @@ export interface RouterRequest {
 async function selectCandidates(
   req: RouterRequest,
   providers: Map<ProviderId, LLMProvider>
-): Promise<ModelConfig[]> {
+): Promise<RoutedModel[]> {
   const now = Date.now();
-  const allModels = getModelRegistry();
-
-  const providerConfigured = new Map<ProviderId, boolean>();
-  for (const mc of allModels) {
-    if (!providerConfigured.has(mc.provider)) {
-      providerConfigured.set(mc.provider, await hasProviderCredentialsAsync(mc.provider));
-    }
-  }
+  const routes = await resolveSectionRoutes('llm', 'inference');
+  const allModels: RoutedModel[] = routes.flatMap(route => getModelRegistry()
+    .filter(mc => mc.provider === route.providerId && (!route.assignment.model || route.assignment.model === mc.model))
+    .map(mc => ({ ...mc, assignmentRoute: route })));
 
   return allModels
     .filter((mc) => {
@@ -218,7 +217,6 @@ async function selectCandidates(
       if (req.requiredModel && mc.model !== req.requiredModel) return false;
       if (req.reasoningLevel && req.reasoningLevel !== 'standard' && (mc.provider !== 'groq' || !/^openai\/gpt-oss-(20b|120b)$/.test(mc.model))) return false;
       if (req.reasoningLevel === 'extended' && mc.model !== 'openai/gpt-oss-120b') return false;
-      if (!providerConfigured.get(mc.provider)) return false;
       if (!providers.has(mc.provider)) return false;
       if (!mc.capabilities.includes(req.task)) return false;
       if (req.jsonMode && !mc.supportsJsonMode) return false;
@@ -247,6 +245,9 @@ async function selectCandidates(
       return true;
     })
     .sort((a, b) => {
+      const aa = a.assignmentRoute.assignment, ba = b.assignmentRoute.assignment;
+      if (ba.priority !== aa.priority) return ba.priority - aa.priority;
+      if (aa.fallbackOrder !== ba.fallbackOrder) return aa.fallbackOrder - ba.fallbackOrder;
       if (b.priority !== a.priority) return b.priority - a.priority;
       if (b.maxOutputTokens !== a.maxOutputTokens) {
         return b.maxOutputTokens - a.maxOutputTokens;
@@ -286,13 +287,19 @@ export async function route(req: RouterRequest): Promise<LLMRouteResult> {
     const provider = providers.get(mc.provider)!;
 
     try {
-      const completion = await provider.complete(mc.model, {
+      if (!await routeCredential(mc.assignmentRoute)) { attempted.push({ provider: mc.provider, model: mc.model, category: 'auth', reason: 'assignment_credential_unavailable' }); continue; }
+      const estimatedTokens = estimateTokens(req.prompt) + estimateTokens(req.systemPrompt || '') + req.maxTokens;
+      const reservedCost = Math.max(mc.assignmentRoute.assignment.settings.maxRequestCostUsd ?? 0, estimatedTokens / 1000 * (mc.estimatedCostPer1kTokens || 0));
+      const blocked = await reserveAssignment(mc.assignmentRoute, reservedCost, estimatedTokens);
+      if (blocked) { attempted.push({ provider: mc.provider, model: mc.model, category: 'rate_limit', reason: blocked }); continue; }
+      const completion = await withAssignment(mc.assignmentRoute, () => provider.complete(mc.model, {
         messages,
         maxTokens: req.maxTokens,
         temperature: req.temperature,
         jsonMode: req.jsonMode,
         reasoningLevel: req.reasoningLevel,
-      });
+      }));
+      await recordAssignmentOutcome(mc.assignmentRoute);
 
       recordUsage(mc, completion.usage.inputTokens ?? estimateTokens(req.prompt), completion.usage.outputTokens ?? req.maxTokens);
       restoreOnSuccess(mc);
@@ -317,6 +324,7 @@ export async function route(req: RouterRequest): Promise<LLMRouteResult> {
 
       attempted.push({ provider: mc.provider, model: mc.model, category: classified.category });
       handleFailure(mc, classified);
+      await recordAssignmentOutcome(mc.assignmentRoute, classified.category);
 
       logLine({
         task: req.task,
@@ -359,26 +367,22 @@ export function getRouterStatus() {
  * Async runtime status checking both environment variables and the Provider Registry.
  */
 export async function getRouterStatusAsync() {
-  const allModels = getModelRegistry();
-  const providerConfigured = new Map<ProviderId, boolean>();
-  for (const mc of allModels) {
-    if (!providerConfigured.has(mc.provider)) {
-      providerConfigured.set(mc.provider, await hasProviderCredentialsAsync(mc.provider));
-    }
-  }
-
-  return allModels.map((mc) => {
-    const h = getHealth(mc);
-    const configured = providerConfigured.get(mc.provider) || false;
-    return {
-      provider: mc.provider,
-      model: mc.model,
-      credentials: configured ? ('SET' as const) : ('MISSING' as const),
-      state: h.state,
-      cooldownUntil: h.cooldownUntil && Number.isFinite(h.cooldownUntil) ? h.cooldownUntil : null,
-      consecutiveFailures: h.consecutiveFailures,
-      lastErrorCategory: h.lastErrorCategory ?? null,
-    };
+  const routes = await resolveSectionRoutes('llm', 'inference');
+  const keys = new Map<string, boolean>();
+  for (const route of routes) keys.set(route.connectionId, !!await routeCredential(route));
+  return getModelRegistry().flatMap(mc => {
+    const matches = routes.filter(r => r.providerId === mc.provider && (!r.assignment.model || r.assignment.model === mc.model));
+    return (matches.length ? matches : [undefined]).map(assignmentRoute => {
+      const h = getHealth({ ...mc, assignmentRoute });
+      const configured = assignmentRoute && keys.get(assignmentRoute.connectionId);
+      return {
+        provider: mc.provider, model: mc.model,
+        credentials: configured ? ('SET' as const) : ('MISSING' as const),
+        state: assignmentRoute ? h.state : 'DISABLED' as HealthState,
+        cooldownUntil: h.cooldownUntil && Number.isFinite(h.cooldownUntil) ? h.cooldownUntil : null,
+        consecutiveFailures: h.consecutiveFailures, lastErrorCategory: h.lastErrorCategory ?? null,
+      };
+    });
   });
 }
 
@@ -390,6 +394,7 @@ export function resetRouterState() {
 
 /** Reset a single provider back to AVAILABLE (admin recovery). */
 export function resetProvider(provider: ProviderId) {
+  for (const [key, h] of healthMap) if (key.startsWith(`${provider}:`)) Object.assign(h, { state: 'AVAILABLE', cooldownUntil: 0, consecutiveFailures: 0, consecutiveRateLimits: 0, lastErrorCategory: undefined });
   for (const mc of getModelRegistry()) {
     if (mc.provider === provider) {
       const h = getHealth(mc);

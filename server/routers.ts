@@ -24,6 +24,7 @@ import { eq, asc, sql, inArray } from 'drizzle-orm';
 import { createCryptoPayment, toSafePaymentView } from './services/crypto';
 import { hasNowPaymentsApiKeyAsync, getNowPaymentsConfigAsync } from './services/nowpayments';
 import * as providerRegistry from './services/providerRegistry';
+import * as providerAssignments from './services/providerAssignments';
 import * as infrastructure from './services/infrastructure';
 import { operationsRouter } from './operationsRouter';
 import * as policyEngine from './services/policyEngine';
@@ -1889,6 +1890,12 @@ const advertisingRouter = router({
 // PROVIDER REGISTRY ROUTER
 // ==========================================
 const providersRouter = router({
+  assignments: protectedProcedure.input(z.string().max(255)).query(({ input }) => providerAssignments.assignmentView(input)),
+  saveAssignments: adminProcedure.input(z.object({ connectionId: z.string().max(255), assignments: providerAssignments.assignmentListSchema, revision: z.string().optional() }))
+    .mutation(async ({ input, ctx }) => {
+      try { return await providerAssignments.saveAssignments(input.connectionId, input.assignments, ctx.user.id, input.revision); }
+      catch (error) { throw new TRPCError({ code: 'BAD_REQUEST', message: error instanceof Error && !('sql' in error) ? error.message : 'Assignment persistence unavailable. No changes saved.' }); }
+    }),
   serviceTypes: protectedProcedure
     .query(async () => {
       return providerRegistry.SERVICE_TYPES;

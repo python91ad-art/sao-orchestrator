@@ -835,6 +835,11 @@ async function main() {
     await conn.execute(statement);
   }
 
+  const assignmentsSql = require('fs').readFileSync(require('path').join(__dirname, 'drizzle/migrations/0016_provider_assignments.sql'), 'utf8');
+  for (const statement of assignmentsSql.replace(/--> statement-breakpoint/g, '').split(';').map(value => value.trim()).filter(Boolean)) {
+    await conn.query(statement);
+  }
+
   // Add missing columns one by one (MySQL-compatible — no IF NOT EXISTS)
   console.log('\n=== Checking columns ===');
   for (const { table, column, definition } of ALTER_COLUMNS) {
@@ -941,7 +946,7 @@ async function main() {
   cols.forEach(c => console.log(`  - ${c.COLUMN_NAME} (${c.COLUMN_TYPE})`));
 
   const crypto = require('crypto');
-  const files = ['run-migration.js', 'drizzle/migrations/0013_lifecycle_infrastructure.sql', 'drizzle/migrations/0014_policy_engine.sql', 'drizzle/migrations/0015_operational_policies.sql'];
+  const files = ['run-migration.js', 'drizzle/migrations/0013_lifecycle_infrastructure.sql', 'drizzle/migrations/0014_policy_engine.sql', 'drizzle/migrations/0015_operational_policies.sql', 'drizzle/migrations/0016_provider_assignments.sql'];
   const hashes = Object.fromEntries(files.map(file => [file, crypto.createHash('sha256').update(require('fs').readFileSync(require('path').join(__dirname, file))).digest('hex')]));
   const [identity] = await conn.query('SELECT DATABASE() AS databaseName,@@hostname AS serverName,@@version AS version');
   const auditId = `schema:${crypto.createHash('sha256').update(JSON.stringify({ database: identity[0].databaseName, hashes })).digest('hex')}`;

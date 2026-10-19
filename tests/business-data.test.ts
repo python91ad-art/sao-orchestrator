@@ -82,7 +82,7 @@ async function main() {
     needs: 'small business automation',
     controlsAccess: 'industry data',
     underestimatesValue: 'manual processes',
-  });
+  }, async () => true);
   assert.strictEqual(bundle.unavailable.length, 0);
   assert.ok(bundle.evidence.length >= 1);
   assert.ok(bundle.evidence.every((item) => item.provider === 'ons'));

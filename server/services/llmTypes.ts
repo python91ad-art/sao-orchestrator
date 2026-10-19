@@ -80,6 +80,7 @@ export interface LLMRouteResult {
 
 /** A failure record used for safe diagnostics when all providers fail. */
 export interface AttemptedProvider {
+  reason?: string;
   provider: string;
   model: string;
   category: ErrorCategory;
@@ -125,12 +126,12 @@ export class LLMRouterExhaustedError extends Error {
 
   constructor(task: string, providersAttempted: AttemptedProvider[]) {
     const summary = providersAttempted
-      .map((p) => `${p.provider}/${p.model} (${p.category})`)
+      .map((p) => `${p.provider}/${p.model} (${p.category}${p.reason ? `: ${p.reason}` : ''})`)
       .join(', ');
     super(
       `[LLM_ALL_PROVIDERS_EXHAUSTED] task=${task} — no compatible provider/model succeeded. ` +
       `Attempted: ${summary || 'none'}. ` +
-      `Recommendation: wait for provider cooldowns to expire or add/verify credentials.`
+      `Recommendation: verify enabled LLM assignments, compatible models and limits; wait for provider cooldowns or verify credentials.`
     );
     this.name = 'LLMRouterExhaustedError';
     this.task = task;

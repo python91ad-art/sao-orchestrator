@@ -10,7 +10,7 @@ for (const status of ['idle', 'running', 'stopped', 'interrupted', 'ok', 'unavai
       if (url.includes('/auth.me')) data = { id: 'admin-fixture', email: 'admin@sao.test', role: 'admin' };
       if (url.includes('discovery.pipelineDiagnostic')) data = {
         coreLoop: { runtimeState: 'stopped', nextExecutionAt: null },
-        multiSource: { status, ons: { status: status === 'unavailable' ? 'unavailable' : 'ok', signals: 0, errors: [] }, web: { status: status === 'ok' ? 'ok' : 'unavailable' },
+        multiSource: { status, ons: { status: status === 'unavailable' ? 'unavailable' : 'ok', signals: 0, errors: [], diagnostics: [{ datasetId: 'house-prices-local-authority', status: 'skipped', code: 'dataset_outdated', message: 'Release exceeds the discovery evidence age limit.' }] }, web: { status: status === 'ok' ? 'ok' : 'unavailable' },
           candidatesBySource: { ons: 0, tavily: 0 }, validated: 0, rejected: 0, queued: 0, lastSuccess: null, lastFailure: status === 'ok' ? null : '2026-10-19T12:00:00.000Z' },
         webSearch: { activeProvider: status === 'unavailable' ? null : 'gemini', attempts: [{ provider: 'tavily', status: 'quota_exhausted', reason: 'quota_exhausted' }], providers: { tavily: { status: 'quota_exhausted', retryAt: '2026-10-20T12:00:00.000Z' } } },
       };
@@ -27,6 +27,7 @@ for (const status of ['idle', 'running', 'stopped', 'interrupted', 'ok', 'unavai
     else if (status === 'interrupted') await expect(page.getByText('Previous cycle interrupted', { exact: true })).toBeVisible();
     else if (status === 'partial') await expect(page.getByText(/Discovery partially successful; no validated candidates/)).toBeVisible();
     else await expect(page.getByText(/No opportunities found/)).toBeVisible();
+    await expect(page.getByText(/house-prices-local-authority · Skipped · dataset_outdated/)).toBeVisible();
     await expect(page.getByText(/Fallback routing: tavily: quota_exhausted/)).toBeVisible();
     await expect(page.getByText(/restricted until 2026-10-20/)).toBeVisible();
     expect(errors).toEqual([]);
