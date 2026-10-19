@@ -795,6 +795,7 @@ const coreLoopRouter = router({
     .query(async () => {
       const state = await db.getCoreLoopState();
       const { getDiscoveryStatus, getExtractionMetrics } = await import('./services/search');
+      await (await import('./services/webSearch')).webSearch.restoreStatus().catch(() => {});
       const discoveryStatus = getDiscoveryStatus();
       const extractionMetrics = getExtractionMetrics();
 
@@ -963,27 +964,9 @@ const discoveryRouter = router({
     .input(z.object({ query: z.string() }))
     .mutation(async ({ input }) => {
       const gaps = await searchForGaps(input.query);
-      // Auto-create gaps and queue items
-      for (const g of gaps) {
-        const dedupHash = infrastructure.computeGapDedupHash(g);
-        const existing = await db.getGapByHash(dedupHash);
-        if (!existing) {
-          const gap = await db.createGap({
-            knows: g.knows,
-            needs: g.needs,
-            controlsAccess: g.controlsAccess,
-            underestimatesValue: g.underestimatesValue,
-            source: g.source,
-            priority: 5,
-            dedupHash,
-            status: 'pending',
-          });
-          if (gap) {
-            await db.createQueueItem({ gapId: gap.id, dedupHash, priority: 5, sortOrder: 0 });
-          }
-        }
-      }
-      return { success: true, gapsFound: gaps.length, gaps };
+      const { queueDiscoveryGaps } = await import('./services/discoveryQueue');
+      const queued = await queueDiscoveryGaps(gaps as import('./services/discoveryEvidence').QualifiedGap[]);
+      return { success: true, gapsFound: gaps.length, queued, gaps };
     }),
 
   searchRaw: adminProcedure
@@ -1004,6 +987,7 @@ const discoveryRouter = router({
   pipelineDiagnostic: adminProcedure
     .query(async () => {
       const { getDiscoveryStatus, getExtractionMetrics } = await import('./services/search');
+      await (await import('./services/webSearch')).webSearch.restoreStatus().catch(() => {});
       const discoveryStatus = getDiscoveryStatus();
       const extractionMetrics = getExtractionMetrics();
 
@@ -1016,6 +1000,8 @@ const discoveryRouter = router({
 
       return {
         timestamp: new Date().toISOString(),
+        multiSource: await (await import('./services/discovery')).restoreDiscoveryReport(),
+        webSearch: discoveryStatus,
         tavily: {
           configured: discoveryStatus.tavilyConfigured,
           lastSearchStatus: discoveryStatus.lastSearchStatus,

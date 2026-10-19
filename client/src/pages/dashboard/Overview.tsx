@@ -1,3 +1,4 @@
+import DiscoveryHealth from './DiscoveryHealth';
 import React, { useState, useEffect } from 'react';
 import {
   TrendingUp,
@@ -283,6 +284,7 @@ const Overview: React.FC = () => {
         </div>
       </div>
 
+      {isAdmin && <DiscoveryHealth />}
       {!isAdmin && <p className="card-bold">Your business approvals and deadline notices are in My Authorizations. Global discovery and audit controls require an administrator.</p>}
       {isAdmin && <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Recent Gaps Card */}

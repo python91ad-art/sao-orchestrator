@@ -44,8 +44,9 @@ export class BusinessDataError extends Error {
 
 const DEFAULT_TIMEOUT_MS = 12_000;
 const DEFAULT_RETRIES = 2;
-const cache = new Map<string, { expires: number; value: unknown }>();
-export function clearDiscoveryEvidenceCache() { cache.clear(); }
+const cache = new Map<string, { expires: number; value: unknown; retrievedAt: string }>();
+const circuit = { until: 0, failures: 0 };
+export function clearDiscoveryEvidenceCache() { cache.clear(); circuit.until = 0; circuit.failures = 0; }
 
 function nowIso() {
   return new Date().toISOString();
@@ -93,6 +94,7 @@ async function fetchJson<T>(
   const cached = cache.get(cacheKey);
   if (cached && cached.expires > Date.now()) return cached.value as T;
 
+  if (circuit.until > Date.now()) throw new BusinessDataError({ provider, category: 'rate_limit', retryAfterMs: circuit.until - Date.now(), message: 'ONS circuit is open; requests are temporarily restricted.' });
   const attempts = Math.max(1, (opts.retries ?? DEFAULT_RETRIES) + 1);
   let lastError: unknown;
 
@@ -107,8 +109,10 @@ async function fetchJson<T>(
         throw classifyStatus(provider, response.status, body, response.headers);
       }
       const json = (await response.json()) as T;
+      circuit.failures = 0;
       if (opts.cacheTtlMs && opts.cacheTtlMs > 0) {
-        cache.set(cacheKey, { expires: Date.now() + opts.cacheTtlMs, value: json });
+        if (cache.size >= 500) cache.delete(cache.keys().next().value!);
+        cache.set(cacheKey, { expires: Date.now() + opts.cacheTtlMs, value: json, retrievedAt: nowIso() });
       }
       return json;
     } catch (error: any) {
@@ -120,7 +124,12 @@ async function fetchJson<T>(
           : /fetch failed|network|econnreset|enotfound/i.test(String(error?.message || error))
             ? 'network'
             : 'unknown';
-      const retryable = category === 'rate_limit' || category === 'timeout' || category === 'network' || category === 'server';
+      if (category === 'rate_limit') {
+        circuit.until = Date.now() + Math.max(60000, error instanceof BusinessDataError ? error.retryAfterMs || 0 : 0);
+        break;
+      }
+      const retryable = category === 'timeout' || category === 'network' || category === 'server';
+      if (retryable && ++circuit.failures >= 3) { circuit.until = Date.now() + 60000; break; }
       if (!retryable || attempt >= attempts) break;
       const wait = error instanceof BusinessDataError && error.retryAfterMs
         ? Math.min(error.retryAfterMs, 8_000)
@@ -156,6 +165,18 @@ function buildQuery(parts: string[]): string {
 
 export class OnsAdapter {
   readonly provider: BusinessProviderId = 'ons';
+  constructor(private requestBudget = 60) {}
+  private async read(path: string): Promise<any> {
+    if (--this.requestBudget < 0) throw new BusinessDataError({ provider: 'ons', category: 'rate_limit', message: 'ONS discovery request budget reached.' });
+    return fetchJson(this.provider, `${this.baseUrl}${path}`, { cacheTtlMs: 3600000, retries: 1 });
+  }
+  async listDatasets(limit = 100): Promise<any> { return this.read(`/datasets?limit=${Math.min(limit, 100)}`); }
+  async getVersion(datasetId: string, edition: string, version: string): Promise<any> {
+    return this.read(`/datasets/${encodeURIComponent(datasetId)}/editions/${encodeURIComponent(edition)}/versions/${encodeURIComponent(version)}`);
+  }
+  async getDimensionOptions(datasetId: string, edition: string, version: string, dimension: string, offset = 0): Promise<any> {
+    return this.read(`/datasets/${encodeURIComponent(datasetId)}/editions/${encodeURIComponent(edition)}/versions/${encodeURIComponent(version)}/dimensions/${encodeURIComponent(dimension)}/options?limit=1000&offset=${offset}`);
+  }
   readonly baseUrl = 'https://api.beta.ons.gov.uk/v1';
 
   async searchDatasets(query: string, limit = 5): Promise<EvidenceRecord[]> {
@@ -184,7 +205,7 @@ export class OnsAdapter {
   async getDataset(datasetId: string): Promise<any> {
     const safeId = datasetId.trim();
     if (!/^[A-Za-z0-9_-]+$/.test(safeId)) throw new BusinessDataError({ provider: this.provider, category: 'invalid_request', message: 'Invalid ONS dataset id.' });
-    return fetchJson(this.provider, `${this.baseUrl}/datasets/${encodeURIComponent(safeId)}`, { cacheTtlMs: 6 * 60 * 60 * 1000 });
+    return this.read(`/datasets/${encodeURIComponent(safeId)}`);
   }
 
   async getObservation(params: {
@@ -199,13 +220,13 @@ export class OnsAdapter {
     }
     const path = `/datasets/${encodeURIComponent(params.datasetId)}/editions/${encodeURIComponent(params.edition)}/versions/${encodeURIComponent(String(params.version))}/observations`;
     const url = `${this.baseUrl}${path}?${qs.toString()}`;
-    const data: any = await fetchJson(this.provider, url, { cacheTtlMs: 60 * 60 * 1000 });
+    const data: any = await this.read(`${path}?${qs.toString()}`);
     return {
       provider: this.provider,
       source: 'Office for National Statistics API',
       title: `ONS observation: ${params.datasetId}`,
       url,
-      retrievedAt: nowIso(),
+      retrievedAt: cache.get(`${this.provider}:${url}:{}`)?.retrievedAt || nowIso(),
       reportingPeriod: params.dimensions.time,
       geography: params.dimensions.geography,
       summary: `Retrieved ${Array.isArray(data?.observations) ? data.observations.length : 0} observation(s), unit: ${data?.unit_of_measure || 'not specified'}.`,

@@ -60,6 +60,8 @@ const Providers: React.FC = () => {
   const [testResults, setTestResults] = useState<Record<string, { status: string; message: string }>>({});
   const [testing, setTesting] = useState<string | null>(null);
 
+  const [discoveryConfig, setDiscoveryConfig] = useState({ enabled: false, model: '', billingApproved: false, accountSpendLimitConfirmed: false, maxRequestsPerDay: 20, maxCreditsPerMonth: 900, dailyBudgetUsd: 0, maxRequestCostUsd: 0 });
+
   const [form, setForm] = useState({
     service: 'search' as ServiceType,
     name: '',
@@ -86,6 +88,7 @@ const Providers: React.FC = () => {
 
   const openAdd = (service: ServiceType) => {
     const firstKnown = knownProviders.find((k) => k.serviceType === service);
+    setDiscoveryConfig({ enabled: firstKnown?.id === 'tavily' || firstKnown?.id === 'ons', model: '', billingApproved: false, accountSpendLimitConfirmed: false, maxRequestsPerDay: 20, maxCreditsPerMonth: 900, dailyBudgetUsd: 0, maxRequestCostUsd: 0 });
     setEditing(null);
     setForm({
       service,
@@ -100,6 +103,7 @@ const Providers: React.FC = () => {
   };
 
   const openEdit = (p: ProviderRecord) => {
+    setDiscoveryConfig({ enabled: p.providerId === 'tavily' || p.providerId === 'ons', model: '', billingApproved: false, accountSpendLimitConfirmed: false, maxRequestsPerDay: 20, maxCreditsPerMonth: 900, dailyBudgetUsd: 0, maxRequestCostUsd: 0, ...p.config?.discovery });
     setEditing(p);
     setForm({
       service: p.service,
@@ -123,6 +127,7 @@ const Providers: React.FC = () => {
           baseUrl: form.baseUrl || null,
           credential: form.credential || undefined,
           priority: form.priority || null,
+          config: ['tavily','ons','gemini','groq','openrouter'].includes(form.providerId) ? { ...(editing.config || {}), discovery: discoveryConfig } : editing.config,
         });
       } else {
         await createMutation.mutateAsync({
@@ -133,6 +138,7 @@ const Providers: React.FC = () => {
           credential: form.credential,
           baseUrl: form.baseUrl || undefined,
           priority: form.priority || null,
+          config: ['tavily','ons','gemini','groq','openrouter'].includes(form.providerId) ? { discovery: discoveryConfig } : undefined,
         });
       }
       await reload();
@@ -348,6 +354,20 @@ const Providers: React.FC = () => {
                   <option value="fallback">Fallback</option>
                 </select>
               </div>
+              {['tavily', 'ons', 'gemini', 'groq', 'openrouter'].includes(form.providerId) && <fieldset className="space-y-3 border-t border-[var(--border)] pt-4">
+                <legend className="text-sm font-bold text-white">Discovery settings</legend>
+                <label className="flex gap-2 text-sm"><input type="checkbox" checked={discoveryConfig.enabled} onChange={e => setDiscoveryConfig({ ...discoveryConfig, enabled: e.target.checked })} />Enable this provider for discovery</label>
+                {form.providerId !== 'ons' && <label className="block text-sm">Maximum requests per UTC day<input type="number" min="0" max="500" value={discoveryConfig.maxRequestsPerDay} onChange={e => setDiscoveryConfig({ ...discoveryConfig, maxRequestsPerDay: Number(e.target.value) })} /></label>}
+                {form.providerId === 'tavily' && <label className="block text-sm">Maximum basic-search credits per UTC month<input type="number" min="0" max="100000" value={discoveryConfig.maxCreditsPerMonth} onChange={e => setDiscoveryConfig({ ...discoveryConfig, maxCreditsPerMonth: Number(e.target.value) })} /></label>}
+                {['gemini', 'groq', 'openrouter'].includes(form.providerId) && <>
+                  <p className="text-xs text-neutral-400">Web search is separate from LLM inference. Fallbacks require explicit cost approval and an account spending cap. No paid search runs by default.</p>
+                  <label className="block text-sm">Search model<input value={discoveryConfig.model} onChange={e => setDiscoveryConfig({ ...discoveryConfig, model: e.target.value })} placeholder="Provider-supported search model" /></label>
+                  <label className="block text-sm">Daily reservation budget (USD)<input type="number" min="0" step="0.01" value={discoveryConfig.dailyBudgetUsd} onChange={e => setDiscoveryConfig({ ...discoveryConfig, dailyBudgetUsd: Number(e.target.value) })} /></label>
+                  <label className="block text-sm">Conservative maximum cost per request (USD)<input type="number" min="0" step="0.01" value={discoveryConfig.maxRequestCostUsd} onChange={e => setDiscoveryConfig({ ...discoveryConfig, maxRequestCostUsd: Number(e.target.value) })} /></label>
+                  <label className="flex gap-2 text-sm"><input type="checkbox" checked={discoveryConfig.billingApproved} onChange={e => setDiscoveryConfig({ ...discoveryConfig, billingApproved: e.target.checked })} />Approve paid web discovery within these limits</label>
+                  <label className="flex gap-2 text-sm"><input type="checkbox" checked={discoveryConfig.accountSpendLimitConfirmed} onChange={e => setDiscoveryConfig({ ...discoveryConfig, accountSpendLimitConfirmed: e.target.checked })} />I configured a hard spending cap in the provider account</label>
+                </>}
+              </fieldset>}
               <div className="flex justify-end gap-3 pt-4 border-t border-[var(--border)]">
                 <button type="button" onClick={() => setIsAddOpen(false)} className="btn-secondary">Cancel</button>
                 <button disabled={!isAdmin || busy} type="submit" className="btn-bold-primary">{editing ? 'Save Changes' : 'Add Provider'}</button>

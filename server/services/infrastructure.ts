@@ -115,6 +115,7 @@ async function createEvidenceUnlocked(input: {
   title?: string | null;
   summary: string;
   content?: string | null;
+  retrievedAt?: Date;
   publishedAt?: Date | null;
   geography?: string | null;
   reportingPeriod?: string | null;
@@ -147,6 +148,7 @@ async function createEvidenceUnlocked(input: {
     title: input.title || null,
     summary: input.summary,
     content: input.content || null,
+    retrievedAt: input.retrievedAt || new Date(),
     publishedAt: input.publishedAt || null,
     geography: input.geography || null,
     reportingPeriod: input.reportingPeriod || null,
@@ -178,6 +180,13 @@ async function recordEvidenceEventUnlocked(input: { evidenceId?: string | null; 
     metadataJson: json(input.metadata),
   });
   return id;
+}
+
+export async function formatStoredDiscoveryEvidence(gapId: string): Promise<string> {
+  const records = await listEvidence({ gapId, limit: 30 });
+  return records.filter(e => ['statistical_observation', 'discovery_problem'].includes(e.category)).map(e =>
+    `Source: ${e.sourceUrl} (provider: ${e.provider}; status: ${e.status})\nRetrieved: ${e.retrievedAt.toISOString()}\nPeriod: ${e.reportingPeriod || 'unknown'}; geography: ${e.geography || 'unknown'}\nEvidence: ${e.summary}\nProvenance and hypothesis: ${e.metadataJson || '{}'}\nCaveats: ${e.caveatsJson || '[]'}`
+  ).join('\n\n').slice(0, 40000);
 }
 
 export async function syncEvidenceBundleForGap(gapId: string, bundle: { evidence: any[]; unavailable?: { provider: string; reason: string }[] }) {

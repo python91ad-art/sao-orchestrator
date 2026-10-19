@@ -9,6 +9,7 @@
 // ============================================================
 
 import * as db from '../db';
+import { z } from 'zod';
 import { integrationCredentials, credentialAuditLogs } from '../../drizzle/schema';
 import { eq, and, desc, sql } from 'drizzle-orm';
 import { encryptCredential, decryptCredential, redactCredential } from './credentialCrypto';
@@ -333,7 +334,21 @@ export interface SaveCredentialInput {
   priority?: 'primary' | 'fallback' | null;
 }
 
+export const discoveryConfigSchema = z.object({
+  enabled: z.boolean().optional(), model: z.string().max(150).regex(/^[a-zA-Z0-9/._:-]*$/).optional(),
+  billingApproved: z.boolean().optional(), accountSpendLimitConfirmed: z.boolean().optional(),
+  maxRequestsPerDay: z.number().int().min(0).max(500).optional(),
+  maxCreditsPerMonth: z.number().int().min(0).max(100000).optional(),
+  dailyBudgetUsd: z.number().finite().min(0).max(1000).optional(),
+  maxRequestCostUsd: z.number().finite().min(0).max(100).optional(),
+  maxAgeDays: z.number().int().min(1).max(550).optional(),
+}).strict();
+function validateDiscoveryConfig(config: any) {
+  if (config?.discovery !== undefined) discoveryConfigSchema.parse(config.discovery);
+}
+
 export async function saveProvider(input: SaveCredentialInput) {
+  validateDiscoveryConfig(input.config);
   if (!isSupportedService(input.service)) {
     throw new Error(`Unsupported service type: ${input.service}`);
   }
@@ -367,6 +382,7 @@ export async function updateProvider(
   id: string,
   input: { credential?: string; baseUrl?: string; config?: any; name?: string; enabled?: boolean; priority?: 'primary' | 'fallback' | null }
 ) {
+  validateDiscoveryConfig(input.config);
   const set: Record<string, unknown> = { updatedAt: new Date() };
   if (input.credential !== undefined) {
     set.encryptedValue = encryptCredential(input.credential);
@@ -503,4 +519,26 @@ export async function resolveCredential(
     if (v && v.trim().length > 0) return { source: 'env', value: v };
   }
   return { source: null, value: null };
+}
+
+/** Discovery settings are independent of inference routing. A disabled record blocks env fallback. */
+export async function resolveDiscoveryProvider(providerId: string): Promise<{
+  enabled: boolean; key: string | null; config: any; revision: string;
+}> {
+  const rows = await db.db.select().from(integrationCredentials)
+    .where(eq(integrationCredentials.providerId, providerId))
+    .orderBy(sql`case ${integrationCredentials.service} when 'search' then 0 else 1 end`, desc(integrationCredentials.updatedAt), desc(integrationCredentials.id));
+  const row = rows[0];
+  if (row && !row.enabled) return { enabled: false, key: null, config: {}, revision: String(row.updatedAt) };
+  const config = safeParseConfig(row?.config) || {};
+  let key: string | null = null;
+  if (row?.encryptedValue) {
+    try { key = decryptCredential(row.encryptedValue) || null; } catch { /* fail closed */ }
+    if (!key && providerId !== 'ons') return { enabled: false, key: null, config: {}, revision: String(row.updatedAt) };
+  } else {
+    for (const env of getProviderDescriptor(providerId)?.envKeys || []) {
+      if (process.env[env]?.trim()) { key = process.env[env]!; break; }
+    }
+  }
+  return { enabled: config.discovery?.enabled !== false, key, config: config.discovery || {}, revision: row ? `${row.id}:${new Date(row.updatedAt).getTime()}` : 'env' };
 }

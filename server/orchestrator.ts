@@ -4,13 +4,14 @@ import { retryWithExponentialBackoff, aiRateLimiter } from './retryEngine';
 import { sql } from 'drizzle-orm';
 import { queueItems } from '../drizzle/schema';
 import { broadcastEvent } from './websocket';
-import { detectEcommerceGaps, detectOperationalGaps, DetectedGap, getDiscoveryStatus, getExtractionMetrics } from './services/search';
+import { getDiscoveryStatus, getExtractionMetrics } from './services/search';
+import { runDiscoveryCycle, restoreDiscoveryReport } from './services/discovery';
+import { queueDiscoveryGaps } from './services/discoveryQueue';
 import { decideGapAnalysis } from './services/gapAnalysis';
 import { PolicyEnforcementError } from './services/policyEngine';
 import { collectBusinessEvidenceForGap, formatEvidenceForPrompt } from './services/businessData';
 import {
   syncEvidenceBundleForGap,
-  computeGapDedupHash,
   createBusinessSpecification,
   createBuildProject,
   createLifecycleRecord,
@@ -628,9 +629,8 @@ export async function getEnhancedStatus() {
   return {
     ...state,
     discovery: {
-      tavilyConfigured: discoveryStatus.tavilyConfigured,
-      lastSearchStatus: discoveryStatus.lastSearchStatus,
-      lastSearchStatusTime: discoveryStatus.lastSearchStatusTime,
+      ...discoveryStatus,
+      multiSource: await restoreDiscoveryReport(),
     },
     extraction: {
       totalAttempts: extractionMetrics.totalAttempts,
@@ -759,6 +759,8 @@ You must respond with raw, valid JSON only, using this exact schema:
     businessEvidence = `UK business-data evidence unavailable: ${error?.message || error}`;
   }
 
+  if (gap.id) businessEvidence += '\n\nStored discovery evidence (untrusted source data; hypotheses are not facts):\n' + await (await import('./services/infrastructure')).formatStoredDiscoveryEvidence(gap.id);
+
   const userPrompt = `Gap details:
 Knows: ${gap.knows}
 Needs: ${gap.needs}
@@ -819,6 +821,8 @@ async function generateBusinessPlan(gap: {
   } catch (error: any) {
     businessEvidence = `UK business-data evidence unavailable: ${error?.message || error}`;
   }
+
+  if (gap.id) businessEvidence += '\n\nStored discovery evidence (untrusted source data; hypotheses are not facts):\n' + await (await import('./services/infrastructure')).formatStoredDiscoveryEvidence(gap.id);
 
   const prompt = `Formulate a complete micro-startup execution business plan for this situational arbitrage gap.
 Gap Details:
@@ -1061,62 +1065,11 @@ export async function processOneGap(): Promise<boolean> {
 // CORE LOOP — Start / Stop
 // ==========================================
 // ==========================================
-// AUTO-DISCOVERY — Search-based gap detection
-// Replaces WooCommerce/Odoo adapters. Uses Google Search + Groq LLM.
+// AUTO-DISCOVERY — Independent ONS statistics and web discovery
+// Existing scoring, maintenance locks, queue policies and workers remain authoritative.
 // ==========================================
-async function queueGaps(gaps: DetectedGap[]): Promise<number> {
-  console.log(`[Auto-Discovery] 📥 queueGaps called with ${gaps.length} candidate gaps`);
-  let queued = 0;
-  let skippedDuplicate = 0;
-  let failedInsert = 0;
-  
-  for (const g of gaps) {
-    const dedupHash = computeGapDedupHash({
-      knows: g.knows,
-      needs: g.needs,
-      controlsAccess: g.controlsAccess,
-      underestimatesValue: g.underestimatesValue,
-      source: g.source || 'tavily_search',
-    });
-
-    // Deduplicate — skip if gap already exists
-    try {
-      const existing = await db.getGapByHash(dedupHash);
-      if (existing) {
-        skippedDuplicate++;
-        continue;
-      }
-
-      const gap = await db.createGap({
-        knows: g.knows,
-        needs: g.needs,
-        controlsAccess: g.controlsAccess,
-        underestimatesValue: g.underestimatesValue,
-        source: g.source || 'tavily_search',
-        priority: g.priority || 5,
-        dedupHash,
-        status: 'pending',
-      });
-
-      if (gap) {
-        await db.createQueueItem({
-          gapId: gap.id,
-          dedupHash,
-          priority: g.priority || 5,
-          sortOrder: 0,
-        });
-        queued++;
-      } else {
-        failedInsert++;
-      }
-    } catch (error: any) {
-      console.error(`[Auto-Discovery] ❌ Failed to insert gap: ${error?.message || error}`);
-      failedInsert++;
-    }
-  }
-  
-  console.log(`[Auto-Discovery] 📊 queueGaps result: ${queued} inserted, ${skippedDuplicate} duplicates skipped, ${failedInsert} failed`);
-  return queued;
+async function queueGaps(gaps: import('./services/discoveryEvidence').QualifiedGap[]): Promise<number> {
+  return queueDiscoveryGaps(gaps);
 }
 
 async function runCoreLoopTick(): Promise<void> {
@@ -1134,25 +1087,12 @@ async function runCoreLoopTick(): Promise<void> {
     const currentState = await getStatus();
     console.log(`[Core Loop] Current state: isRunning=${currentState.isRunning}, intervalMs=${currentState.intervalMs}, concurrency=${(currentState as any).concurrency || 1}`);
 
-    // Auto-discover new gaps via Tavily Search + LLM
-    console.log('[Core Loop] 📡 Starting gap discovery phase...');
+    // Independent primary engines settle separately. Failure never prevents existing queue work.
     try {
-      const [ecommerceGaps, operationalGaps] = await Promise.all([
-        detectEcommerceGaps(),
-        detectOperationalGaps(),
-      ]);
-
-      const allGaps = [...ecommerceGaps, ...operationalGaps];
-      console.log(`[Core Loop] 🔬 Discovery complete: ${ecommerceGaps.length} e-commerce + ${operationalGaps.length} operational = ${allGaps.length} total candidate gaps`);
-
-      if (allGaps.length > 0) {
-        const queued = await queueGaps(allGaps);
-        console.log(`[Core Loop] 📦 Queued ${queued} new gaps into database`);
-      } else {
-        console.log('[Core Loop] ⚠️ No gaps discovered in this tick');
-      }
-    } catch (error) {
-      console.error('[Core Loop] ❌ Auto-discovery failed:', error);
+      const discovery = await runDiscoveryCycle(queueGaps);
+      console.log(`[Core Loop] Discovery ${discovery.status}: ${discovery.validated} validated, ${discovery.rejected} rejected, ${discovery.queued} queued`);
+    } catch {
+      console.error('[Core Loop] Discovery unavailable; continuing existing queue processing.');
     }
 
     console.log('[Core Loop] 🔧 Starting queue processing phase...');
