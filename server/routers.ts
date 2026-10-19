@@ -9,6 +9,8 @@ import * as db from './db';
 import {
   setConcurrency,
   processOneGap,
+  runCoreLoopOnce,
+  getCoreLoopRuntimeStatus,
   startCoreLoop,
   stopCoreLoop,
   updateCoreLoopInterval,
@@ -767,14 +769,18 @@ const coreLoopRouter = router({
   stop: runtimeProcedure
     .mutation(async () => {
       await stopCoreLoop();
-      return { success: true, message: 'Core loop stopped' };
+      return { success: true, message: 'Further cycles stopped; dispatched work drains safely.', ...(await getCoreLoopRuntimeStatus()) };
     }),
 
   runOnce: runtimeProcedure
     .mutation(async () => {
-      const result = await processOneGap();
-      return result || { success: false, message: 'No gaps in queue' };
+      try { return await runCoreLoopOnce(); } catch (error: any) { throw new TRPCError({ code: /already executing/.test(error.message) ? 'CONFLICT' : 'PRECONDITION_FAILED', message: error.message }); }
     }),
+
+  processNext: runtimeProcedure.mutation(async () => {
+    try { const result = await processOneGap(); return { ...result, message: result.processed ? 'One queued operation processed; inspect its recorded outcome.' : 'No eligible queued gaps.' }; }
+    catch (error: any) { throw new TRPCError({ code: /already executing/.test(error.message) ? 'CONFLICT' : 'PRECONDITION_FAILED', message: error.message }); }
+  }),
 
   runAudit: runtimeProcedure
     .mutation(async () => {
@@ -793,7 +799,7 @@ const coreLoopRouter = router({
 
   status: protectedProcedure
     .query(async () => {
-      const state = await db.getCoreLoopState();
+      const state = await getCoreLoopRuntimeStatus();
       const { getDiscoveryStatus, getExtractionMetrics } = await import('./services/search');
       await (await import('./services/webSearch')).webSearch.restoreStatus().catch(() => {});
       const discoveryStatus = getDiscoveryStatus();
@@ -803,6 +809,9 @@ const coreLoopRouter = router({
       // dashboard consumes (historically mismatched, causing the UI to
       // always show the loop as stopped and settings to load defaults).
       return {
+        runtimeState: state.runtimeState,
+        executing: state.executing,
+        stopPolicy: state.stopPolicy,
         // snake_case aliases (backward compatible)
         is_running: Boolean(state?.isRunning),
         interval_ms: Number(state?.intervalMs || 0),
@@ -991,7 +1000,8 @@ const discoveryRouter = router({
       const discoveryStatus = getDiscoveryStatus();
       const extractionMetrics = getExtractionMetrics();
 
-      const coreLoopState = await db.getCoreLoopState();
+      const coreLoopState = await getCoreLoopRuntimeStatus();
+      const multiSource = await (await import('./services/discovery')).restoreDiscoveryReport();
       
       const [gapCount, queueCount] = await Promise.all([
         db.db.select({ count: sql<number>`count(*)` }).from(gaps).where(sql`NOT EXISTS(SELECT 1 FROM discovery_archives WHERE gap_id=${gaps.id})`).then(r => r[0]?.count || 0),
@@ -1000,7 +1010,7 @@ const discoveryRouter = router({
 
       return {
         timestamp: new Date().toISOString(),
-        multiSource: await (await import('./services/discovery')).restoreDiscoveryReport(),
+        multiSource,
         webSearch: discoveryStatus,
         tavily: {
           configured: discoveryStatus.tavilyConfigured,
@@ -1023,6 +1033,7 @@ const discoveryRouter = router({
             : null,
         },
         coreLoop: {
+          runtimeState: coreLoopState.runtimeState, executing: coreLoopState.executing, stopPolicy: coreLoopState.stopPolicy,
           isRunning: coreLoopState?.isRunning ?? false,
           intervalMs: coreLoopState?.intervalMs ?? 10800000,
           lastExecutedAt: coreLoopState?.lastExecutedAt ? new Date(coreLoopState.lastExecutedAt).toISOString() : null,
@@ -1033,23 +1044,16 @@ const discoveryRouter = router({
         database: {
           gapsCount: Number(gapCount),
           queueItemsCount: Number(queueCount),
-          gapStatuses: {} as Record<string, number>,
+          gapStatuses: await db.getGapStatusCounts(),
         },
         status: (() => {
           const issues: string[] = [];
-          if (!discoveryStatus.tavilyConfigured) issues.push('TAVILY_API_KEY not configured');
-          if (!coreLoopState?.isRunning) issues.push('Core Loop is not running');
-          if (discoveryStatus.lastSearchStatus === 'api_error') issues.push('Last Tavily API call failed');
-          if (discoveryStatus.lastSearchStatus === 'not_configured') issues.push('Tavily is not configured');
-          if (Number(gapCount) === 0) issues.push('Zero gaps in database');
-          if (extractionMetrics.lastFailureReason) {
-            issues.push(`Last extraction failure: ${extractionMetrics.lastFailureReason}`);
-          }
-          if (extractionMetrics.totalAttempts > 0 && extractionMetrics.llmSuccesses === 0) {
-            issues.push('All extraction attempts have failed — LLM pipeline is non-functional');
-          }
+          if (multiSource.status === 'idle') issues.push('Discovery has never executed.');
+          if (multiSource.status === 'interrupted') issues.push('Previous discovery cycle was interrupted.');
+          if (multiSource.status === 'unavailable' || multiSource.status === 'partial') issues.push(...(multiSource.errors || ['Discovery sources unavailable.']));
+          if (multiSource.status === 'stopped') issues.push('Discovery stopped; no further work is dispatched by that cycle.');
           return {
-            healthy: issues.length === 0,
+            healthy: multiSource.status === 'ok' && issues.length === 0,
             issues,
           };
         })(),

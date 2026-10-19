@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import 'dotenv/config';
 import { drizzle } from 'drizzle-orm/mysql2';
 import mysql from 'mysql2/promise';
@@ -479,6 +480,10 @@ export async function listQueueItems() {
     );
 }
 
+const queueOwnership = new AsyncLocalStorage<{ id: string; workerId: string }>();
+export function withQueueOwnership<T>(id: string, workerId: string, fn: () => Promise<T>) {
+  return queueOwnership.run({ id, workerId }, fn);
+}
 export async function updateQueueItem(
   id: string,
   updates: Partial<typeof schema.queueItems.$inferSelect>
@@ -490,13 +495,15 @@ export async function updateQueueItem(
       if (archived.length) throw new Error('Archived candidate jobs cannot restart.');
     }
   }
-  await db
+  const owner = queueOwnership.getStore();
+  const result = await db
     .update(schema.queueItems)
     .set({
       ...updates,
       updatedAt: new Date(),
     })
-    .where(eq(schema.queueItems.id, id));
+    .where(and(eq(schema.queueItems.id, id), owner?.id === id ? and(eq(schema.queueItems.workerId, owner.workerId), eq(schema.queueItems.status, 'processing')) : undefined));
+  if (owner?.id === id && result[0].affectedRows !== 1) throw new Error('Queue ownership lost; stale worker cannot overwrite the current outcome.');
 
   return getQueueItem(id);
 }
@@ -508,55 +515,29 @@ export async function deleteQueueItem(id: string) {
 }
 
 // REPLACED: claimNextPendingQueueItem instead of getNextPendingQueueItem
-export async function claimNextPendingQueueItem(workerId: string) {
-  const results = await db
-    .select()
-    .from(schema.queueItems)
-    .where(
-      and(
-        eq(schema.queueItems.status, 'pending'),
-        sql`(${schema.queueItems.queueType} IN ('audit','maintenance') OR NOT EXISTS (SELECT 1 FROM operational_settings WHERE setting_key='emergencyStop' AND value_json='true'))`,
-        sql`(${schema.queueItems.queueType}<>'synthesis' OR (IS_USED_LOCK('sao:discovery-maintenance') IS NULL AND NOT EXISTS (SELECT 1 FROM discovery_archives WHERE gap_id=${schema.queueItems.gapId})))`,
-        or(
-          isNull(schema.queueItems.nextRetryAt),
-          sql`${schema.queueItems.nextRetryAt} <= NOW()`
-        )
-      )
-    )
-    .orderBy(
-      asc(schema.queueItems.sortOrder),
-      desc(schema.queueItems.priority),
-      asc(schema.queueItems.createdAt)
-    )
-    .limit(1);
-
-  const item = results[0];
-
-  if (!item) {
-    return null;
-  }
-
-  const claimed = await db
-    .update(schema.queueItems)
-    .set({
-      status: 'processing',
-      workerId,
-      attempts: item.attempts + 1,
-      updatedAt: new Date(),
-    })
-    .where(
-      and(
-        eq(schema.queueItems.id, item.id),
-        eq(schema.queueItems.status, 'pending')
-      )
-    );
-
-  // Check if the update affected exactly one row (optimistic locking)
-  if (claimed[0]?.affectedRows !== 1) {
-    return null;
-  }
-
-  return getQueueItem(item.id);
+export async function claimNextPendingQueueItem(workerId: string, guard?: { epoch: number; requireRunning: boolean }) {
+  await initCoreLoopState();
+  return db.transaction(async tx => {
+    // Serialize claims with Stop and queue-limit writes. Only the claim holds this short lock.
+    const [state] = await tx.select().from(schema.coreLoopState).where(eq(schema.coreLoopState.id, 'singleton')).for('update');
+    if (guard) {
+      const [control] = await tx.select().from(schema.operationalSettings).where(eq(schema.operationalSettings.key, 'coreLoopControl'));
+      if ((control ? JSON.parse(control.valueJson).epoch || 0 : 0) !== guard.epoch || (guard.requireRunning && !state.isRunning)) return null;
+    }
+    await tx.update(schema.queueItems).set({ status: 'failed', workerId: null, nextRetryAt: null, lastError: 'Configured queue retry limit exhausted.', updatedAt: new Date() })
+      .where(and(eq(schema.queueItems.status, 'pending'), sql`${schema.queueItems.attempts} >= ${state.maxAttempts}`));
+    const [item] = await tx.select().from(schema.queueItems).where(and(
+      eq(schema.queueItems.status, 'pending'),
+      sql`${schema.queueItems.attempts} < ${state.maxAttempts}`,
+      sql`(${schema.queueItems.queueType} IN ('audit','maintenance') OR NOT EXISTS (SELECT 1 FROM operational_settings WHERE setting_key='emergencyStop' AND value_json='true'))`,
+      sql`(${schema.queueItems.queueType}<>'synthesis' OR (IS_USED_LOCK('sao:discovery-maintenance') IS NULL AND NOT EXISTS (SELECT 1 FROM discovery_archives WHERE gap_id=${schema.queueItems.gapId})))`,
+      sql`NOT EXISTS (SELECT 1 FROM queue_items active_job WHERE active_job.gap_id=${schema.queueItems.gapId} AND active_job.status='processing')`,
+      or(isNull(schema.queueItems.nextRetryAt), sql`${schema.queueItems.nextRetryAt} <= NOW()`)
+    )).orderBy(asc(schema.queueItems.sortOrder), desc(schema.queueItems.priority), asc(schema.queueItems.createdAt)).limit(1).for('update');
+    if (!item) return null;
+    await tx.update(schema.queueItems).set({ status: 'processing', workerId, attempts: item.attempts + 1, maxAttempts: state.maxAttempts, updatedAt: new Date() }).where(eq(schema.queueItems.id, item.id));
+    return { ...item, status: 'processing' as const, workerId, attempts: item.attempts + 1, maxAttempts: state.maxAttempts };
+  });
 }
 
 // Recover queue items left in `processing` after a worker/process restart.
@@ -587,8 +568,10 @@ export async function recoverStaleProcessingQueueItems(
   const result = await db
     .update(schema.queueItems)
     .set({
-      status: 'pending',
+      status: sql`CASE WHEN ${schema.queueItems.attempts} >= ${schema.queueItems.maxAttempts} THEN 'failed' ELSE 'pending' END`,
+      lastError: 'Interrupted worker lease expired; recovered for retry or review.',
       workerId: null,
+      nextRetryAt: null,
       updatedAt: new Date(),
     })
     .where(
@@ -633,9 +616,10 @@ export async function getQueueStats() {
 // ==========================================
 // Deployment Helpers
 // ==========================================
-export async function createDeployment(deploymentData: Parameters<typeof createDeploymentUnlocked>[0]) {
+export class OperationalLimitError extends Error {}
+export async function createDeployment(deploymentData: Parameters<typeof createDeploymentUnlocked>[0], respectRuntimeLimits = false) {
   const { withDiscoveryWrite } = await import('./services/discoveryMaintenance');
-  return withDiscoveryWrite(() => createDeploymentUnlocked(deploymentData));
+  return withDiscoveryWrite(() => createDeploymentUnlocked(deploymentData, respectRuntimeLimits));
 }
 async function createDeploymentUnlocked(deploymentData: {
   gapId: string;
@@ -647,13 +631,22 @@ async function createDeploymentUnlocked(deploymentData: {
   health?: 'healthy' | 'warning' | 'critical';
   stripeProductId?: string;
   stripePriceId?: string;
-}) {
-  const id = generateId();
+}, respectRuntimeLimits = false) {
+  let id = generateId();
 
   await db.transaction(async tx => {
     const gap = (await tx.select({ id: schema.gaps.id }).from(schema.gaps).where(eq(schema.gaps.id, deploymentData.gapId)).for('update'))[0];
     if (!gap) throw new Error('Business creation requires an existing candidate.');
     if ((await tx.select().from(schema.discoveryArchives).where(eq(schema.discoveryArchives.gapId, deploymentData.gapId)).limit(1)).length) throw new Error('Archived candidates cannot start new businesses.');
+    const [existing] = await tx.select().from(schema.deployments).where(eq(schema.deployments.gapId, deploymentData.gapId)).limit(1);
+    if (existing) { id = existing.id; return; }
+    if (respectRuntimeLimits) {
+      const [limits] = await tx.select().from(schema.coreLoopState).where(eq(schema.coreLoopState.id, 'singleton')).for('update');
+      if (!limits) throw new OperationalLimitError('Runtime limits are unavailable.');
+      const [usage] = await tx.select({ count: sql<number>`COUNT(*)`, cost: sql<string>`COALESCE(SUM(${schema.deployments.costPerDay}),0)` }).from(schema.deployments).where(eq(schema.deployments.status, 'active')).for('update');
+      if (Number(usage.count) >= limits.maxDeployments) throw new OperationalLimitError(`Maximum deployments (${limits.maxDeployments}) reached.`);
+      if (Number(limits.maxCostPerDay) > 0 && Number(usage.cost) + Number(deploymentData.costPerDay || 0) >= Number(limits.maxCostPerDay)) throw new OperationalLimitError('Maximum daily deployment cost reached.');
+    }
     const activePolicies = await tx.select().from(schema.policyHeads).orderBy(asc(schema.policyHeads.category)).for('update');
     await tx.insert(schema.deployments).values({
       id,
@@ -761,7 +754,7 @@ export async function canCreateDeployment(): Promise<{
   reason?: string;
 }> {
   const state = await getCoreLoopState();
-  const maxDeployments = Number(state?.maxDeployments) || 10;
+  const maxDeployments = Number(state?.maxDeployments ?? 10);
   const maxCostPerDay = parseFloat(String(state?.maxCostPerDay ?? '50.00')) || 0;
 
   const active = await countDeploymentsByStatus('active');
@@ -1423,6 +1416,45 @@ export async function updateCoreLoopState(
     );
 
   return getCoreLoopState();
+}
+
+export async function incrementCoreLoopCounters(delta: { gaps?: number; deployments?: number }) {
+  await db.update(schema.coreLoopState).set({ totalGapsProcessed: sql`${schema.coreLoopState.totalGapsProcessed} + ${delta.gaps || 0}`,
+    totalDeploymentsCreated: sql`${schema.coreLoopState.totalDeploymentsCreated} + ${delta.deployments || 0}`, updatedAt: new Date() }).where(eq(schema.coreLoopState.id, 'singleton'));
+}
+
+// Runtime epochs live in the existing settings store; no schema migration is required.
+export async function getCoreLoopRuntimeState() {
+  const state = await initCoreLoopState();
+  const [control] = await db.select().from(schema.operationalSettings).where(eq(schema.operationalSettings.key, 'coreLoopControl'));
+  return { ...state!, epoch: control ? JSON.parse(control.valueJson).epoch || 0 : 0 };
+}
+export async function changeCoreLoopControl(isRunning: boolean) {
+  await initCoreLoopState();
+  return db.transaction(async tx => {
+    const [state] = await tx.select().from(schema.coreLoopState).where(eq(schema.coreLoopState.id, 'singleton')).for('update');
+    if (isRunning) {
+      const [emergency] = await tx.select().from(schema.operationalSettings).where(eq(schema.operationalSettings.key, 'emergencyStop'));
+      if (emergency?.valueJson === 'true') throw new Error('Emergency stop is active.');
+    }
+    const [saved] = await tx.select().from(schema.operationalSettings).where(eq(schema.operationalSettings.key, 'coreLoopControl'));
+    const epoch = (saved ? JSON.parse(saved.valueJson).epoch || 0 : 0) + (!isRunning || !state.isRunning ? 1 : 0);
+    await tx.insert(schema.operationalSettings).values({ key: 'coreLoopControl', valueJson: JSON.stringify({ epoch }), updatedBy: 'system:core-loop' })
+      .onDuplicateKeyUpdate({ set: { valueJson: JSON.stringify({ epoch }), updatedAt: new Date() } });
+    await tx.update(schema.coreLoopState).set({ isRunning, ...(!isRunning ? { nextExecutionAt: null } : {}), updatedAt: new Date() }).where(eq(schema.coreLoopState.id, 'singleton'));
+    return { ...state, isRunning, epoch };
+  });
+}
+export async function updateCoreLoopSchedule(patch: { intervalMs?: number; lastExecutedAt?: Date; nextExecutionAt?: Date | null }, epoch?: number) {
+  await initCoreLoopState();
+  await db.transaction(async tx => {
+    await tx.select().from(schema.coreLoopState).where(eq(schema.coreLoopState.id, 'singleton')).for('update');
+    if (epoch !== undefined) {
+      const [saved] = await tx.select().from(schema.operationalSettings).where(eq(schema.operationalSettings.key, 'coreLoopControl'));
+      if ((saved ? JSON.parse(saved.valueJson).epoch || 0 : 0) !== epoch) return;
+    }
+    await tx.update(schema.coreLoopState).set({ ...patch, updatedAt: new Date() }).where(eq(schema.coreLoopState.id, 'singleton'));
+  });
 }
 
 // ==========================================

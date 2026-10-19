@@ -5,7 +5,8 @@ import { mutateDiscoveryRuntime, type MutateRuntime } from './discoveryRuntime';
 import { resolveDiscoveryProvider } from './providerRegistry';
 
 export interface OnsOutcome extends CandidateBatch {
-  status: 'ok' | 'insufficient_evidence' | 'unavailable' | 'not_configured';
+  status: 'ok' | 'partial' | 'insufficient_evidence' | 'unavailable' | 'not_configured';
+  interpretationDependency?: string;
   signals: number; errors: string[]; cached?: boolean;
 }
 /** Explicit supported periods only. Never guess ambiguous dates. End dates allow annual data a full reporting year. */
@@ -16,6 +17,7 @@ export function periodEnd(label: string): number | null {
   if (/^\d{4}-\d{2}(-\d{2})?$/.test(label)) {
     const [y, m, d] = label.split('-').map(Number);
     if (m < 1 || m > 12 || (d !== undefined && (d < 1 || d > 31))) return null;
+    if (d !== undefined && new Date(Date.UTC(y, m - 1, d)).getUTCMonth() !== m - 1) return null;
     return d ? Date.UTC(y, m - 1, d) : Date.UTC(y, m, 0);
   }
   if (/^[A-Za-z]{3}-\d{2,4}$/.test(label)) {
@@ -35,12 +37,13 @@ export function compatibleSignal(a: StatisticalObservation, b: StatisticalObserv
     Date.parse(b.periodEnd) > Date.parse(a.periodEnd) && Date.parse(b.periodEnd) <= now + 86400000 &&
     now - Date.parse(a.periodEnd) <= Math.min(maxAgeDays, cadence(a.period) === 'month' ? 120 : cadence(a.period) === 'quarter' ? 270 : cadence(a.period) === 'day' ? 30 : 550) * 86400000;
 }
-type Deps = { adapter: OnsAdapter; mutate: MutateRuntime; resolve: typeof resolveDiscoveryProvider; extract: typeof extractQualifiedGaps; now: () => number };
+type Deps = { adapter: OnsAdapter; mutate: MutateRuntime; resolve: typeof resolveDiscoveryProvider; extract: typeof extractQualifiedGaps; now: () => number; shouldContinue: () => Promise<boolean> };
 export async function discoverOns(deps: Partial<Deps> = {}): Promise<OnsOutcome> {
-  const d: Deps = { adapter: new OnsAdapter(50), mutate: mutateDiscoveryRuntime, resolve: resolveDiscoveryProvider, extract: extractQualifiedGaps, now: Date.now, ...deps };
+  const d: Deps = { adapter: new OnsAdapter(50, deps.shouldContinue), mutate: mutateDiscoveryRuntime, resolve: resolveDiscoveryProvider, extract: extractQualifiedGaps, now: Date.now, shouldContinue: async () => true, ...deps };
   const empty = (status: OnsOutcome['status'], errors: string[] = []): OnsOutcome => ({ status, gaps: [], candidates: 0, rejected: 0, signals: 0, errors });
   const errors: string[] = [];
   try {
+    if (!await d.shouldContinue()) return empty('not_configured', ['Cycle stopped before ONS dispatch']);
     const cfg = await d.resolve('ons');
     if (!cfg.enabled) return empty('not_configured');
     const guard = await d.mutate('ons-health', state => state.openUntil > d.now() ? true : false);
@@ -50,12 +53,28 @@ export async function discoverOns(deps: Partial<Deps> = {}): Promise<OnsOutcome>
       d.adapter.listDatasets(), d.adapter.searchDatasets('business industry prices economy', 5),
     ]);
     if (catalogue.status === 'rejected' && searched.status === 'rejected') throw new Error('ONS catalogue unavailable');
+    if (catalogue.status === 'fulfilled' && !Array.isArray(catalogue.value?.items) && searched.status === 'rejected') throw new Error('Malformed ONS catalogue');
     const discovered = searched.status === 'fulfilled' ? searched.value.flatMap(e => {
       const raw = e.raw as any;
       const id = raw?.id || /\/datasets\/([\w-]+)(?:\/|$)/.exec(raw?.links?.self?.href || '')?.[1];
       return id ? [{ id, title: e.title }] : [];
     }) : [];
-    const items = catalogue.status === 'fulfilled' && Array.isArray(catalogue.value?.items) ? catalogue.value.items : [];
+    if (catalogue.status === 'fulfilled' && !Array.isArray(catalogue.value?.items) && !discovered.length) throw new Error('Malformed ONS catalogue');
+    let items = catalogue.status === 'fulfilled' && Array.isArray(catalogue.value?.items) ? catalogue.value.items : [];
+    // The live catalogue exceeds one page. Rotate bounded extra pages without exceeding the request budget.
+    const total = catalogue.status === 'fulfilled' ? Number(catalogue.value?.total_count || items.length) : 0;
+    if (total > items.length && items.length) {
+      const pageSize = items.length;
+      const pages = Math.ceil(total / pageSize);
+      const start = await d.mutate('ons-catalogue-cursor', state => { const cursor = state.page || 1; state.page = 1 + ((cursor - 1 + 3) % (pages - 1)); return cursor; });
+      for (let i = 0; i < Math.min(3, pages - 1); i++) {
+        try {
+          const page = await d.adapter.listDatasets(pageSize, (1 + ((start - 1 + i) % (pages - 1))) * pageSize);
+          if (!Array.isArray(page.items)) throw new Error('Malformed catalogue page');
+          items = [...items, ...page.items];
+        } catch { errors.push('ONS catalogue page unavailable; continuing with retrieved datasets'); }
+      }
+    }
     const relevant = [...discovered, ...items.filter((x: any) => /business|industry|price|earning|employment|productivity|trade|output/i.test(`${x.title} ${x.description}`))];
     const all = Array.from(new Map(relevant.filter((x: any) => /^[\w-]+$/.test(x.id)).map((x: any) => [x.id, x])).values());
     // Rotate across the catalogue on scheduled cycles instead of repeatedly using the first datasets.
@@ -64,6 +83,7 @@ export async function discoverOns(deps: Partial<Deps> = {}): Promise<OnsOutcome>
     let signals = 0, candidates = 0, rejected = 0, usable = 0;
     const gaps: CandidateBatch['gaps'] = [];
     for (const item of selected) {
+      if (!await d.shouldContinue()) break;
       try {
         const dataset = await d.adapter.getDataset(item.id);
         const link = dataset.links?.latest_version?.href;
@@ -123,6 +143,7 @@ export async function discoverOns(deps: Partial<Deps> = {}): Promise<OnsOutcome>
         const previous = await d.mutate(`ons-dataset:${createHash('sha256').update(item.id).digest('hex')}`, state => state.fingerprint === fingerprint ? state.batch as CandidateBatch : null);
         let batch = previous;
         if (!batch) {
+          if (!await d.shouldContinue()) break;
           batch = await d.extract(evidence, `ons_statistics:${item.id}`);
           await d.mutate(`ons-dataset:${createHash('sha256').update(item.id).digest('hex')}`, state => Object.assign(state, { fingerprint, batch }));
         } else {
@@ -134,7 +155,7 @@ export async function discoverOns(deps: Partial<Deps> = {}): Promise<OnsOutcome>
     }
     if (errors.length && !usable && errors.length >= selected.length) throw new Error('ONS selected data unavailable');
     await d.mutate('ons-health', state => { state.openUntil = 0; state.failures = 0; });
-    return { status: usable ? 'ok' : 'insufficient_evidence', gaps, candidates, rejected, signals, errors };
+    return { status: errors.length ? 'partial' : usable ? 'ok' : 'insufficient_evidence', interpretationDependency: 'Statistical retrieval and signal detection require no LLM. Candidate interpretation requires an enabled inference provider and exact source support.', gaps, candidates, rejected, signals, errors };
   } catch {
     await d.mutate('ons-health', state => { state.failures = (state.failures || 0) + 1; state.openUntil = d.now() + Math.min(3600000, 60000 * 2 ** Math.min(6, state.failures)); }).catch(() => {});
     return empty('unavailable', errors.length ? errors : ['ONS configuration, catalogue or request guard unavailable']);

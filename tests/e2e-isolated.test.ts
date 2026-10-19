@@ -675,8 +675,10 @@ async function main() {
     record('Failure recovery: metrics duplicate event is idempotent', duplicateSpendEvents.length === 1);
 
     llmFailures.advertisingAnalysis = 1;
+    // A distinct opportunity is required: business creation is idempotent per gap.
+    const adFailureGap = await db.createGap({ knows: gap!.knows, needs: gap!.needs, controlsAccess: gap!.controlsAccess, underestimatesValue: gap!.underestimatesValue, source: 'synthetic-ad-failure-fixture', dedupHash: 'e2e-ad-failure-gap' });
     const adFailureDeployment = await db.createDeployment({
-      gapId: gap!.id,
+      gapId: adFailureGap!.id,
       userId: admin!.id,
       businessPlan: 'Ad failure injection deployment',
       banRisk: 'low',

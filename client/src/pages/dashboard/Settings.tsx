@@ -287,7 +287,9 @@ const Settings: React.FC = () => {
                 <input id="field-settings-3"
                   type="number"
                   value={maxDeployments}
-                  onChange={(e) => setMaxDeployments(parseInt(e.target.value) || 10)}
+                  min="0"
+                  step="1"
+                  onChange={(e) => setMaxDeployments(Number(e.target.value))}
                   placeholder="10"
                 />
               </div>

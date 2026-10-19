@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-for (const status of ['ok', 'unavailable', 'partial'] as const) {
+for (const status of ['idle', 'running', 'stopped', 'interrupted', 'ok', 'unavailable', 'partial'] as const) {
   test(`discovery dashboard distinguishes ${status} and shows fallback restrictions`, async ({ page }) => {
     const errors: string[] = [];
     page.on('pageerror', e => errors.push(e.message));
@@ -9,6 +9,7 @@ for (const status of ['ok', 'unavailable', 'partial'] as const) {
       let data: any = [];
       if (url.includes('/auth.me')) data = { id: 'admin-fixture', email: 'admin@sao.test', role: 'admin' };
       if (url.includes('discovery.pipelineDiagnostic')) data = {
+        coreLoop: { runtimeState: 'stopped', nextExecutionAt: null },
         multiSource: { status, ons: { status: status === 'unavailable' ? 'unavailable' : 'ok', signals: 0, errors: [] }, web: { status: status === 'ok' ? 'ok' : 'unavailable' },
           candidatesBySource: { ons: 0, tavily: 0 }, validated: 0, rejected: 0, queued: 0, lastSuccess: null, lastFailure: status === 'ok' ? null : '2026-10-19T12:00:00.000Z' },
         webSearch: { activeProvider: status === 'unavailable' ? null : 'gemini', attempts: [{ provider: 'tavily', status: 'quota_exhausted', reason: 'quota_exhausted' }], providers: { tavily: { status: 'quota_exhausted', retryAt: '2026-10-20T12:00:00.000Z' } } },
@@ -20,7 +21,12 @@ for (const status of ['ok', 'unavailable', 'partial'] as const) {
     if (status === 'unavailable') {
       await expect(page.getByText('Discovery unavailable', { exact: true })).toBeVisible();
       await expect(page.getByText('No opportunities found', { exact: true })).toHaveCount(0);
-    } else await expect(page.getByText(/No opportunities found/)).toBeVisible();
+    } else if (status === 'idle') await expect(page.getByText('Awaiting discovery cycle', { exact: true })).toBeVisible();
+    else if (status === 'running') await expect(page.getByText('Discovery running', { exact: true })).toBeVisible();
+    else if (status === 'stopped') await expect(page.getByText('Discovery stopped; existing work retained', { exact: true })).toBeVisible();
+    else if (status === 'interrupted') await expect(page.getByText('Previous cycle interrupted', { exact: true })).toBeVisible();
+    else if (status === 'partial') await expect(page.getByText(/Discovery partially successful; no validated candidates/)).toBeVisible();
+    else await expect(page.getByText(/No opportunities found/)).toBeVisible();
     await expect(page.getByText(/Fallback routing: tavily: quota_exhausted/)).toBeVisible();
     await expect(page.getByText(/restricted until 2026-10-20/)).toBeVisible();
     expect(errors).toEqual([]);

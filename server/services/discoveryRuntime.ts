@@ -27,13 +27,20 @@ export function memoryRuntime(): MutateRuntime {
 }
 
 /** Crash-safe cross-process lease; tokens prevent an expired worker releasing a newer lease. */
-export async function acquireDiscoveryLease(mutate: MutateRuntime = mutateDiscoveryRuntime): Promise<(() => Promise<void>) | null> {
+export async function acquireDiscoveryLease(mutate: MutateRuntime = mutateDiscoveryRuntime, key = 'cycle-lease', metadata: Record<string, unknown> = {}): Promise<(() => Promise<void>) | null> {
   const token = (await import('node:crypto')).randomUUID();
-  const acquired = await mutate('cycle-lease', state => {
+  const acquired = await mutate(key, state => {
     if (state.expires > Date.now()) return false;
+    Object.assign(state, metadata);
     state.token = token; state.expires = Date.now() + 30 * 60000;
     return true;
   });
   if (!acquired) return null;
-  return async () => { await mutate('cycle-lease', state => { if (state.token === token) state.expires = 0; }); };
+  let lost = false;
+  const heartbeat = setInterval(() => {
+    void mutate(key, state => { if (state.token === token) state.expires = Date.now() + 30 * 60000; else lost = true; }).catch(() => { lost = true; });
+  }, 60000);
+  heartbeat.unref();
+  const release = async () => { clearInterval(heartbeat); await mutate(key, state => { if (state.token === token) state.expires = 0; }); };
+  return Object.assign(release, { valid: () => !lost });
 }

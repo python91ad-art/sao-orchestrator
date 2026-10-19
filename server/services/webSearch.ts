@@ -3,7 +3,7 @@ import { mutateDiscoveryRuntime, type MutateRuntime } from './discoveryRuntime';
 import { resolveDiscoveryProvider } from './providerRegistry';
 
 export type SearchProvider = 'tavily' | 'gemini' | 'groq' | 'openrouter';
-export type SearchStatus = 'results' | 'zero_results' | 'not_configured' | 'quota_exhausted' | 'rate_limited' | 'auth_failure' | 'timeout' | 'unavailable' | 'invalid_response' | 'billing_blocked' | 'unsupported';
+export type SearchStatus = 'results' | 'zero_results' | 'not_configured' | 'quota_exhausted' | 'rate_limited' | 'auth_failure' | 'timeout' | 'unavailable' | 'invalid_response' | 'billing_blocked' | 'unsupported' | 'stopped';
 export interface SearchResult {
   title: string; url: string; snippet: string; displayLink?: string;
   provider?: SearchProvider; retrievedAt?: string; publishedAt?: string;
@@ -95,30 +95,31 @@ export class WebSearchRouter {
     await this.deps.mutate('web-health', state => { state.health = this.health; state.outcome = { ...outcome, results: [] }; });
     return outcome;
   }
-  search(query: string, options: { maxResults?: number } = {}): Promise<SearchOutcome> {
+  search(query: string, options: { maxResults?: number; shouldContinue?: () => Promise<boolean> } = {}): Promise<SearchOutcome> {
     const limit = Math.min(10, Math.max(1, Math.trunc(options.maxResults || 10)));
     const id = `${query}:${limit}`;
     if (this.inFlight.size >= 30 && !this.inFlight.has(id)) return Promise.resolve({ status: 'unavailable', results: [], provider: null, attempts: [] });
     const running = this.inFlight.get(id);
     if (running) return running;
     // One active web request across e-commerce/operations/manual searches; duplicate queries share work.
-    const work = this.tail.then(() => this.run(query.slice(0, 1000), limit));
+    const work = this.tail.then(() => this.run(query.slice(0, 1000), limit, options.shouldContinue));
     this.tail = work.catch(() => {});
     this.inFlight.set(id, work);
     void work.finally(() => this.inFlight.delete(id)).catch(() => {});
     return work;
   }
-  private async run(query: string, limit: number): Promise<SearchOutcome> {
+  private async run(query: string, limit: number, shouldContinue: () => Promise<boolean> = async () => true): Promise<SearchOutcome> {
     const attempts: SearchAttempt[] = [];
     for (const provider of order) {
+      if (!await shouldContinue()) return { status: 'stopped', results: [], provider: null, attempts };
       let attempt: SearchAttempt;
       let results: SearchResult[] = [];
       try {
         const cfg = await this.deps.resolve(provider);
         const eligible = this.eligible(provider, cfg);
-        if (eligible) attempt = { provider, status: eligible, reason: eligible };
+        if (eligible) attempt = { provider, status: eligible, reason: !cfg.enabled ? 'Provider disabled by configuration' : !cfg.key ? 'No discovery credential configured' : eligible === 'billing_blocked' ? 'Paid discovery requires explicit opt-in, approved budget and confirmed provider account spending cap' : eligible === 'unsupported' ? 'Configured model does not support this search adapter' : 'Discovery not enabled for this provider' };
         else {
-          const outcome = await this.request(provider, cfg, query, limit);
+          const outcome = await this.request(provider, cfg, query, limit, shouldContinue);
           attempt = outcome.attempt;
           results = outcome.results;
         }
@@ -139,36 +140,38 @@ export class WebSearchRouter {
     if (provider !== 'tavily' && cfg.config.enabled !== true) return 'not_configured';
     if (provider === 'gemini' && !['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-3.8-flash'].includes(cfg.config.model)) return 'unsupported';
     if (provider === 'openrouter' && !/^[a-z0-9_-]+\/[a-z0-9._:-]+$/i.test(cfg.config.model || '')) return 'unsupported';
-    if (provider !== 'tavily' && !(cfg.config.billingApproved === true && cfg.config.accountSpendLimitConfirmed === true &&
+    const requiresBilling = provider !== 'tavily' || (cfg.config.maxCreditsPerMonth ?? 900) > 900 || cfg.config.billingApproved === true;
+    if (requiresBilling && !(cfg.config.billingApproved === true && cfg.config.accountSpendLimitConfirmed === true &&
       Number.isFinite(cfg.config.dailyBudgetUsd) && cfg.config.dailyBudgetUsd > 0 &&
       Number.isFinite(cfg.config.maxRequestCostUsd) && cfg.config.maxRequestCostUsd > 0 &&
       Number.isInteger(cfg.config.maxRequestsPerDay) && cfg.config.maxRequestsPerDay > 0)) return 'billing_blocked';
     return null;
   }
-  private async request(provider: SearchProvider, cfg: Config, query: string, limit: number) {
+  private async request(provider: SearchProvider, cfg: Config, query: string, limit: number, shouldContinue: () => Promise<boolean>) {
     const now = this.deps.now;
     const fingerprint = createHash('sha256').update(`${cfg.key}:${cfg.revision}`).digest('hex');
     let status: SearchStatus = 'unavailable';
     for (let retry = 0; retry < 2; retry++) {
+      if (!await shouldContinue()) return { attempt: { provider, status: 'stopped' as SearchStatus, reason: 'Cycle stopped before dispatch' }, results: [] };
       const reservation = await this.deps.mutate(`web:${provider}`, state => {
         if (state.fingerprint !== fingerprint) Object.assign(state, { fingerprint, openUntil: 0, failures: 0 });
         const day = new Date(now()).toISOString().slice(0, 10);
         if (state.day !== day) Object.assign(state, { day, requests: 0, reservedUsd: 0 });
-        if (state.openUntil > now()) return { status: state.status as SearchStatus, retryAt: new Date(state.openUntil).toISOString() };
+        if (state.openUntil > now()) return { status: state.status as SearchStatus, reason: 'Provider circuit open after ' + state.status, retryAt: new Date(state.openUntil).toISOString() };
         const month = day.slice(0, 7);
         if (state.month !== month) { state.month = month; state.credits = 0; }
         if (provider === 'tavily' && state.credits >= (cfg.config.maxCreditsPerMonth ?? 900)) {
           const date = new Date(now());
-          return { status: 'quota_exhausted' as SearchStatus, retryAt: new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1)).toISOString() };
+          return { status: 'quota_exhausted' as SearchStatus, reason: 'Monthly Tavily credit allowance exhausted', retryAt: new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1)).toISOString() };
         }
         const cap = Math.min(500, Math.max(0, cfg.config.maxRequestsPerDay ?? 50));
-        const cost = provider === 'tavily' ? 0 : cfg.config.maxRequestCostUsd;
-        if (state.requests >= cap || (cost > 0 && state.reservedUsd + cost > cfg.config.dailyBudgetUsd + 1e-9)) return { status: 'quota_exhausted' as SearchStatus, retryAt: `${new Date(now() + 86400000).toISOString().slice(0, 10)}T00:00:00.000Z` };
+        const cost = provider === 'tavily' && cfg.config.billingApproved !== true ? 0 : cfg.config.maxRequestCostUsd;
+        if (state.requests >= cap || (cost > 0 && state.reservedUsd + cost > cfg.config.dailyBudgetUsd + 1e-9)) return { status: 'quota_exhausted' as SearchStatus, reason: state.requests >= cap ? 'Daily request cap reached' : 'Daily reserved spending limit reached', retryAt: `${new Date(now() + 86400000).toISOString().slice(0, 10)}T00:00:00.000Z` };
         state.requests++; state.reservedUsd += cost;
         if (provider === 'tavily') state.credits++; // Explicit basic depth: one reserved Tavily credit per attempt.
         return null;
       });
-      if (reservation) return { attempt: { provider, ...reservation, reason: 'Circuit open or daily request/spend limit reached' }, results: [] };
+      if (reservation) return { attempt: { provider, ...reservation }, results: [] };
       let retryAfter = 0;
       try {
         const prompt = `Search the web for current documented business problems. Cite sources. Query: ${query}`;

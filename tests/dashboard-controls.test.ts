@@ -51,7 +51,7 @@ function buttonTags(source: string) {
 console.log('\n=== Admin Dashboard Control Inventory Tests ===');
 
 for (const [name, file] of Object.entries(pages)) {
-  const source = read(file);
+  const source = read(file) + (name === 'Overview' ? read('client/src/hooks/useRuntimeControls.ts') : '');
   const buttons = buttonTags(source);
   assert.ok(buttons.length > 0, `${name} should render interactive controls`);
   for (const marker of expectations[name]) {

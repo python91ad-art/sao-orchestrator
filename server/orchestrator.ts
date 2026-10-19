@@ -1,6 +1,9 @@
 import { callLLM, callLLMJson, MODEL_CLASSIFIER, MODEL_BUSINESS_PLAN } from './services/llm';
 import * as db from './db';
 import { retryWithExponentialBackoff, aiRateLimiter } from './retryEngine';
+import { CoreLoopScheduler, type CycleContext } from './services/coreLoopScheduler';
+import { acquireDiscoveryLease, mutateDiscoveryRuntime } from './services/discoveryRuntime';
+import { randomUUID } from 'node:crypto';
 import { sql } from 'drizzle-orm';
 import { queueItems } from '../drizzle/schema';
 import { broadcastEvent } from './websocket';
@@ -18,8 +21,7 @@ import {
   createAgentTask,
 } from './services/infrastructure';
 
-let loopInterval: NodeJS.Timeout | null = null;
-let coreLoopTickRunning = false;
+const workerProcessId = randomUUID();
 
 // ==========================================
 // WORKER POOL — Concurrent queue processing
@@ -37,7 +39,7 @@ let totalProcessedByWorkers = 0;
 let nextWorkerId = 0;
 
 function resizeWorkerPool(concurrency: number) {
-  while (workers.size < concurrency) spawnWorker(`worker-${++nextWorkerId}`);
+  while (workers.size < concurrency) spawnWorker(`worker-${workerProcessId}-${++nextWorkerId}`);
   for (const worker of workers.values()) {
     if (workers.size <= concurrency) break;
     if (!worker.busy) workers.delete(worker.id);
@@ -76,7 +78,7 @@ async function dispatchToWorker(worker: Worker, queueItem: any, queueType: Queue
           error
         );
       });
-    }, 5 * 60 * 1000);
+    }, 30000);
 
     if (queueType === 'synthesis') {
       await processSynthesisQueueItem(queueItem, worker);
@@ -85,9 +87,10 @@ async function dispatchToWorker(worker: Worker, queueItem: any, queueType: Queue
     } else if (queueType === 'deployment') {
       await processDeploymentQueueItem(queueItem, worker);
     } else {
-      // maintenance — just mark complete
+      await db.updateQueueItem(queueItem.id, { status: 'completed', workerId: null, nextRetryAt: null });
     }
 
+    if (queueType === 'synthesis') await db.incrementCoreLoopCounters({ gaps: 1 });
     totalProcessedByWorkers++;
     broadcastEvent({
       type: 'worker:status',
@@ -95,7 +98,7 @@ async function dispatchToWorker(worker: Worker, queueItem: any, queueType: Queue
     });
   } catch (error) {
     console.error(`[Worker ${worker.id}] Error processing ${queueType} item:`, error);
-    if (error instanceof PolicyEnforcementError) {
+    if (error instanceof PolicyEnforcementError || error instanceof db.OperationalLimitError) {
       await db.updateQueueItem(queueItem.id, { status: 'paused', attempts: Math.max(0, queueItem.attempts - 1), lastError: error.message, workerId: null, nextRetryAt: null });
       broadcastEvent({ type: 'queue:updated', data: { queueItemId: queueItem.id, status: 'paused' } });
       return;
@@ -175,7 +178,7 @@ async function dispatchToWorker(worker: Worker, queueItem: any, queueType: Queue
   }
 }
 
-async function processWithWorkerPool(manual = false): Promise<number> {
+async function processWithWorkerPool(manual = false, context?: CycleContext, onlyOne = false): Promise<number> {
   const state = await getStatus();
   const concurrency = Math.max(
     1,
@@ -186,7 +189,7 @@ async function processWithWorkerPool(manual = false): Promise<number> {
 
   const availableWorkers = Array.from(workers.values()).filter(
     worker => !worker.busy
-  );
+  ).slice(0, onlyOne ? 1 : concurrency);
 
   if (availableWorkers.length === 0) {
     return 0;
@@ -194,16 +197,18 @@ async function processWithWorkerPool(manual = false): Promise<number> {
 
   let processed = 0;
 
-  await Promise.all(
+  const batches = await Promise.allSettled(
     availableWorkers.map(async worker => {
       while (true) {
+        if (context && !await context.allowed()) break;
+        if (onlyOne && processed > 0) break;
         const currentState = await getStatus();
         const limit = Math.max(1, Math.min(10, currentState.concurrency));
         resizeWorkerPool(limit);
         if ((!manual && !currentState.isRunning) || !workers.has(worker.id) || worker.busy || getActiveWorkers() >= limit) break;
         worker.busy = true;
         let queueItem;
-        try { queueItem = await db.claimNextPendingQueueItem(worker.id); } catch (error) { worker.busy = false; throw error; }
+        try { queueItem = await db.claimNextPendingQueueItem(worker.id, context ? { epoch: context.epoch, requireRunning: !context.manual } : undefined); } catch (error) { worker.busy = false; throw error; }
 
         if (!queueItem) {
           worker.busy = false;
@@ -215,15 +220,15 @@ async function processWithWorkerPool(manual = false): Promise<number> {
         const queueType =
           (queueItem as any).queueType || 'synthesis';
 
-        await dispatchToWorker(
-          worker,
-          queueItem,
-          queueType as QueueType
-        );
+        await db.withQueueOwnership(queueItem.id, worker.id, () => dispatchToWorker(worker, queueItem, queueType as QueueType));
+        const outcome = await db.getQueueItem(queueItem.id);
+        context?.outcomes?.push({ queueItemId: queueItem.id, status: outcome?.status || 'unknown', error: outcome?.lastError || undefined });
       }
     })
   );
 
+  const failures = batches.filter(result => result.status === 'rejected');
+  if (failures.length) throw new AggregateError(failures.map(result => (result as PromiseRejectedResult).reason), 'Worker batch failed after all dispatched workers drained.');
   return processed;
 }
 
@@ -310,7 +315,7 @@ async function processSynthesisQueueItem(queueItem: any, _worker: Worker): Promi
       businessPlan: plan,
       banRisk: classification.banRisk,
       health: 'healthy',
-    });
+    }, true);
     const spec = await createBusinessSpecification({
       gapId: gap.id,
       deploymentId: deployment.id,
@@ -351,11 +356,7 @@ async function processSynthesisQueueItem(queueItem: any, _worker: Worker): Promi
     await db.updateQueueItem(queueItem.id, { status: 'completed', workerId: null, nextRetryAt: null });
     broadcastEvent({ type: 'queue:updated', data: { queueItemId: queueItem.id, status: 'completed' } });
 
-    const currentState = await getStatus();
-    await db.updateCoreLoopState({
-      totalGapsProcessed: currentState.totalGapsProcessed + 1,
-      totalDeploymentsCreated: currentState.totalDeploymentsCreated + 1,
-    });
+    await db.incrementCoreLoopCounters({ deployments: 1 });
   } else if (classification.classification === 'unsafe') {
     await db.updateGapStatus(gap.id, 'unsafe');
     await db.updateQueueItem(queueItem.id, { status: 'failed', lastError: 'Violates safe policy guidelines.', workerId: null, nextRetryAt: null });
@@ -601,8 +602,7 @@ async function processDeploymentQueueItem(queueItem: any, _worker: Worker): Prom
     },
   });
 
-  const currentState = await getStatus();
-  await db.updateCoreLoopState({ totalDeploymentsCreated: currentState.totalDeploymentsCreated + 1 });
+
 
   return true;
 }
@@ -660,9 +660,9 @@ export async function cleanStaleQueueItems(): Promise<number> {
       .where(sql`${queueItems.status} = 'pending' AND ${queueItems.updatedAt} < ${cutoff}`);
     
     if (staleItems.length > 0) {
-      await db.db.delete(queueItems)
+      await db.db.update(queueItems).set({ status: 'paused', lastError: 'Queue item expired; review and resume explicitly.', workerId: null, nextRetryAt: null })
         .where(sql`${queueItems.status} = 'pending' AND ${queueItems.updatedAt} < ${cutoff}`);
-      console.log(`[Queue Maintenance] Cleaned ${staleItems.length} stale queue items (expired after ${expirationHours}h).`);
+      console.log(`[Queue Maintenance] Paused ${staleItems.length} expired queue items (expired after ${expirationHours}h).`);
     }
     
     return staleItems.length;
@@ -857,208 +857,8 @@ Important: Treat public statistics as supporting evidence only. Do not state tha
 // ==========================================
 // PROCESS ONE GAP (backwards-compatible single-item processing)
 // ==========================================
-export async function processOneGap(): Promise<boolean> {
-  await cleanStaleQueueItems();
-  await checkQueueAlerts();
-
-  const state = await getStatus();
-  const maxAttempts = (state as any).maxAttempts || 3;
-  const backoffMultiplier = parseFloat((state as any).backoffMultiplier || '1.5');
-  const baseDelayMs = (state as any).baseDelayMs || 5000;
-
-  const queueItem = await db.claimNextPendingQueueItem(`worker-${process.pid}`);
-  if (!queueItem) {
-    console.log('No pending gaps in queue.');
-    return false;
-  }
-
-  broadcastEvent({ type: 'queue:updated', data: { queueItemId: queueItem.id, status: 'processing' } });
-
-  const gap = await db.getGapById(queueItem.gapId);
-  if (!gap) {
-    await db.updateQueueItem(queueItem.id, {
-      status: 'failed',
-      lastError: 'Associated gap not found in database.',
-      nextRetryAt: null,
-    });
-    return false;
-  }
-
-  await db.updateGapStatus(gap.id, 'processing');
-
-  try {
-    const classification = await retryWithExponentialBackoff(
-      () => classifyGap(gap),
-      maxAttempts,
-      baseDelayMs,
-      backoffMultiplier
-    );
-
-    await db.createAuditLog({
-      gapId: gap.id,
-      decision: classification.classification,
-      reasoning: classification.reasoning,
-      explanation: classification.explanation,
-      banRisk: classification.banRisk,
-    });
-
-    if (classification.classification === 'safe') {
-      const { evaluateGapPromotion } = await import('./services/discoveryPolicy');
-      const policy = await evaluateGapPromotion(gap.id);
-      if (policy.decision !== 'ALLOW') {
-        await db.updateGapStatus(gap.id, 'gray');
-        await db.updateQueueItem(queueItem.id, { status: 'paused', lastError: `${policy.decision}: ${policy.reason}`, nextRetryAt: null });
-        return true;
-      }
-      const existingDeployment = await db.getDeploymentByGapId(gap.id);
-      if (existingDeployment) {
-        await db.enqueueDeploymentQueueItem(gap.id);
-        await db.updateGapStatus(gap.id, 'deployed');
-        await db.updateQueueItem(queueItem.id, { status: 'completed', nextRetryAt: null });
-        broadcastEvent({ type: 'deployment:created', data: { deploymentId: existingDeployment.id, gapId: gap.id } });
-        broadcastEvent({ type: 'queue:updated', data: { queueItemId: queueItem.id, status: 'completed' } });
-        return true;
-      }
-
-      const limitCheck = await db.canCreateDeployment();
-      if (!limitCheck.allowed) {
-        await db.updateGapStatus(gap.id, 'gray');
-        await db.updateQueueItem(queueItem.id, { status: 'paused', lastError: limitCheck.reason, nextRetryAt: null });
-        broadcastEvent({ type: 'queue:updated', data: { queueItemId: queueItem.id, status: 'paused' } });
-        return true;
-      }
-
-      const adminUserId = await db.getAdminUserId();
-      const plan = await retryWithExponentialBackoff(
-        () => generateBusinessPlan(gap),
-        maxAttempts,
-        baseDelayMs,
-        backoffMultiplier
-      );
-
-      await db.createDeployment({
-        gapId: gap.id,
-        userId: adminUserId,
-        businessPlan: plan,
-        banRisk: classification.banRisk,
-        health: 'healthy',
-      });
-
-      // Fetch the deployment to get its ID for the broadcast
-      const deployment = await db.getDeploymentByGapId(gap.id);
-      if (deployment) {
-        const spec = await createBusinessSpecification({
-          gapId: gap.id,
-          deploymentId: deployment.id,
-          title: `Specification for ${String(gap.needs || 'business opportunity').slice(0, 120)}`,
-          legacyBusinessPlan: plan,
-          sections: {
-            objectives: [],
-            targetCustomer: {},
-            productRequirements: [],
-            technicalRequirements: [],
-            operationalRequirements: [],
-            financialAssumptions: [],
-            marketingRequirements: [],
-            dependencies: [],
-          },
-          createdBy: adminUserId,
-        });
-        const build = await createBuildProject({ gapId: gap.id, deploymentId: deployment.id, specificationId: spec?.id, projectType: 'software' });
-        await createLifecycleRecord({ gapId: gap.id, deploymentId: deployment.id, state: 'monitoring' });
-        await createAgentTask({
-          deploymentId: deployment.id,
-          gapId: gap.id,
-          specificationId: spec?.id,
-          buildProjectId: build?.id,
-          taskType: 'business_build_preparation',
-          title: 'Prepare business build infrastructure',
-          input: { policyStatus: 'POLICY_NOT_CONFIGURED' },
-        });
-      }
-
-      // Enqueue the deployment step so the app is generated, tested and
-      // deployed automatically (same fix as the worker-pool path).
-      await db.enqueueDeploymentQueueItem(gap.id);
-
-      await db.updateGapStatus(gap.id, 'deployed');
-      await db.updateQueueItem(queueItem.id, { status: 'completed', nextRetryAt: null });
-
-      broadcastEvent({ type: 'deployment:created', data: { deploymentId: deployment?.id || gap.id, gapId: gap.id } });
-      broadcastEvent({ type: 'queue:updated', data: { queueItemId: queueItem.id, status: 'completed' } });
-
-      const currentState = await getStatus();
-      await db.updateCoreLoopState({
-        totalDeploymentsCreated: currentState.totalDeploymentsCreated + 1,
-      });
-
-    } else if (classification.classification === 'unsafe') {
-      await db.updateGapStatus(gap.id, 'unsafe');
-      await db.updateQueueItem(queueItem.id, { status: 'failed', lastError: 'Violates safe policy guidelines.', nextRetryAt: null });
-      broadcastEvent({ type: 'queue:updated', data: { queueItemId: queueItem.id, status: 'failed' } });
-    } else if (classification.classification === 'gray') {
-      await db.updateGapStatus(gap.id, 'gray');
-      await db.updateQueueItem(queueItem.id, { status: 'paused', lastError: 'Requires manual admin oversight.', nextRetryAt: null });
-      broadcastEvent({ type: 'queue:updated', data: { queueItemId: queueItem.id, status: 'paused' } });
-    } else {
-      await db.updateGapStatus(gap.id, 'false');
-      await db.updateQueueItem(queueItem.id, { status: 'failed', lastError: 'Identified as not a real gap opportunity.', nextRetryAt: null });
-      broadcastEvent({ type: 'queue:updated', data: { queueItemId: queueItem.id, status: 'failed' } });
-    }
-
-    const currentState = await getStatus();
-    await db.updateCoreLoopState({
-      totalGapsProcessed: currentState.totalGapsProcessed + 1,
-    });
-
-    return true;
-  } catch (error) {
-    console.error('[Orchestrator] Error processing gap:', error);
-    const state = await getStatus();
-    const maxAttempts = (state as any).maxAttempts || 3;
-
-    if (queueItem.attempts >= maxAttempts) {
-      await db.updateQueueItem(queueItem.id, {
-        status: 'failed',
-        lastError: error instanceof Error ? error.message : String(error),
-        nextRetryAt: null,
-      });
-      broadcastEvent({ type: 'queue:updated', data: { queueItemId: queueItem.id, status: 'failed' } });
-    } else {
-      const backoffMultiplier = Math.max(
-        1,
-        Number((state as any).backoffMultiplier) || 1.5
-      );
-
-      const baseDelayMs = Math.max(
-        1000,
-        Number((state as any).baseDelayMs) || 5000
-      );
-
-      const retryDelayMs = Math.round(
-        baseDelayMs *
-        Math.pow(backoffMultiplier, Math.max(0, queueItem.attempts - 1))
-      );
-
-      const nextRetryAt = new Date(Date.now() + retryDelayMs);
-
-      await db.updateQueueItem(queueItem.id, {
-        status: 'pending',
-        nextRetryAt,
-      });
-
-      broadcastEvent({
-        type: 'queue:updated',
-        data: {
-          queueItemId: queueItem.id,
-          status: 'pending',
-          nextRetryAt: nextRetryAt.toISOString(),
-        }
-      });
-    }
-
-    return false;
-  }
+export async function processOneGap() {
+  return coreScheduler.runOnce(true);
 }
 
 // ==========================================
@@ -1068,209 +868,55 @@ export async function processOneGap(): Promise<boolean> {
 // AUTO-DISCOVERY — Independent ONS statistics and web discovery
 // Existing scoring, maintenance locks, queue policies and workers remain authoritative.
 // ==========================================
-async function queueGaps(gaps: import('./services/discoveryEvidence').QualifiedGap[]): Promise<number> {
-  return queueDiscoveryGaps(gaps);
-}
-
-async function runCoreLoopTick(): Promise<void> {
-  if (coreLoopTickRunning) {
-    console.warn('[Core Loop] Tick already running — skipping overlapping tick.');
-    return;
-  }
-
-  coreLoopTickRunning = true;
-
+async function runCompleteCycle(context: CycleContext) {
+  await db.recoverStaleProcessingQueueItems(30);
+  await cleanStaleQueueItems();
+  await checkQueueAlerts();
+  let discovery;
+  context.outcomes = [];
   try {
-    const tickStart = Date.now();
-    console.log('[Core Loop] 🚀 Tick started — Auto-discovering gaps + processing queue...');
-    
-    const currentState = await getStatus();
-    console.log(`[Core Loop] Current state: isRunning=${currentState.isRunning}, intervalMs=${currentState.intervalMs}, concurrency=${(currentState as any).concurrency || 1}`);
-
-    // Independent primary engines settle separately. Failure never prevents existing queue work.
-    try {
-      const discovery = await runDiscoveryCycle(queueGaps);
-      console.log(`[Core Loop] Discovery ${discovery.status}: ${discovery.validated} validated, ${discovery.rejected} rejected, ${discovery.queued} queued`);
-    } catch {
-      console.error('[Core Loop] Discovery unavailable; continuing existing queue processing.');
-    }
-
-    console.log('[Core Loop] 🔧 Starting queue processing phase...');
-    await processWithWorkerPool();
-
-    const endState = await getStatus();
-
-    if (!endState.isRunning) {
-      console.log('[Core Loop] 🛑 Core loop was stopped during tick — not rescheduling.');
-      return;
-    }
-
-    const now = new Date();
-    const nextExecutionAt = new Date(
-      now.getTime() + endState.intervalMs
-    );
-
-    await db.updateCoreLoopState({
-      lastExecutedAt: now,
-      nextExecutionAt,
-    });
-
-    const tickDuration = Date.now() - tickStart;
-    console.log(`[Core Loop] ✅ Tick completed in ${tickDuration}ms. Next tick at ${nextExecutionAt.toISOString()}`);
-
-    broadcastEvent({
-      type: 'coreloop:status',
-      data: {
-        isRunning: true,
-        lastExecutedAt: now.toISOString(),
-        nextExecutionAt: nextExecutionAt.toISOString(),
-      }
-    });
-
-    scheduleCoreLoopTick(endState.intervalMs);
-  } finally {
-    coreLoopTickRunning = false;
+    discovery = await runDiscoveryCycle(async gaps => {
+      if (!await context.allowed()) return 0;
+      const stats = { persisted: 0 };
+      const queued = await queueDiscoveryGaps(gaps, stats, context.allowed);
+      return { queued, persisted: stats.persisted };
+    },
+      undefined, context.allowed);
+  } catch (error) {
+    // A discovery failure does not discard existing queue work; preserve its error in the result.
+    discovery = { status: 'unavailable', error: 'Discovery runtime or persistence unavailable.' };
   }
+  const processed = await context.allowed() ? await processWithWorkerPool(context.manual, context) : 0;
+  return { discovery, processed, outcomes: context.outcomes, stopped: !await context.allowed() };
 }
-
-function scheduleCoreLoopTick(intervalMs: number): void {
-  if (loopInterval) {
-    clearTimeout(loopInterval);
-    loopInterval = null;
-  }
-
-  loopInterval = setTimeout(() => {
-    runCoreLoopTick().catch(async (error) => {
-      console.error('[Core Loop] Tick failed:', error);
-      // If the tick crashed before rescheduling itself, recover by scheduling
-      // the next tick. This prevents the loop from dying silently.
-      try {
-        const state = await getStatus();
-        if (state.isRunning) {
-          console.log('[Core Loop] Recovering from tick crash — rescheduling next tick.');
-          scheduleCoreLoopTick(state.intervalMs);
-        }
-      } catch (stateErr) {
-        console.error('[Core Loop] Could not recover loop state after crash:', stateErr);
-      }
-    });
-  }, intervalMs);
-}
-
-export async function startCoreLoop() {
-  const { emergencyStopped } = await import('./services/execution');
-  if (await emergencyStopped()) throw new Error('Emergency stop is active. Clear it before restarting automation.');
-  const state = await getStatus();
-  const wasPersistedRunning = Boolean(state.isRunning);
-
-  const recovered = await db.recoverStaleProcessingQueueItems(30);
-
-  if (recovered > 0) {
-    console.log(
-      `[Core Loop] Recovered ${recovered} stale processing queue item(s) before starting.`
-    );
-  }
-
-  if (loopInterval) {
-    clearTimeout(loopInterval);
-    loopInterval = null;
-  }
-
-  const now = new Date();
-  const nextExecutionAt = new Date(now.getTime() + state.intervalMs);
-
-  if (wasPersistedRunning) {
-    console.log(
-      '[Core Loop] Persisted running state detected after process restart. Resuming Core Loop.'
-    );
-  }
-
-  await db.updateCoreLoopState({
-    isRunning: true,
-    nextExecutionAt,
-  });
-
-  broadcastEvent({
-    type: 'coreloop:status',
-    data: {
-      isRunning: true,
-      lastExecutedAt: state.lastExecutedAt
-        ? new Date(state.lastExecutedAt).toISOString()
-        : null,
-      nextExecutionAt: nextExecutionAt.toISOString(),
-    }
-  });
-
-  console.log(`Starting SAO Core Loop. Interval: ${state.intervalMs}ms, Concurrency: ${state.concurrency || 1}`);
-
-  setTimeout(() => {
-    runCoreLoopTick().catch(async (error) => {
-      console.error('[Core Loop] Immediate startup tick failed:', error);
-      const current = await getStatus().catch(() => null);
-      if (current?.isRunning) {
-        scheduleCoreLoopTick(current.intervalMs);
-      }
-    });
-  }, 0);
-}
-
-export async function updateCoreLoopInterval(intervalMs: number): Promise<void> {
-  await db.updateCoreLoopState({ intervalMs });
-
-  const state = await getStatus();
-
-  if (!state.isRunning) {
-    return;
-  }
-
-  const now = new Date();
-  const nextExecutionAt = new Date(now.getTime() + intervalMs);
-
-  await db.updateCoreLoopState({
-    nextExecutionAt,
-  });
-
-  scheduleCoreLoopTick(intervalMs);
-
-  broadcastEvent({
-    type: 'coreloop:status',
-    data: {
-      isRunning: true,
-      lastExecutedAt: state.lastExecutedAt
-        ? new Date(state.lastExecutedAt).toISOString()
-        : null,
-      nextExecutionAt: nextExecutionAt.toISOString(),
-    }
-  });
-
-  console.log(`[Core Loop] Interval updated to ${intervalMs}ms and timer rescheduled.`);
-}
-
-export async function stopCoreLoop(): Promise<void> {
-  if (loopInterval) {
-    clearTimeout(loopInterval);
-    loopInterval = null;
-  }
-
-  const state = await getStatus();
-
-  await db.updateCoreLoopState({
-    isRunning: false,
-    nextExecutionAt: null,
-  });
-
-  broadcastEvent({
-    type: 'coreloop:status',
-    data: {
-      isRunning: false,
-      lastExecutedAt: state.lastExecutedAt
-        ? new Date(state.lastExecutedAt).toISOString()
-        : null,
-      nextExecutionAt: null,
-    }
-  });
-
-  console.log('SAO Core Loop stopped.');
+const coreScheduler = new CoreLoopScheduler({
+  read: db.getCoreLoopRuntimeState,
+  control: db.changeCoreLoopControl,
+  update: db.updateCoreLoopSchedule,
+  emergency: async () => (await import('./services/execution')).emergencyStopped(),
+  lease: state => acquireDiscoveryLease(mutateDiscoveryRuntime, 'core-operation', { epoch: state.epoch }),
+  cycle: runCompleteCycle,
+  one: async context => {
+    await cleanStaleQueueItems();
+    context.outcomes = [];
+    const processed = await processWithWorkerPool(true, context, true);
+    return { processed, outcomes: context.outcomes };
+  },
+  notify: () => { void getCoreLoopRuntimeStatus().then(state => broadcastEvent({ type: 'coreloop:status', data: { isRunning: state.isRunning, lastExecutedAt: state.lastExecutedAt?.toISOString() || null, nextExecutionAt: state.nextExecutionAt?.toISOString() || null } })).catch(() => {}); },
+  error: error => console.error('[Core Loop] Operation failed:', error instanceof Error ? error.message : 'Runtime failure'),
+});
+export const startCoreLoop = () => coreScheduler.start();
+export const stopCoreLoop = () => coreScheduler.stop();
+export const updateCoreLoopInterval = (intervalMs: number) => coreScheduler.interval(intervalMs);
+export const runCoreLoopOnce = () => coreScheduler.runOnce();
+export const restoreCoreLoop = () => coreScheduler.recover();
+export const shutdownCoreLoop = () => coreScheduler.shutdown();
+export async function getCoreLoopRuntimeStatus() {
+  const state = await db.getCoreLoopRuntimeState();
+  const activity = await mutateDiscoveryRuntime('core-operation', value => ({ executing: value.expires > Date.now(), epoch: value.epoch }));
+  return { ...state, executing: activity.executing,
+    runtimeState: activity.executing ? (activity.epoch === state.epoch ? 'executing' : 'stopping') : state.isRunning ? 'running' : 'stopped',
+    stopPolicy: 'Dispatched discovery sources and claimed workers finish safely. Stop invalidates the cycle and blocks further queue dispatch. Process shutdown preserves the running preference.' };
 }
 
 // ==========================================

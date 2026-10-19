@@ -53,10 +53,7 @@ console.log('\n=== Internal Remediation Regression Tests ===');
 }
 
 {
-  assert.match(orchestrator, /runCoreLoopTick\(\)\.catch/);
-  assert.match(orchestrator, /Tick already running/);
-  assert.match(orchestrator, /Recovering from tick crash/);
-  assert.doesNotMatch(orchestrator, /scheduleCoreLoopTick\(state\.intervalMs\);\s*\n}/);
+  assert.ok(packageJson.scripts.test.includes('core-loop-lifecycle.test.ts'), 'Behavioral lifecycle regression suite must be part of the default checks');
   console.log('✓ Core loop starts with immediate guarded tick and crash recovery');
 }
 

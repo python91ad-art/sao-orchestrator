@@ -165,12 +165,13 @@ function buildQuery(parts: string[]): string {
 
 export class OnsAdapter {
   readonly provider: BusinessProviderId = 'ons';
-  constructor(private requestBudget = 60) {}
+  constructor(private requestBudget = 60, private shouldContinue: () => Promise<boolean> = async () => true) {}
   private async read(path: string): Promise<any> {
+    if (!await this.shouldContinue()) throw new BusinessDataError({ provider: 'ons', category: 'invalid_request', message: 'Discovery stopped before ONS dispatch.' });
     if (--this.requestBudget < 0) throw new BusinessDataError({ provider: 'ons', category: 'rate_limit', message: 'ONS discovery request budget reached.' });
     return fetchJson(this.provider, `${this.baseUrl}${path}`, { cacheTtlMs: 3600000, retries: 1 });
   }
-  async listDatasets(limit = 100): Promise<any> { return this.read(`/datasets?limit=${Math.min(limit, 100)}`); }
+  async listDatasets(limit = 100, offset = 0): Promise<any> { return this.read(`/datasets?limit=${Math.min(limit, 100)}&offset=${offset}`); }
   async getVersion(datasetId: string, edition: string, version: string): Promise<any> {
     return this.read(`/datasets/${encodeURIComponent(datasetId)}/editions/${encodeURIComponent(edition)}/versions/${encodeURIComponent(version)}`);
   }
@@ -181,7 +182,7 @@ export class OnsAdapter {
 
   async searchDatasets(query: string, limit = 5): Promise<EvidenceRecord[]> {
     const url = `${this.baseUrl}/search?q=${encodeURIComponent(query)}&limit=${Math.min(limit, 10)}`;
-    const data: any = await fetchJson(this.provider, url, { cacheTtlMs: 60 * 60 * 1000 });
+    const data: any = await this.read(`/search?q=${encodeURIComponent(query)}&limit=${Math.min(limit, 10)}`);
     const items = Array.isArray(data?.items) ? data.items : Array.isArray(data?.results) ? data.results : [];
     return items.slice(0, limit).map((item: any) => {
       const href = item?.links?.self?.href || item?.uri || item?.url || url;

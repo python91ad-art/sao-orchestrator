@@ -93,7 +93,143 @@ async function main() {
   console.log('PASS quota circuit survives router recreation through real database');
   const [count] = await database.db.select({ n: sql<number>`COUNT(*)` }).from(schema.queueItems);
   assert.equal(Number(count.n), 1);
-  console.log('7 isolated discovery DB scenarios passed. No external requests.');
+  // Real router and worker integration; synthetic evidence and provider boundaries only.
+  const { appRouter } = await import('../server/routers');
+  const { ADMIN_PERMISSIONS } = await import('../shared/permissions');
+  const { setProvidersForTest, resetRouterState } = await import('../server/services/llmRouter');
+  const orchestrator = await import('../server/orchestrator');
+  const admin = await database.createUser('loop-admin@sao.test', 'test-hash', 'admin');
+  const ordinary = await database.createUser('loop-user@sao.test', 'test-hash', 'user');
+  for (const permission of ADMIN_PERMISSIONS) await database.db.insert(schema.adminPermissions).values({ userId: admin!.id, permission });
+  const caller = appRouter.createCaller({ user: admin, req: {} as any, res: {} as any });
+  const userCaller = appRouter.createCaller({ user: ordinary, req: {} as any, res: {} as any });
+  const anonymous = appRouter.createCaller({ user: null, req: {} as any, res: {} as any });
+  for (const control of ['start', 'stop', 'runOnce', 'processNext'] as const) {
+    await assert.rejects(userCaller.coreLoop[control](), /admin/);
+    await assert.rejects(anonymous.coreLoop[control](), /logged in/);
+  }
+  console.log('PASS all runtime controls require authenticated administrators and permission checks');
+  process.env.GROQ_API_KEY = 'isolated-test-key'; process.env.GROQ_TPM_LIMIT = '999999';
+  let inferenceFailed = false;
+  await registry.saveProvider({ service: 'search', providerId: 'tavily', name: 'Synthetic search fixture', credential: 'fixture-key', config: { discovery: { enabled: true, maxRequestsPerDay: 200 } } });
+  await registry.saveProvider({ service: 'business_data' as any, providerId: 'ons', name: 'ONS isolation disabled', credential: '', config: { discovery: { enabled: false } } });
+  // Leave historical test work complete; only the newly discovered candidate should be processed.
+  await database.updateQueueItem(item.id, { status: 'completed' });
+  const loopWords = { ...words, needs: 'UK retailers lose orders through unreconciled inventory errors' };
+  const loopEvidence = { ...evidence[0], text: Object.values(loopWords).join('. ') };
+  const webRef = (quote: string) => ({ evidenceId: 'web:0', quote });
+  const loopProposal = { ...proposal, ...loopWords, problem: webRef(loopWords.needs), audience: webRef('UK retailers'), market: webRef('UK retailers'), support: Object.fromEntries(Object.entries(loopWords).map(([key, value]) => [key, webRef(value)])) };
+  setProvidersForTest([{ id: 'groq', complete: async (_model: string, request: any) => {
+    if (inferenceFailed) throw new Error('Controlled worker failure');
+    const system = request.messages.find((m: any) => m.role === 'system')?.content || '';
+    return { text: JSON.stringify(system.includes('gap classifier') ? { classification: 'gray', banRisk: 'medium', reasoning: 'Synthetic evidence requires review.', explanation: 'Synthetic fixture.' } : { gaps: [loopProposal] }), usage: {} };
+  } } as any]);
+  let searches = 0;
+  let holdSearch: Promise<void> | undefined;
+  global.fetch = (async input => {
+    if (String(input).includes('api.tavily.com')) {
+      searches++; if (holdSearch) await holdSearch;
+      return new Response(JSON.stringify({ results: [{ url: loopEvidence.url, title: loopEvidence.title, content: loopEvidence.text, published_date: now }] }));
+    }
+    // Public ONS context used by classification is mocked and contains no invented opportunity.
+    return new Response(JSON.stringify({ items: [] }));
+  }) as typeof fetch;
+  const cycle = await caller.coreLoop.runOnce();
+  assert.equal(cycle.discovery.status, 'partial'); // ONS deliberately disabled, web is independently usable.
+  assert.equal(cycle.discovery.queued, 1); assert.equal(cycle.discovery.persisted, 1); assert.equal(cycle.processed, 1);
+  assert.equal((await database.getCoreLoopState())!.isRunning, false);
+  assert.equal(searches, 10);
+  const loopGap = (await database.listGaps()).find(g => g.needs === loopWords.needs)!;
+  assert.equal(loopGap.status, 'gray');
+  const loopItem = (await database.listQueueItems()).find(x => x.queueItem.gapId === loopGap.id)!.queueItem;
+  assert.equal(loopItem.status, 'paused'); assert.equal(loopItem.workerId, null);
+  console.log('PASS Run Once → ten web searches → evidence validation → real gap/evidence/queue persistence → worker review without starting scheduler');
+  const persistedReport = await caller.discovery.pipelineDiagnostic();
+  const restarted = spawnSync('node', ['--import', 'tsx', '-e', `(async()=>{const dm=await import('./server/db.ts');const d=dm.default||dm;const rm=await import('./server/services/discovery.ts');const r=rm.default||rm;console.log('RESTORED_REPORT:'+JSON.stringify(await r.restoreDiscoveryReport()));await d.mysqlPool.end();})().catch(e=>{console.error(e.message);process.exitCode=1;})`], { env: process.env, encoding: 'utf8' });
+  assert.equal(restarted.status, 0, restarted.stderr);
+  const restored = JSON.parse(restarted.stdout.match(/RESTORED_REPORT:(.*)/)![1]);
+  assert.equal(restored.cycleId, persistedReport.multiSource.cycleId); assert.equal(restored.completedAt, persistedReport.multiSource.completedAt);
+  console.log('PASS discovery completion diagnostics survive an actual separate process');
+  await database.updateQueueItem(loopItem.id, { status: 'pending', attempts: 0 });
+  const searchesBeforeStart = searches;
+  await caller.coreLoop.start();
+  for (let i = 0; i < 500; i++) {
+    const state = await caller.coreLoop.status();
+    const job = await database.getQueueItem(loopItem.id);
+    if (searches > searchesBeforeStart && !state.executing && job?.status === 'paused' && state.nextExecutionAt && Date.parse(state.nextExecutionAt) > Date.now()) break;
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+  assert.ok(searches > searchesBeforeStart); assert.equal((await database.getQueueItem(loopItem.id))!.status, 'paused');
+  assert.equal((await caller.coreLoop.status()).isRunning, true);
+  assert.ok(Date.parse((await caller.coreLoop.status()).nextExecutionAt!) > Date.now());
+  await caller.coreLoop.stop();
+  console.log('PASS Start immediately discovers, processes eligible queue work and schedules the next configured cycle');
+  await caller.settings.retryConfig({ maxAttempts: 1, backoffMultiplier: 2, baseDelayMs: 1000 });
+  await caller.settings.setInterval({ intervalMs: 120000 });
+  await caller.settings.setConcurrency({ level: 2 });
+  assert.equal((await caller.coreLoop.status()).intervalMs, 120000);
+  assert.equal((await caller.settings.getRetryConfig()).maxAttempts, 1);
+  assert.equal((await caller.settings.getConcurrency()).concurrency, 2);
+  await database.updateQueueItem(loopItem.id, { status: 'pending', attempts: 0 });
+  inferenceFailed = true; resetRouterState();
+  const one = await caller.coreLoop.processNext();
+  assert.equal(one.processed, 1); assert.equal(one.outcomes[0].status, 'failed'); assert.ok(one.outcomes[0].error);
+  assert.equal((await caller.coreLoop.processNext()).processed, 0);
+  inferenceFailed = false; resetRouterState();
+  console.log('PASS Process Next claims exactly one item; configured retry exhaustion and error are recorded and returned');
+  let releaseSearch!: () => void;
+  holdSearch = new Promise(resolve => { releaseSearch = resolve; });
+  const before = searches;
+  const activeCycle = caller.coreLoop.runOnce();
+  for (let i = 0; i < 200 && searches === before; i++) await new Promise(resolve => setTimeout(resolve, 10));
+  assert.ok(searches > before);
+  assert.equal((await caller.coreLoop.status()).runtimeState, 'executing');
+  await assert.rejects(caller.coreLoop.runOnce(), /already executing/);
+  await caller.coreLoop.stop();
+  assert.equal((await caller.coreLoop.status()).runtimeState, 'stopping');
+  releaseSearch(); holdSearch = undefined;
+  assert.equal((await activeCycle).discovery.status, 'stopped');
+  assert.equal((await caller.coreLoop.status()).runtimeState, 'stopped');
+  console.log('PASS actual router concurrent request rejection, Stop during discovery, Stopping state, drained stopped report');
+  await Promise.all([caller.coreLoop.start(), caller.coreLoop.start()]);
+  await caller.coreLoop.stop(); await caller.coreLoop.stop();
+  assert.equal((await caller.coreLoop.status()).isRunning, false);
+  const control = await database.getCoreLoopRuntimeState();
+  await database.updateQueueItem(loopItem.id, { status: 'pending', attempts: 0 });
+  assert.equal(await database.claimNextPendingQueueItem('stale-epoch', { epoch: control.epoch - 1, requireRunning: false }), null);
+  const claims = await Promise.all([database.claimNextPendingQueueItem('claim-a'), database.claimNextPendingQueueItem('claim-b')]);
+  assert.equal(claims.filter(Boolean).length, 1);
+  const owned = claims.find(Boolean)!;
+  await assert.rejects(database.withQueueOwnership(owned.id, 'wrong-owner', () => database!.updateQueueItem(owned.id, { status: 'completed' })), /ownership lost/);
+  await database.db.execute(sql`UPDATE queue_items SET updated_at=NOW()-INTERVAL 60 MINUTE WHERE id=${owned.id}`);
+  await database.recoverStaleProcessingQueueItems(30);
+  assert.equal((await database.getQueueItem(owned.id))!.status, 'failed');
+  await database.updateQueueItem(owned.id, { status: 'processing', attempts: 0 });
+  await database.db.execute(sql`UPDATE queue_items SET updated_at=NOW()-INTERVAL 60 MINUTE WHERE id=${owned.id}`);
+  await database.recoverStaleProcessingQueueItems(30);
+  assert.equal((await database.getQueueItem(owned.id))!.status, 'pending');
+  await database.updateQueueItem(owned.id, { attempts: 0 });
+  await database.db.execute(sql`UPDATE queue_items SET updated_at=NOW()-INTERVAL 100 HOUR WHERE id=${owned.id}`);
+  assert.equal(await orchestrator.cleanStaleQueueItems(), 1);
+  assert.equal((await database.getQueueItem(owned.id))!.status, 'paused');
+  assert.equal((await database.getGapById(loopGap.id))!.id, loopGap.id);
+  console.log('PASS stale epochs cannot claim; concurrent claims are exclusive; stale owners cannot complete; interrupted jobs recover; expiration preserves records');
+  await database.db.insert(schema.operationalSettings).values({ key: 'emergencyStop', valueJson: 'true', updatedBy: admin!.id });
+  await assert.rejects(caller.coreLoop.start(), /Emergency stop/); await assert.rejects(caller.coreLoop.runOnce(), /Emergency stop/);
+  await database.updateQueueItem(owned.id, { status: 'pending' });
+  assert.equal(await database.claimNextPendingQueueItem('emergency-worker'), null);
+  console.log('PASS emergency stop blocks Start, Run Once and synthesis claims');
+  await database.db.update(schema.operationalSettings).set({ valueJson: 'false' }).where(eq(schema.operationalSettings.key, 'emergencyStop'));
+  await caller.settings.saveOperationalLimits({ maxCostPerDay: 50, maxDeployments: 0, autoPauseOnHighBanRisk: true });
+  assert.equal((await database.canCreateDeployment()).allowed, false);
+  await assert.rejects(database.createDeployment({ gapId: loopGap.id, userId: admin!.id }, true), /Maximum deployments/);
+  await caller.settings.saveOperationalLimits({ maxCostPerDay: 50, maxDeployments: 1, autoPauseOnHighBanRisk: true });
+  const business = await database.createDeployment({ gapId: loopGap.id, userId: admin!.id }, true);
+  assert.equal((await database.createDeployment({ gapId: loopGap.id, userId: admin!.id }, true)).id, business.id);
+  await assert.rejects(database.createDeployment({ gapId: stored.id, userId: admin!.id }, true), /Maximum deployments/);
+  console.log('PASS zero deployment limit is honored, business admission rechecks capacity under a transaction lock, and retry reuses the existing business');
+  await orchestrator.shutdownCoreLoop();
+  console.log('16 isolated discovery/runtime DB scenarios passed. All external responses mocked.');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; }).finally(async () => {
   await database?.mysqlPool.end();

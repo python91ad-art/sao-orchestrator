@@ -1,3 +1,4 @@
+import { useRuntimeControls } from '../../hooks/useRuntimeControls';
 import DiscoveryHealth from './DiscoveryHealth';
 import React, { useState, useEffect } from 'react';
 import {
@@ -29,13 +30,10 @@ const Overview: React.FC = () => {
   });
 
   // 👇 Replaced fake state with real tRPC query
-  const coreLoopStatusQuery = trpc.coreLoop.status.useQuery(undefined, { refetchInterval: 30000 });
+  const coreLoopStatusQuery = trpc.coreLoop.status.useQuery(undefined, { refetchInterval: 3000 });
 
   // 👇 Real mutations for core loop controls
-  const startLoop = trpc.coreLoop.start.useMutation();
-  const stopLoop = trpc.coreLoop.stop.useMutation();
-  const runOnce = trpc.coreLoop.runOnce.useMutation();
-  const runAudit = trpc.coreLoop.runAudit.useMutation();
+  const controls = useRuntimeControls();
 
   const { connected: wsConnected, lastEvent } = useWebSocket();
 
@@ -52,7 +50,7 @@ const Overview: React.FC = () => {
     const timer = window.setTimeout(() => {
       void utils.analytics.overview.invalidate();
       void utils.coreLoop.status.invalidate();
-      if (isAdmin) { void utils.gaps.list.invalidate(); void utils.audit.list.invalidate(); }
+      if (isAdmin) { void utils.gaps.list.invalidate(); void utils.audit.list.invalidate(); void utils.discovery.invalidate(); void utils.queue.invalidate(); void utils.operations.invalidate(); }
     }, 250);
     return () => window.clearTimeout(timer);
   }, [lastEvent, isAdmin, utils]);
@@ -67,6 +65,7 @@ const Overview: React.FC = () => {
       analyticsQuery.refetch(),
       ...(isAdmin ? [gapsQuery.refetch(), auditLogsQuery.refetch()] : []),
       coreLoopStatusQuery.refetch(),
+      ...(isAdmin ? [utils.discovery.invalidate(), utils.queue.invalidate(), utils.operations.invalidate()] : []),
     ]);
   };
 
@@ -103,44 +102,10 @@ const Overview: React.FC = () => {
 
 
   // 👇 Real action handlers using mutations WITH error handling
-  const handleStartLoop = async () => {
-    try {
-      await startLoop.mutateAsync();
-      await coreLoopStatusQuery.refetch();
-    } catch (error: any) {
-      console.error('[Overview] Failed to start core loop:', error);
-      alert(`Failed to start core loop: ${error?.message || 'Unknown error'}`);
-    }
-  };
-
-  const handleStopLoop = async () => {
-    try {
-      await stopLoop.mutateAsync();
-      await coreLoopStatusQuery.refetch();
-    } catch (error: any) {
-      console.error('[Overview] Failed to stop core loop:', error);
-      alert(`Failed to stop core loop: ${error?.message || 'Unknown error'}`);
-    }
-  };
-
-  const handleRunOnce = async () => {
-    try {
-      await runOnce.mutateAsync();
-    } catch (error: any) {
-      console.error('[Overview] Failed to run once:', error);
-      alert(`Failed to run once: ${error?.message || 'Unknown error'}`);
-    }
-  };
-
-  const handleRunAudit = async () => {
-    try {
-      await runAudit.mutateAsync();
-    } catch (error: any) {
-      console.error('[Overview] Failed to run audit:', error);
-      alert(`Failed to run audit: ${error?.message || 'Unknown error'}`);
-    }
-  };
-
+  const handleStartLoop = () => controls.perform('start');
+  const handleStopLoop = () => controls.perform('stop');
+  const handleRunOnce = () => controls.perform('runOnce');
+  const handleRunAudit = () => controls.perform('audit');
 
   // Derive core loop status from query result
   const coreLoopStatus = coreLoopStatusQuery.data ?? {
@@ -153,7 +118,8 @@ const Overview: React.FC = () => {
   if (loading) return <LoadingState label="Loading operational telemetry…" />;
   const queryError = analyticsQuery.error || coreLoopStatusQuery.error || (isAdmin && (gapsQuery.error || auditLogsQuery.error));
   if (queryError) return <ErrorState message={queryError.message} retry={handleRefresh} />;
-  const controlsBusy = startLoop.isPending || stopLoop.isPending || runOnce.isPending || runAudit.isPending;
+  const controlsBusy = controls.busy;
+  const executing = coreLoopStatusQuery.data?.executing === true;
 
   return (
     <div className="space-y-6">
@@ -240,7 +206,7 @@ const Overview: React.FC = () => {
                 <div className="flex items-center gap-1.5">
                   <span className={`status-indicator ${coreLoopStatus.isRunning ? 'green' : 'red'}`}></span>
                   <span className="text-xs font-semibold uppercase tracking-wider text-neutral-400">
-                    {coreLoopStatus.isRunning ? 'Active & Teleporting' : 'Paused'}
+                    {coreLoopStatusQuery.data?.runtimeState || (coreLoopStatus.isRunning ? 'Running' : 'Stopped')}
                   </span>
                 </div>
               </div>
@@ -261,22 +227,23 @@ const Overview: React.FC = () => {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {coreLoopStatus.isRunning ? (
-              <button onClick={handleStopLoop} disabled={!isAdmin || controlsBusy} className="btn-danger">
+            {coreLoopStatus.isRunning || executing ? (
+              <button onClick={handleStopLoop} disabled={!isAdmin || controls.stopping} className="btn-danger">
                 <Square className="h-4 w-4 fill-white" />
                 <span>Pause Loop</span>
               </button>
             ) : (
-              <button onClick={handleStartLoop} disabled={!isAdmin || controlsBusy} className="btn-bold-primary">
+              <button onClick={handleStartLoop} disabled={!isAdmin || controlsBusy || executing} className="btn-bold-primary">
                 <Play className="h-4 w-4 fill-white" />
                 <span>Start Loop</span>
               </button>
             )}
-            <button onClick={handleRunOnce} disabled={!isAdmin || controlsBusy} className="btn-secondary">
+            <button onClick={handleRunOnce} disabled={!isAdmin || controlsBusy || executing} className="btn-secondary">
               <Play className="h-4 w-4" />
               <span>Run Once Now</span>
             </button>
-            <button onClick={handleRunAudit} disabled={!isAdmin || controlsBusy} className="btn-secondary">
+            <button onClick={() => controls.perform('processNext')} disabled={!isAdmin || controlsBusy || executing} className="btn-secondary">Process Next Gap</button>
+            <button onClick={handleRunAudit} disabled={!isAdmin || controlsBusy || executing} className="btn-secondary">
               <ShieldCheck className="h-4 w-4" />
               <span>Force Safety Audit</span>
             </button>
@@ -284,6 +251,7 @@ const Overview: React.FC = () => {
         </div>
       </div>
 
+      {controls.message && <p role={controls.failed ? "alert" : "status"}>{controls.message}</p>}
       {isAdmin && <DiscoveryHealth />}
       {!isAdmin && <p className="card-bold">Your business approvals and deadline notices are in My Authorizations. Global discovery and audit controls require an administrator.</p>}
       {isAdmin && <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

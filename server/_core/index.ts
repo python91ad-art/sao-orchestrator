@@ -12,7 +12,7 @@ import { appRouter } from '../routers';
 import * as db from '../db';
 import { withRetry, databaseUrlResolved, assertDatabaseReady } from '../db';
 import { scheduleAudits, stopAudits } from '../auditScheduler';
-import { startCoreLoop, stopCoreLoop } from '../orchestrator';
+import { shutdownCoreLoop, restoreCoreLoop } from '../orchestrator';
 import { scheduleAutonomousManager, stopAutonomousManager } from '../autonomousManager';
 import { initWebSocketServer } from '../websocket';
 import { createServer } from 'http';
@@ -250,7 +250,7 @@ async function bootstrap() {
     const coreLoopState = await db.getCoreLoopState();
 
     if (coreLoopState?.isRunning) {
-      await startCoreLoop();
+      await restoreCoreLoop();
       console.log('Core Loop was previously running — startup/recovery completed.');
     } else {
       console.log('Core Loop was previously stopped — leaving it stopped.');
@@ -270,15 +270,16 @@ async function bootstrap() {
       console.log(`Received ${signal}. Starting graceful shutdown...`);
       stopAudits();
       stopAutonomousManager();
-      void stopCoreLoop().catch((err) => {
+      const drained = shutdownCoreLoop().catch((err) => {
         console.error('Error stopping core loop during shutdown:', err);
       });
 
-      httpServer.close((err) => {
+      httpServer.close(async (err) => {
         if (err) {
           console.error('Error closing HTTP server:', err);
           process.exit(1);
         }
+        await drained;
         console.log('HTTP server closed successfully.');
         process.exit(0);
       });

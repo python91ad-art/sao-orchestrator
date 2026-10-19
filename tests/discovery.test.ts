@@ -98,6 +98,10 @@ async function main() {
     const o = await r.service.search('inventory'); assert.deepEqual(r.calls, ['tavily']);
     assert.equal(o.attempts[1].status, 'billing_blocked'); assert.equal(o.attempts[2].status, 'unsupported'); assert.equal(o.attempts[3].status, 'not_configured');
   });
+  await test('Increasing Tavily allowance beyond the free reserve requires paid opt-in and budget', async () => {
+    const r = router({ tavily }, { config: { tavily: { maxCreditsPerMonth: 2000, billingApproved: false } } });
+    const result = await r.service.search('one'); assert.equal(result.attempts[0].status, 'billing_blocked'); assert.equal(r.calls.length, 0);
+  });
   await test('Durable spend reservations bound calls including failed requests', async () => {
     const r = router({ tavily: 432, gemini }, { config: { gemini: { dailyBudgetUsd: 0.05 } } });
     assert.equal((await r.service.search('one')).provider, 'gemini'); assert.equal((await r.service.search('two')).status, 'unavailable'); assert.deepEqual(r.calls, ['tavily', 'gemini']);
@@ -164,7 +168,10 @@ async function main() {
   const d = new Date(now); const periods = [1, 2].map(i => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - i, 1)).toISOString().slice(0, 7));
   global.fetch = (async input => {
     const u = new URL(String(input));
-    if (u.pathname === '/v1/search') return response({ items: [] });
+    if (u.pathname === '/v1/search') return mode === 'api_failure' ? response({}, 401) : response({ items: [] });
+    if (u.pathname === '/v1/datasets' && mode === 'malformed') return response({ items: 'invalid' });
+    if (u.pathname === '/v1/datasets' && mode === 'api_failure') return response({}, 401);
+    if (u.pathname === '/v1/search' && mode === 'api_failure') return response({}, 401);
     if (u.pathname === '/v1/datasets') return response({ items: [{ id: 'retail', title: 'Business inventory costs' }] });
     if (u.pathname === '/v1/datasets/retail') return response({ id: 'retail', state: 'published', title: 'Retail business data', description: context, last_updated: iso, links: { latest_version: { href: 'https://api.beta.ons.gov.uk/v1/datasets/retail/editions/time-series/versions/1' } } });
     if (u.pathname.endsWith('/versions/1')) return response({ dimensions: [{ name: 'time' }, { name: 'geography' }, { name: 'industry' }], release_date: iso });
@@ -204,6 +211,15 @@ async function main() {
       mode = value; clearDiscoveryEvidenceCache(); const before = inferenceCalls; const result = await discoverOns(dependencies());
       assert.equal(result.gaps.length, 0); assert.equal(result.status, 'insufficient_evidence'); assert.equal(inferenceCalls, before);
     });
+    for (const value of ['malformed', 'api_failure']) await test(`ONS ${value} fails truthfully without inference`, async () => {
+      mode = value; clearDiscoveryEvidenceCache(); const before = inferenceCalls;
+      const result = await discoverOns(dependencies()); assert.equal(result.status, 'unavailable'); assert.equal(result.gaps.length, 0); assert.equal(inferenceCalls, before);
+    });
+    await test('ONS valid statistics remain visible when required LLM interpretation fails', async () => {
+      mode = 'valid'; clearDiscoveryEvidenceCache();
+      const result = await discoverOns({ ...dependencies(), extract: async () => { throw new Error('Controlled inference unavailable'); } });
+      assert.equal(result.signals, 1); assert.equal(result.gaps.length, 0); assert.equal(result.status, 'partial'); assert.ok(result.errors.length);
+    });
     await test('Old statistics and incompatible dimensions cannot generate signals', () => {
       const [a, b] = onsGap.evidence.filter((e: DiscoveryEvidence) => e.observation).map((e: DiscoveryEvidence) => e.observation);
       assert.equal(compatibleSignal({ ...a, periodEnd: '2015-01-01' }, b, now), false);
@@ -235,6 +251,31 @@ async function main() {
     const deps = { acquireLease: lease, ons: async () => emptyOns, ecommerce: async (m: any) => { m.successes++; m.candidates++; return [web]; }, operational: async () => [], persist: async () => {} };
     assert.equal((await runDiscoveryCycle(async g => g.length, deps)).status, 'partial');
     assert.equal((await runDiscoveryCycle(async g => g.length, { ...deps, ecommerce: async () => { throw new Error('offline'); } })).status, 'unavailable');
+  });
+  await test('A genuine zero-result cycle persists start and completion separately', async () => {
+    const saved: any[] = [];
+    const result = await runDiscoveryCycle(async () => 0, { acquireLease: lease,
+      ons: async () => ({ ...emptyOns, status: 'insufficient_evidence', errors: [] }), ecommerce: async m => { m!.successes++; return []; }, operational: async () => [], persist: async r => { saved.push(structuredClone(r)); } });
+    assert.equal(saved[0].status, 'running'); assert.ok(saved[0].startedAt); assert.equal(result.outcome, 'completed_with_zero_results'); assert.equal(result.status, 'ok'); assert.ok(result.completedAt);
+  });
+  await test('Stop after sources finish prevents persistence and records stopped outcome', async () => {
+    let writes = 0;
+    const result = await runDiscoveryCycle(async () => { writes++; return 1; }, { acquireLease: lease,
+      ons: async () => ({ ...emptyOns, status: 'ok', gaps: [onsGap], candidates: 1, signals: 1, errors: [] }), ecommerce: async () => [], operational: async () => [], persist: async () => {} }, async () => false);
+    assert.equal(result.status, 'stopped'); assert.equal(writes, 0); assert.equal(result.queued, 0);
+  });
+  await test('A new process cycle reloads durable success/failure history before publishing its start', async () => {
+    const previous = { lastSuccess: '2026-01-01T00:00:00.000Z', lastFailure: '2026-01-02T00:00:00.000Z' };
+    const saved: any[] = [];
+    await runDiscoveryCycle(async () => 0, { acquireLease: lease, load: async () => previous as any,
+      ons: async () => ({ ...emptyOns, status: 'ok', errors: [] }), ecommerce: async () => [], operational: async () => [], persist: async r => { saved.push(structuredClone(r)); } }, async () => false);
+    assert.equal(saved[0].lastSuccess, previous.lastSuccess); assert.equal(saved[0].lastFailure, previous.lastFailure);
+    assert.equal(saved[1].lastSuccess, previous.lastSuccess);
+  });
+  await test('Queue failure retains partial persistence counts and error diagnostics', async () => {
+    const result = await runDiscoveryCycle(async () => { throw Object.assign(new Error('Controlled storage failure'), { queued: 0, persisted: 1 }); }, { acquireLease: lease,
+      ons: async () => ({ ...emptyOns, status: 'ok', gaps: [onsGap], candidates: 1, signals: 1, errors: [] }), ecommerce: async m => { m!.successes++; return []; }, operational: async () => [], persist: async () => {} });
+    assert.equal(result.status, 'partial'); assert.equal(result.persisted, 1); assert.ok(result.errors!.some(e => e.includes('persistence')));
   });
   await test('Distributed leases prevent simultaneous jobs and safely release', async () => {
     const mutate = memoryRuntime(); const first = await acquireDiscoveryLease(mutate); assert.ok(first); assert.equal(await acquireDiscoveryLease(mutate), null); await first!(); assert.ok(await acquireDiscoveryLease(mutate));

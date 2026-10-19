@@ -41,7 +41,7 @@ const STALE_PROCESSING_MINUTES = Math.max(
 // ------------------------------------------------------------
 let monitorTimer: ReturnType<typeof setInterval> | null = null;
 let cycleRunning = false;
-let startupRunScheduled = false;
+let startupTimer: ReturnType<typeof setTimeout> | null = null;
 
 // In-process lock to prevent concurrent deploys of the same business.
 const deploying = new Set<string>();
@@ -62,10 +62,11 @@ export function scheduleAutonomousManager(): void {
     );
   }, MONITOR_INTERVAL_MS);
 
-  if (!startupRunScheduled) {
-    startupRunScheduled = true;
+  if (!startupTimer) {
     // Run once shortly after boot so failures are caught immediately.
-    setTimeout(() => {
+    startupTimer = setTimeout(() => {
+      startupTimer = null;
+      if (!monitorTimer) return;
       runAutonomousCycle().catch((err) =>
         console.error('[AutonomousManager] Startup cycle failed:', err)
       );
@@ -78,7 +79,8 @@ export function stopAutonomousManager(): void {
     clearInterval(monitorTimer);
     monitorTimer = null;
   }
-  startupRunScheduled = false;
+  if (startupTimer) clearTimeout(startupTimer);
+  startupTimer = null;
 }
 
 // ------------------------------------------------------------

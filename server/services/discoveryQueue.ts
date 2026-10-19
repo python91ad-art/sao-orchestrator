@@ -8,10 +8,12 @@ import { validateDiscoveryProposal, type QualifiedGap } from './discoveryEvidenc
 import { deduplicateCandidates } from './discovery';
 
 /** Existing maintenance lock serializes automatic and manual discovery writes across replicas. */
-export async function queueDiscoveryGaps(candidates: QualifiedGap[]): Promise<number> {
+export async function queueDiscoveryGaps(candidates: QualifiedGap[], stats = { persisted: 0 }, shouldContinue: () => Promise<boolean> = async () => true): Promise<number> {
   return withDiscoveryWrite(async () => {
     let queued = 0, failed = 0;
+    const errors: string[] = [];
     for (const candidate of deduplicateCandidates(candidates)) {
+      if (!await shouldContinue()) break;
       try {
         const validated = validateDiscoveryProposal(candidate.validation, candidate.evidence, candidate.source);
         if (!validated || scoreGap(candidate).score < QUALIFICATION_THRESHOLD) continue;
@@ -28,6 +30,7 @@ export async function queueDiscoveryGaps(candidates: QualifiedGap[]): Promise<nu
         const gap = existing || await database.createGap({ knows: candidate.knows, needs: candidate.needs,
           controlsAccess: candidate.controlsAccess, underestimatesValue: candidate.underestimatesValue,
           source: candidate.source, dedupHash, priority, status: 'pending' });
+        if (!existing && gap) stats.persisted++;
         if (!gap) throw new Error('Could not persist discovered gap');
         for (const evidence of candidate.evidence) {
           await createEvidence({ gapId: gap.id, provider: evidence.provider, sourceUrl: evidence.url,
@@ -42,13 +45,19 @@ export async function queueDiscoveryGaps(candidates: QualifiedGap[]): Promise<nu
         // Reuse queued history. Recover an interrupted new insertion only, never requeue historical gaps.
         const [item] = await database.db.select().from(schema.queueItems).where(eq(schema.queueItems.gapId, gap.id)).limit(1);
         const [archived] = await database.db.select().from(schema.discoveryArchives).where(eq(schema.discoveryArchives.gapId, gap.id)).limit(1);
-        if (!item && !archived && (!existing || (gap.dedupHash === dedupHash && gap.status === 'pending'))) {
+        if (await shouldContinue() && !item && !archived && (!existing || (gap.dedupHash === dedupHash && gap.status === 'pending'))) {
           await database.createQueueItem({ gapId: gap.id, dedupHash: gap.dedupHash, priority: gap.priority, sortOrder: 0 });
           queued++;
         }
-      } catch { failed++; }
+      } catch (error: any) {
+        failed++;
+        const message = String(error?.message || '');
+        errors.push(message.startsWith('Queue capacity reached.') ? message :
+          message.startsWith('Discovery maintenance is active.') ? message :
+          /^ER_[A-Z_]+$/.test(error?.cause?.code || '') ? `Candidate storage failed: ${error.cause.code}` : 'Candidate evidence or queue persistence failed; retry preserves the existing gap.');
+      }
     }
-    if (failed) throw Object.assign(new Error('Some discovery candidates could not be persisted; existing work is preserved.'), { queued, failed });
+    if (failed) throw Object.assign(new Error('Some discovery candidates could not be persisted; existing work is preserved.'), { queued, failed, persisted: stats.persisted, errors: [...new Set(errors)] });
     return queued;
   });
 }

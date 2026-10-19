@@ -1,5 +1,5 @@
 import type { ExtractedGap } from './crawler';
-import { webSearch, SearchUnavailableError, type SearchResult } from './webSearch';
+import { webSearch, SearchUnavailableError, type SearchResult, type SearchAttempt } from './webSearch';
 import { extractQualifiedGaps, type QualifiedGap, type DiscoveryEvidence } from './discoveryEvidence';
 export type { SearchResult } from './webSearch';
 
@@ -108,8 +108,9 @@ function categorizeLLMError(error: any): ExtractionFailureReason {
 
 
 /** Existing array interface retained; failures now throw a typed error instead of becoming empty successes. */
-export async function search(query: string, options: { maxResults?: number } = {}): Promise<SearchResult[]> {
+export async function search(query: string, options: { maxResults?: number; shouldContinue?: () => Promise<boolean> } = {}, metrics?: WebDiscoveryMetrics): Promise<SearchResult[]> {
   const outcome = await webSearch.search(query, options);
+  if (metrics) { metrics.attempts.push(...outcome.attempts); metrics.activeProvider = outcome.provider; }
   _lastSearchStatusTime = Date.now();
   if (outcome.status === 'results' || outcome.status === 'zero_results') {
     _lastSearchStatus = outcome.results.length ? 'configured_results_ok' : 'configured_no_results';
@@ -118,15 +119,17 @@ export async function search(query: string, options: { maxResults?: number } = {
   _lastSearchStatus = outcome.attempts.every(a => a.status === 'not_configured') ? 'not_configured' : 'api_error';
   throw new SearchUnavailableError(outcome);
 }
-export interface WebDiscoveryMetrics { searches: number; successes: number; failures: number; extractionFailures: number; candidates: number; rejected: number; candidatesByProvider: Record<string, number> }
-export const newWebMetrics = (): WebDiscoveryMetrics => ({ searches: 0, successes: 0, failures: 0, extractionFailures: 0, candidates: 0, rejected: 0, candidatesByProvider: {} });
-async function findGaps(queries: string[], category: string, metrics = newWebMetrics()): Promise<QualifiedGap[]> {
+export interface WebDiscoveryMetrics { attempts: SearchAttempt[]; activeProvider: string | null; searches: number; successes: number; failures: number; extractionFailures: number; candidates: number; rejected: number; candidatesByProvider: Record<string, number> }
+export const newWebMetrics = (): WebDiscoveryMetrics => ({ attempts: [], activeProvider: null, searches: 0, successes: 0, failures: 0, extractionFailures: 0, candidates: 0, rejected: 0, candidatesByProvider: {} });
+async function findGaps(queries: string[], category: string, metrics = newWebMetrics(), shouldContinue: () => Promise<boolean> = async () => true): Promise<QualifiedGap[]> {
   const gaps: QualifiedGap[] = [];
   for (const query of queries) {
+    if (!await shouldContinue()) break;
     metrics.searches++;
     let results: SearchResult[];
-    try { results = await search(query, { maxResults: 5 }); metrics.successes++; }
+    try { results = await search(query, { maxResults: 5, shouldContinue }, metrics); metrics.successes++; }
     catch { metrics.failures++; continue; }
+    if (!await shouldContinue()) break;
     if (!results.length) continue;
     const evidence: DiscoveryEvidence[] = results.map((r, i) => ({ id: `web:${i}`, provider: r.provider || 'tavily', url: r.url,
       title: r.title, text: r.snippet, retrievedAt: r.retrievedAt || new Date().toISOString(), publishedAt: r.publishedAt, citation: r.citation }));
@@ -150,21 +153,21 @@ export async function searchForGaps(topic: string): Promise<ExtractedGap[]> {
 export async function trendingProblems(): Promise<SearchResult[]> {
   return search('developer platform API limitations workflows OR SaaS billing subscription frustrations OR AI automation tool pipelines bottlenecks');
 }
-export async function detectEcommerceGaps(metrics?: WebDiscoveryMetrics): Promise<QualifiedGap[]> {
+export async function detectEcommerceGaps(metrics?: WebDiscoveryMetrics, shouldContinue?: () => Promise<boolean>): Promise<QualifiedGap[]> {
   return findGaps([
     '"out of stock" problems frustrated buyers',
     '"low inventory" supply chain shortages',
     '"sold out" where to buy alternative',
     '"price mismatch" arbitrage opportunity reselling',
     'ecommerce inventory sync oversell stockout pain points',
-  ], 'ecommerce', metrics);
+  ], 'ecommerce', metrics, shouldContinue);
 }
-export async function detectOperationalGaps(metrics?: WebDiscoveryMetrics): Promise<QualifiedGap[]> {
+export async function detectOperationalGaps(metrics?: WebDiscoveryMetrics, shouldContinue?: () => Promise<boolean>): Promise<QualifiedGap[]> {
   return findGaps([
     '"struggling with leads" small business frustration',
     '"hiring for" hard to fill skills gap shortage',
     '"customer churn" retention problem SaaS',
     '"workflow bottleneck" manual process inefficient',
     '"no solution for" underserved market opportunity',
-  ], 'operational', metrics);
+  ], 'operational', metrics, shouldContinue);
 }
